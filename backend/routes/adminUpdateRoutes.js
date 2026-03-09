@@ -125,52 +125,61 @@ router.get('/pending-requests', verifyToken, isAdmin, async (req, res) => {
     }
 });
 
-// Send update request
+// routes/adminUpdateRoutes.js - Fixed version
 router.post('/send-request', verifyToken, isAdmin, async (req, res) => {
-    let connection;
-    try {
-        const { employee_id, requested_fields, notes } = req.body;
-        
-        console.log('📝 Sending update request to employee:', employee_id);
-
-        // Check if update_requests table exists
-        const [tables] = await db.query("SHOW TABLES LIKE 'update_requests'");
-        if (tables.length === 0) {
-            return res.status(500).json({ 
-                success: false, 
-                message: 'Database table not configured. Please contact administrator.' 
-            });
-        }
-
-        connection = await db.getConnection();
-        await connection.beginTransaction();
-
-        const [result] = await connection.query(
-            `INSERT INTO update_requests 
-             (employee_id, admin_id, requested_fields, status, created_at) 
-             VALUES (?, ?, ?, 'pending', NOW())`,
-            [employee_id, req.userId, JSON.stringify(requested_fields || [])]
-        );
-
-        await connection.commit();
-
-        res.status(201).json({ 
-            success: true,
-            message: 'Update request sent successfully',
-            request_id: result.insertId
-        });
-
-    } catch (error) {
-        if (connection) await connection.rollback();
-        console.error('❌ Error sending update request:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Error sending update request',
-            error: error.message 
-        });
-    } finally {
-        if (connection) connection.release();
+  try {
+    const { employee_id, requested_fields, requested_field_names, notes } = req.body;
+    
+    console.log('📝 Sending update request:', { employee_id, requested_fields });
+    
+    // First check if column exists
+    const [columns] = await db.query("SHOW COLUMNS FROM update_requests LIKE 'requested_field_names'");
+    
+    let query;
+    let values;
+    
+    if (columns.length > 0) {
+      // Column exists - use full insert
+      query = `INSERT INTO update_requests 
+               (employee_id, admin_id, requested_fields, requested_field_names, notes, status) 
+               VALUES (?, ?, ?, ?, ?, 'pending')`;
+      values = [
+        employee_id, 
+        req.userId, 
+        JSON.stringify(requested_fields || []),
+        JSON.stringify(requested_field_names || []),
+        notes || null
+      ];
+    } else {
+      // Column doesn't exist - insert without it
+      query = `INSERT INTO update_requests 
+               (employee_id, admin_id, requested_fields, notes, status) 
+               VALUES (?, ?, ?, ?, 'pending')`;
+      values = [
+        employee_id, 
+        req.userId, 
+        JSON.stringify(requested_fields || []),
+        notes || null
+      ];
     }
+
+    const [result] = await db.query(query, values);
+
+    res.status(201).json({ 
+      success: true,
+      message: 'Update request sent successfully',
+      request_id: result.insertId
+    });
+    
+  } catch (error) {
+    console.error('❌ Error sending update request:', error);
+    console.error('SQL Error:', error.sqlMessage || error.message);
+    
+    res.status(500).json({ 
+      success: false, 
+      message: 'Database error: ' + (error.sqlMessage || error.message)
+    });
+  }
 });
 
 // routes/adminUpdateRoutes.js

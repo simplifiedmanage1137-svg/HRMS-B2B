@@ -1,4 +1,4 @@
-// SendUpdateRequest.jsx
+// src/components/Admin/SendUpdateRequest.jsx
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { FaPaperPlane } from 'react-icons/fa';
@@ -11,37 +11,30 @@ const SendUpdateRequest = () => {
   const [message, setMessage] = useState('');
 
   const fieldOptions = [
-    { value: 'personal', label: 'Personal Information' },
-    { value: 'contact', label: 'Contact Details' },
-    { value: 'bank', label: 'Bank Details' },
-    { value: 'documents', label: 'Documents' },
-    { value: 'address', label: 'Address' },
-    { value: 'emergency', label: 'Emergency Contact' }
+    { value: 'personal', label: 'Personal Information', fields: ['first_name', 'last_name', 'dob', 'blood_group'] },
+    { value: 'contact', label: 'Contact Details', fields: ['email', 'phone'] },
+    { value: 'address', label: 'Address', fields: ['address', 'city', 'state', 'pincode'] },
+    { value: 'bank', label: 'Bank Details', fields: ['bank_name', 'account_number', 'ifsc_code', 'branch_name', 'pan_number'] },
+    { value: 'employment', label: 'Employment Details', fields: ['designation', 'department', 'employment_type', 'shift_timing', 'reporting_manager'] },
+    { value: 'emergency', label: 'Emergency Contact', fields: ['emergency_contact'] },
+    { value: 'documents', label: 'Documents', fields: ['aadhar_number', 'pan_number'] },
+    { value: 'salary', label: 'Salary Information', fields: ['gross_salary', 'in_hand_salary'] }
   ];
 
   useEffect(() => {
     fetchEmployees();
   }, []);
 
-// SendUpdateRequest.jsx mein fetchEmployees function
-const fetchEmployees = async () => {
-  try {
-    const response = await axios.get('http://localhost:5000/api/admin-updates/employees');
-    if (Array.isArray(response.data)) {
-      setEmployees(response.data);
-      if (response.data.length === 0) {
-        setMessage('No employees found in database');
+  const fetchEmployees = async () => {
+    try {
+      const response = await axios.get('http://localhost:5000/api/admin-updates/employees');
+      if (Array.isArray(response.data)) {
+        setEmployees(response.data);
       }
-    } else {
-      console.warn('Unexpected response format:', response.data);
-      setEmployees([]);
+    } catch (error) {
+      console.error('Error fetching employees:', error);
     }
-  } catch (error) {
-    console.error('Error fetching employees:', error);
-    setEmployees([]);
-    setMessage('Could not load employees. Database connection issue.');
-  }
-};
+  };
 
   const handleFieldChange = (field) => {
     setSelectedFields(prev =>
@@ -68,9 +61,20 @@ const fetchEmployees = async () => {
     setMessage('');
 
     try {
+      // Get full field list for selected categories
+      const fieldsToUpdate = [];
+      selectedFields.forEach(category => {
+        const categoryObj = fieldOptions.find(f => f.value === category);
+        if (categoryObj) {
+          fieldsToUpdate.push(...categoryObj.fields);
+        }
+      });
+
       await axios.post('http://localhost:5000/api/admin-updates/send-request', {
         employee_id: selectedEmployee,
-        requested_fields: selectedFields
+        requested_fields: selectedFields,      // Store categories
+        requested_field_names: fieldsToUpdate,  // Store actual field names
+        notes: `Please update your ${selectedFields.join(', ')} information.`
       });
 
       setMessage('Update request sent successfully!');
@@ -78,14 +82,13 @@ const fetchEmployees = async () => {
       setSelectedFields([]);
     } catch (error) {
       setMessage(error.response?.data?.message || 'Error sending request');
-      console.error('Error:', error);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="send-update-request">
+    <div className="container py-4">
       <h4 className="mb-4">Send Update Request to Employee</h4>
 
       {message && (
@@ -106,15 +109,11 @@ const fetchEmployees = async () => {
                 required
               >
                 <option value="">Choose employee...</option>
-                {employees.length > 0 ? (
-                  employees.map(emp => (
-                    <option key={emp.employee_id || emp.id} value={emp.employee_id}>
-                      {emp.first_name} {emp.last_name} - {emp.designation} ({emp.employee_id})
-                    </option>
-                  ))
-                ) : (
-                  <option disabled>No employees found</option>
-                )}
+                {employees.map(emp => (
+                  <option key={emp.employee_id} value={emp.employee_id}>
+                    {emp.first_name} {emp.last_name} - {emp.designation} ({emp.employee_id})
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -140,11 +139,27 @@ const fetchEmployees = async () => {
               </div>
             </div>
 
+            {selectedFields.length > 0 && (
+              <div className="mb-3 p-2 bg-light rounded">
+                <small className="text-muted">Selected fields to update:</small>
+                <div className="mt-1">
+                  {selectedFields.map(field => {
+                    const fieldObj = fieldOptions.find(f => f.value === field);
+                    return (
+                      <span key={field} className="badge bg-info me-2 p-2">
+                        {fieldObj?.label}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="text-end">
               <button
                 type="submit"
                 className="btn btn-primary"
-                disabled={loading || employees.length === 0}
+                disabled={loading}
               >
                 <FaPaperPlane /> {loading ? 'Sending...' : 'Send Update Request'}
               </button>
