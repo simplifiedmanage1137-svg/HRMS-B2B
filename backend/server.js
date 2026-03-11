@@ -13,9 +13,13 @@ dotenv.config();
 
 // ============== MIDDLEWARE ==============
 app.use(cors({
-    origin: ['http://localhost:5173', 'https://employee-management-system-alpha-murex.vercel.app'],
-    credentials: true
+  origin: [
+    'http://localhost:5173', // local dev
+    'https://employee-management-git-55b0f3-tejaspawar9170-netizens-projects.vercel.app' // Vercel frontend
+  ],
+  credentials: true
 }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
