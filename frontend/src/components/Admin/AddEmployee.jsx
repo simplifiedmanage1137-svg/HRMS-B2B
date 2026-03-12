@@ -387,65 +387,66 @@ const generateEmployeeId = async () => {
   }
 };
 
-  // ============== FIXED DOCUMENT UPLOAD FUNCTION ==============
-  const uploadDocuments = async (empId) => {
-    const validUploads = selectedFiles.reduce((acc, file, index) => {
-      if (file && selectedDocTypes[index]) {
-        acc.push({
-          file,
-          type: selectedDocTypes[index]
-        });
-      }
-      return acc;
-    }, []);
+// AddEmployee.jsx - Fix the uploadDocuments function
 
-    if (validUploads.length === 0) return;
-
-    setUploading(true);
-    let successCount = 0;
-    let failCount = 0;
-
-    for (let i = 0; i < validUploads.length; i++) {
-      const upload = validUploads[i];
-      const formData = new FormData();
-      formData.append(upload.type, upload.file);
-
-      try {
-        setUploadProgress(Math.round(((i + 1) / validUploads.length) * 100));
-        
-        // FIXED: Use the correct URL format - employee_id as path parameter, not in query
-        const url = `http://localhost:5000/api/employees/${empId}/documents`;
-        console.log(`Uploading to: ${url}`);
-        console.log(`Document type: ${upload.type}, File:`, upload.file);
-        
-        const response = await axios.post(url, formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data'
-          }
-        });
-        
-        console.log('Upload response:', response.data);
-        successCount++;
-      } catch (error) {
-        console.error(`Error uploading ${upload.type}:`, error);
-        console.error('Error response:', error.response?.data);
-        console.error('Error status:', error.response?.status);
-        failCount++;
-      }
+const uploadDocuments = async (empId) => {
+  const validUploads = selectedFiles.reduce((acc, file, index) => {
+    if (file && selectedDocTypes[index]) {
+      acc.push({
+        file,
+        type: selectedDocTypes[index]
+      });
     }
+    return acc;
+  }, []);
 
-    if (successCount > 0) {
-      showNotification(`${successCount} document(s) uploaded successfully!`, 'success');
-    }
-    if (failCount > 0) {
-      showNotification(`${failCount} document(s) failed to upload`, 'warning');
-    }
+  if (validUploads.length === 0) return;
 
-    setUploading(false);
-    setSelectedFiles([]);
-    setSelectedDocTypes([]);
-    setUploadProgress(0);
-  };
+  setUploading(true);
+  let successCount = 0;
+  let failCount = 0;
+
+  for (let i = 0; i < validUploads.length; i++) {
+    const upload = validUploads[i];
+    const formData = new FormData();
+    formData.append(upload.type, upload.file);
+
+    try {
+      setUploadProgress(Math.round(((i + 1) / validUploads.length) * 100));
+      
+      // FIXED: Use the correct URL format - upload as multipart/form-data with field name
+      const url = `http://localhost:5000/api/employees/${empId}/documents`;
+      console.log(`📤 Uploading to: ${url}`);
+      console.log(`📄 Document type: ${upload.type}, File:`, upload.file.name);
+      
+      const response = await axios.post(url, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      
+      console.log('✅ Upload response:', response.data);
+      successCount++;
+    } catch (error) {
+      console.error(`❌ Error uploading ${upload.type}:`, error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      failCount++;
+    }
+  }
+
+  if (successCount > 0) {
+    showNotification(`${successCount} document(s) uploaded successfully!`, 'success');
+  }
+  if (failCount > 0) {
+    showNotification(`${failCount} document(s) failed to upload`, 'warning');
+  }
+
+  setUploading(false);
+  setSelectedFiles([]);
+  setSelectedDocTypes([]);
+  setUploadProgress(0);
+};
 
   // Test API connection
   const testApiConnection = async () => {

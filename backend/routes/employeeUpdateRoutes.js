@@ -118,12 +118,14 @@ router.get('/request/:requestId', verifyToken, async (req, res) => {
 });
 
 // routes/employeeUpdateRoutes.js - Accept request endpoint
+// routes/employeeUpdateRoutes.js - Fix the accept-request endpoint
 router.post('/accept-request/:requestId', verifyToken, async (req, res) => {
     try {
         const { requestId } = req.params;
         
         console.log('📝 Accepting request:', requestId);
-        console.log('👤 Employee ID:', req.employeeId);
+        console.log('👤 Employee ID from token:', req.employeeId);
+        console.log('👤 User from token:', req.user);
 
         // Check if request exists and belongs to this employee
         const [requests] = await db.query(
@@ -132,6 +134,7 @@ router.post('/accept-request/:requestId', verifyToken, async (req, res) => {
         );
 
         if (requests.length === 0) {
+            console.log('❌ Request not found or does not belong to employee');
             return res.status(404).json({ 
                 success: false, 
                 message: 'Request not found or does not belong to you' 
@@ -139,9 +142,11 @@ router.post('/accept-request/:requestId', verifyToken, async (req, res) => {
         }
 
         const request = requests[0];
+        console.log('✅ Found request:', request);
 
         // Check if request is in pending state
         if (request.status !== 'pending') {
+            console.log('❌ Request is not in pending state:', request.status);
             return res.status(400).json({ 
                 success: false, 
                 message: `Request is already ${request.status}` 
@@ -149,10 +154,12 @@ router.post('/accept-request/:requestId', verifyToken, async (req, res) => {
         }
 
         // Update status to in_progress
-        await db.query(
+        const [updateResult] = await db.query(
             'UPDATE update_requests SET status = ? WHERE id = ?',
             ['in_progress', requestId]
         );
+
+        console.log('✅ Request updated:', updateResult);
 
         res.json({ 
             success: true, 

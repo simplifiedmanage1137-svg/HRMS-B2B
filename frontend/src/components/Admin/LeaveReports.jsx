@@ -341,7 +341,7 @@ const LeaveReports = () => {
                     Department
                   </th>
                   <th className="small text-dark fw-normal text-nowrap" style={{ width: '200px' }}>
-                    Position
+                    Designation
                   </th>
                   <th className="small text-dark fw-normal text-nowrap" style={{ width: '100px' }}>
                     Total Accrued
@@ -370,12 +370,12 @@ const LeaveReports = () => {
                     return (
                       <tr key={emp.id}>
                         {/* Sr No - Left aligned */}
-                        <td className="px-3 py-2 text-start small">
+                        <td className="text-start small">
                           {index + 1}
                         </td>
 
                         {/* Employee - Left aligned */}
-                        <td className="px-3 py-2 text-start small">
+                        <td className="text-start small">
                           <div>
                             <div className="fw-normal text-truncate" 
                                 style={{ maxWidth: '160px' }}
@@ -391,7 +391,7 @@ const LeaveReports = () => {
                         </td>
 
                         {/* Department - Left aligned */}
-                        <td className="px-3 py-2 text-start small">
+                        <td className="text-start small">
                           <span className="text-truncate d-inline-block"
                                 style={{ maxWidth: '110px' }}
                                 title={emp.department}>
@@ -400,38 +400,38 @@ const LeaveReports = () => {
                         </td>
 
                         {/* Position - Left aligned with extra width */}
-                        <td className="px-3 py-2 text-start small">
+                        <td className="text-start small">
                           <span className="text-truncate d-inline-block" 
                                 style={{ maxWidth: '190px' }}
-                                title={emp.position}>
-                            {emp.position}
+                                title={emp.designation}>
+                            {emp.designation}
                           </span>
                         </td>
 
                         {/* Total - Left aligned */}
-                        <td className="px-3 py-2 text-start small">
+                        <td className="text-start small">
                           {emp.leaveBalance?.total_accrued || "0"}
                         </td>
 
                         {/* Used - Left aligned */}
-                        <td className="px-3 py-2 text-start text-danger small">
+                        <td className="text-start text-danger small">
                           {emp.leaveBalance?.used || "0"}
                         </td>
 
                         {/* Pending - Left aligned */}
-                        <td className="px-3 py-2 text-start text-warning small">
+                        <td className="text-start text-warning small">
                           {emp.leaveBalance?.pending || "0"}
                         </td>
 
                         {/* Available - Left aligned */}
-                        <td className="px-3 py-2 text-start small">
-                          <Badge bg={getBalanceColor(available)} pill>
+                        <td className="text-start small">
+                          <div bg={getBalanceColor(available)} pill>
                             {emp.leaveBalance?.available || "0"}
-                          </Badge>
+                          </div>
                         </td>
 
                         {/* Action - Left aligned */}
-                        <td className="px-3 py-2 text-start small">
+                        <td className="text-start small">
                           <FaEye
                             size={16}
                             className="text-dark action-icon"
@@ -526,7 +526,7 @@ const LeaveReports = () => {
                       <p className="mb-2"><strong>Name:</strong> {selectedEmployee.first_name} {selectedEmployee.last_name}</p>
                       <p className="mb-2"><strong>Employee ID:</strong> {selectedEmployee.employee_id}</p>
                       <p className="mb-2"><strong>Department:</strong> {selectedEmployee.department}</p>
-                      <p className="mb-0"><strong>Position:</strong> {selectedEmployee.position}</p>
+                      <p className="mb-0"><strong>Designatio:</strong> {selectedEmployee.designation}</p>
                     </Card.Body>
                   </Card>
                 </Col>
@@ -539,9 +539,9 @@ const LeaveReports = () => {
                       <p className="mb-2"><strong>Pending:</strong> <span className="text-warning">{selectedEmployee.leaveBalance?.pending}</span></p>
                       <p className="mb-0">
                         <strong>Available:</strong>{' '}
-                        <Badge bg={getBalanceColor(selectedEmployee.leaveBalance?.available)} pill>
+                        <normal bg={getBalanceColor(selectedEmployee.leaveBalance?.available)} pill>
                           {selectedEmployee.leaveBalance?.available}
-                        </Badge>
+                        </normal>
                       </p>
                     </Card.Body>
                   </Card>

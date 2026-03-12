@@ -1,6 +1,6 @@
 // src/components/Layout/Sidebar.jsx
 import React, { useState, useEffect } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom'; // Add useLocation
 import { useAuth } from '../../context/AuthContext';
 import { 
   FaTachometerAlt, 
@@ -21,6 +21,7 @@ import axios from 'axios';
 
 const Sidebar = () => {
   const { user, logout } = useAuth();
+  const location = useLocation(); // Add useLocation to track current route
   const [employeeName, setEmployeeName] = useState('');
   const [isOpen, setIsOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
@@ -38,6 +39,16 @@ const Sidebar = () => {
       }
     }
   }, [user]);
+
+  // Check if current route is update approvals page and clear notification
+  useEffect(() => {
+    if (location.pathname === '/admin/update-approvals') {
+      // Clear the notification count when on update approvals page
+      setPendingCount(0);
+      // Also call API to mark notifications as read
+      markNotificationsAsRead();
+    }
+  }, [location.pathname]);
 
   // Check window size for mobile detection
   useEffect(() => {
@@ -93,6 +104,15 @@ const Sidebar = () => {
       setPendingCount(response.data.count || 0);
     } catch (error) {
       console.error('Error fetching pending count:', error);
+    }
+  };
+
+  const markNotificationsAsRead = async () => {
+    try {
+      // Call API to mark all update request notifications as read
+      await axios.post('http://localhost:5000/api/admin-updates/mark-notifications-read');
+    } catch (error) {
+      console.error('Error marking notifications as read:', error);
     }
   };
 
@@ -356,10 +376,14 @@ const Sidebar = () => {
                   {isOpen && <span>Send Update Request</span>}
                 </NavLink>
 
-                {/* ✅ UPDATE APPROVALS LINK - YAHI PE CLICK KARNA HAI */}
+                {/* ✅ UPDATE APPROVALS LINK */}
                 <NavLink 
                   to="/admin/update-approvals" 
-                  onClick={closeSidebar}
+                  onClick={() => {
+                    closeSidebar();
+                    setPendingCount(0); // Clear count when clicked
+                    markNotificationsAsRead(); // Mark as read
+                  }}
                   style={({ isActive }) => ({
                     color: 'white',
                     padding: isOpen ? '12px 15px' : '12px 0',

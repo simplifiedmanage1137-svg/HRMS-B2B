@@ -1,7 +1,7 @@
 // components/Admin/EmployeeList.jsx
 import React, { useState, useEffect } from 'react';
 import { Table, Button, Card, Modal, Alert, Badge, Spinner } from 'react-bootstrap';
-import { FaEdit, FaTrash, FaEye, FaPlus, FaSortNumericDown, FaDownload, FaFilePdf, FaFileImage, FaFileAlt } from 'react-icons/fa';
+import { FaEdit, FaTrash, FaEye, FaPlus, FaDownload, FaFilePdf, FaFileImage, FaFileAlt } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../../context/AuthContext';
@@ -57,7 +57,9 @@ const EmployeeList = () => {
       setDocLoading(true);
       setSelectedEmployeeForDocs(employee);
       
+      console.log('Fetching documents for employee:', employee.employee_id);
       const response = await axios.get(`http://localhost:5000/api/employees/${employee.employee_id}/documents`);
+      console.log('Documents received:', response.data);
       
       // Process documents - filter out null/empty values
       const docs = Object.entries(response.data)
@@ -69,6 +71,7 @@ const EmployeeList = () => {
           icon: getDocumentIcon(key, value)
         }));
       
+      console.log('Processed documents:', docs);
       setEmployeeDocuments(docs);
       setShowDocumentModal(true);
       setDocLoading(false);
@@ -110,7 +113,7 @@ const EmployeeList = () => {
     return <FaFileAlt className="text-secondary" size={20} />;
   };
 
-  // ============== FIXED VIEW DOCUMENT FUNCTION - OPENS IN NEW TAB ==============
+  // FIXED: View Document Function - Opens in new tab
   const handleViewDocument = async (doc) => {
     try {
       if (!selectedEmployeeForDocs) {
@@ -119,12 +122,13 @@ const EmployeeList = () => {
       }
 
       console.log('Viewing document:', doc);
+      console.log('Employee ID:', selectedEmployeeForDocs.employee_id);
       
-      // For all document types, open in new tab using the API endpoint
-      // Add ?inline=true so backend serves it with Content-Disposition: inline
+      // Use employee_id for the API call
       const viewUrl = `http://localhost:5000/api/employees/${selectedEmployeeForDocs.employee_id}/documents/${doc.type}?inline=true`;
+      console.log('Opening URL:', viewUrl);
       
-      // Open in new tab - backend will now return inline content when possible
+      // Open in new tab
       window.open(viewUrl, '_blank');
       
     } catch (error) {
@@ -133,7 +137,7 @@ const EmployeeList = () => {
     }
   };
 
-  // ============== FIXED DOWNLOAD DOCUMENT FUNCTION - FORCES DOWNLOAD ==============
+  // FIXED: Download Document Function
   const handleDownloadDocument = async (doc) => {
     try {
       if (!selectedEmployeeForDocs) {
@@ -142,8 +146,9 @@ const EmployeeList = () => {
       }
 
       console.log('Downloading document:', doc);
+      console.log('Employee ID:', selectedEmployeeForDocs.employee_id);
 
-      // Make API call with responseType blob to force download
+      // Make API call with responseType blob
       const response = await axios.get(
         `http://localhost:5000/api/employees/${selectedEmployeeForDocs.employee_id}/documents/${doc.type}`,
         {
@@ -163,7 +168,7 @@ const EmployeeList = () => {
       const url = window.URL.createObjectURL(blob);
       const link = window.document.createElement('a');
       link.href = url;
-      link.setAttribute('download', doc.filename); // Force download with filename
+      link.setAttribute('download', doc.filename);
       window.document.body.appendChild(link);
       link.click();
       
@@ -295,11 +300,11 @@ const EmployeeList = () => {
                     <tr key={emp.id}>
                       <td className='text-center'>{index + 1}</td>
                       <td>
-                        <div bg="light" text="dark" className="small">
+                        <Badge bg="light" text="dark" className="small">
                           {emp.employee_id}
-                        </div>
+                        </Badge>
                       </td>
-                      <td className="text-truncate" style={{ maxWidth: '150px' }} title={`${emp.first_name} ${emp.middle_name} ${emp.last_name}`}>
+                      <td className="text-truncate" style={{ maxWidth: '150px' }} title={`${emp.first_name} ${emp.middle_name || ''} ${emp.last_name}`}>
                         {emp.first_name} {emp.middle_name} {emp.last_name}
                       </td>
                       <td className="text-truncate" style={{ maxWidth: '120px' }} title={emp.department}>
