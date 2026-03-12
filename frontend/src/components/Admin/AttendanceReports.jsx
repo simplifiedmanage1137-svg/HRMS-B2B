@@ -79,6 +79,35 @@ const AttendanceReports = () => {
   const PROFESSIONAL_TAX = 200;
   const OTHER_DEDUCTIONS = 0;
 
+  // ============== FORMAT LATE DISPLAY IN HOURS:MINUTES:SECONDS ==============
+  const formatLateDisplay = (lateMinutes) => {
+    if (!lateMinutes || lateMinutes <= 0) return '0s';
+    
+    const totalSeconds = Math.round(lateMinutes * 60);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    
+    const parts = [];
+    if (hours > 0) parts.push(`${hours}h`);
+    if (minutes > 0) parts.push(`${minutes}m`);
+    if (seconds > 0 || (hours === 0 && minutes === 0)) parts.push(`${seconds}s`);
+    
+    return parts.join(' ');
+  };
+
+  // Format late to HH:MM:SS format
+  const formatLateToHHMMSS = (lateMinutes) => {
+    if (!lateMinutes || lateMinutes <= 0) return '00:00:00';
+    
+    const totalSeconds = Math.round(lateMinutes * 60);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  };
+
   // ============== INITIAL LOADS ==============
   useEffect(() => {
     fetchAllEmployees();
@@ -102,7 +131,7 @@ const AttendanceReports = () => {
   // ============== FETCH ALL EMPLOYEES ==============
   const fetchAllEmployees = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/employees');
+      const response = await axios.get('https://employee-management-system-g7s7.onrender.com/api/employees');
       setAllEmployees(response.data);
 
       const depts = ['all', ...new Set(response.data.map(emp => emp.department).filter(Boolean))];
@@ -120,7 +149,7 @@ const AttendanceReports = () => {
       setLoading(true);
 
       const response = await axios.get(
-        `http://localhost:5000/api/attendance/report?start=${selectedDate}&end=${selectedDate}`
+        `https://employee-management-system-g7s7.onrender.com/api/attendance/report?start=${selectedDate}&end=${selectedDate}`
       );
 
       const attendanceData = response.data.attendance || [];
@@ -135,17 +164,10 @@ const AttendanceReports = () => {
           record.status = 'working';
         }
 
+        // Format late minutes to HH:MM:SS format
         if (record.late_minutes > 0) {
-          const totalSeconds = Math.round(record.late_minutes * 60);
-          if (totalSeconds < 60) {
-            record.late_display = `${totalSeconds}s late`;
-          } else {
-            const mins = Math.floor(totalSeconds / 60);
-            const secs = totalSeconds % 60;
-            record.late_display = mins > 0 ?
-              (secs > 0 ? `${mins}m ${secs}s late` : `${mins}m late`) :
-              `${secs}s late`;
-          }
+          record.late_display = formatLateDisplay(record.late_minutes);
+          record.late_hhmmss = formatLateToHHMMSS(record.late_minutes);
         }
 
         return record;
@@ -173,7 +195,7 @@ const AttendanceReports = () => {
       const startDateStr = startDate.toISOString().split('T')[0];
       const endDateStr = endDate.toISOString().split('T')[0];
 
-      let url = `http://localhost:5000/api/attendance/report?start=${startDateStr}&end=${endDateStr}`;
+      let url = `https://employee-management-system-g7s7.onrender.com/api/attendance/report?start=${startDateStr}&end=${endDateStr}`;
       if (department !== 'all') {
         url += `&department=${department}`;
       }
@@ -184,7 +206,7 @@ const AttendanceReports = () => {
       // Fetch leave data
       let leaveData = [];
       try {
-        const leaveResponse = await axios.get('http://localhost:5000/api/leaves');
+        const leaveResponse = await axios.get('https://employee-management-system-g7s7.onrender.com/api/leaves');
         leaveData = leaveResponse.data.filter(leave =>
           leave.status === 'approved' &&
           new Date(leave.end_date) >= startDate &&
@@ -316,7 +338,7 @@ const AttendanceReports = () => {
             status = 'working';
             statusBadge = 'info';
             statusIcon = '✓';
-            tooltip = `Working since ${formatTime(clockIn)}`;
+            tooltip = `Working since ${formatShortTime(clockIn)}`;
             if (lateMinutes > 0) {
               tooltip += ` | Late: ${formatLateDisplay(lateMinutes)}`;
             }
@@ -370,6 +392,8 @@ const AttendanceReports = () => {
           statusBadge,
           statusIcon,
           late_minutes: lateMinutes,
+          late_display: formatLateDisplay(lateMinutes),
+          late_hhmmss: formatLateToHHMMSS(lateMinutes),
           is_late: lateMinutes > 0,
           tooltip,
           leave_type: leaveType,
@@ -430,8 +454,10 @@ const AttendanceReports = () => {
       const emp = perEmployee[empId];
       if (emp.late_count > 0) {
         emp.avg_late_minutes = (emp.total_late_minutes / emp.late_count).toFixed(1);
+        emp.total_late_display = formatLateDisplay(emp.total_late_minutes);
       } else {
         emp.avg_late_minutes = '0';
+        emp.total_late_display = '0s';
       }
       emp.unique_leave_types = [...new Set(emp.leave_types)];
     });
@@ -442,7 +468,7 @@ const AttendanceReports = () => {
   // ============== GET LEAVE BALANCE FOR EMPLOYEE ==============
   const getLeaveBalance = async (employeeId) => {
     try {
-      const response = await axios.get(`http://localhost:5000/api/leaves/balance/${employeeId}`);
+      const response = await axios.get(`https://employee-management-system-g7s7.onrender.com/api/leaves/balance/${employeeId}`);
       return response.data.available || '0';
     } catch (error) {
       console.error('Error fetching leave balance:', error);
@@ -518,7 +544,7 @@ const AttendanceReports = () => {
   // ============== EXPORT TO EXCEL - COMPLETE FORMAT ==============
   const handleExportExcel = async () => {
     if (activeView === 'daily') {
-      // Daily Export (keep existing format)
+      // Daily Export
       const exportDate = new Date(selectedDate);
       const formattedDate = exportDate.toLocaleDateString();
 
@@ -529,11 +555,12 @@ const AttendanceReports = () => {
         'Employee Name': `${record.first_name} ${record.last_name}`,
         'Department': record.department,
         'Shift': record.shift_time_used || 'Not set',
-        'Clock In': record.clock_in ? formatTime(record.clock_in) : '-',
-        'Clock Out': record.clock_out ? formatTime(record.clock_out) : '-',
+        'Clock In': record.clock_in ? formatShortTime(record.clock_in) : '-',
+        'Clock Out': record.clock_out ? formatShortTime(record.clock_out) : '-',
         'Total Hours': record.total_hours || '0.0',
-        'Late Duration': record.late_display || '0',
-        'Late (minutes)': record.late_minutes ? (record.late_minutes * 60).toFixed(0) : '0',
+        'Late Duration': record.late_display || '0s',
+        'Late (HH:MM:SS)': record.late_hhmmss || '00:00:00',
+        'Late (seconds)': record.late_minutes ? Math.round(record.late_minutes * 60) : '0',
         'Status': record.status === 'present' ? 'Present' :
           record.status === 'half_day' ? 'Half Day' :
             record.status === 'working' ? 'Working' :
@@ -553,8 +580,9 @@ const AttendanceReports = () => {
         { wch: 10 },  // Clock In
         { wch: 10 },  // Clock Out
         { wch: 10 },  // Total Hours
-        { wch: 12 },  // Late Duration
-        { wch: 12 },  // Late (minutes)
+        { wch: 15 },  // Late Duration
+        { wch: 15 },  // Late (HH:MM:SS)
+        { wch: 12 },  // Late (seconds)
         { wch: 12 }   // Status
       ];
       ws['!cols'] = colWidths;
@@ -590,7 +618,8 @@ const AttendanceReports = () => {
           half_day: 0,
           absent: 0,
           on_leave: 0,
-          late_count: 0
+          late_count: 0,
+          total_late_minutes: 0
         };
 
         // Get leave balance
@@ -623,6 +652,11 @@ const AttendanceReports = () => {
             } else {
               status = 'A';
             }
+
+            // Add late indicator if late
+            if (dayRecord.is_late) {
+              status += '*';
+            }
           } else {
             status = 'A';
           }
@@ -638,7 +672,9 @@ const AttendanceReports = () => {
         row['Half Days'] = empStats.half_day || 0;
         row['PL Leave'] = empStats.on_leave || 0;
         row['Absent'] = empStats.absent || 0;
-        row['Late Coming'] = empStats.late_count || 0;
+        row['Late Coming Count'] = empStats.late_count || 0;
+        row['Total Late Time'] = formatLateDisplay(empStats.total_late_minutes);
+        row['Late (HH:MM:SS)'] = formatLateToHHMMSS(empStats.total_late_minutes);
         row['Amount'] = salary.actualSalary;
         row['Gross Salary'] = salary.grossSalary;
         row['Net Salary'] = salary.inHandSalary;
@@ -677,7 +713,9 @@ const AttendanceReports = () => {
         { wch: 10 }, // Half Days
         { wch: 10 }, // PL Leave
         { wch: 10 }, // Absent
-        { wch: 12 }, // Late Coming
+        { wch: 15 }, // Late Coming Count
+        { wch: 15 }, // Total Late Time
+        { wch: 15 }, // Late (HH:MM:SS)
         { wch: 12 }, // Amount
         { wch: 12 }, // Gross Salary
         { wch: 12 }, // Net Salary
@@ -685,6 +723,7 @@ const AttendanceReports = () => {
         { wch: 15 }, // Professional Tax
         { wch: 12 }, // Deduction
         { wch: 18 }, // Net Salary To be Pay
+        { wch: 10 }, // Gender
         { wch: 20 }, // Account Number
         { wch: 15 }, // IFSC Code
         { wch: 20 }  // Bank Name
@@ -717,26 +756,15 @@ const AttendanceReports = () => {
     });
   };
 
-  const formatLateDisplay = (lateMinutes) => {
-    const totalSeconds = Math.round(lateMinutes * 60);
-    if (totalSeconds < 60) {
-      return `${totalSeconds}s`;
-    } else {
-      const mins = Math.floor(totalSeconds / 60);
-      const secs = totalSeconds % 60;
-      return mins > 0 ? (secs > 0 ? `${mins}m ${secs}s` : `${mins}m`) : `${secs}s`;
-    }
-  };
-
   const getStatusBadge = (record) => {
     if (record.status === 'working') {
       return record.is_late ?
-        <Badge bg="warning" className="px-2 py-1" style={{ backgroundColor: '#fd7e14' }}>Working (Late)</Badge> :
+        <Badge bg="warning" className="px-2 py-1" style={{ backgroundColor: '#fd7e14' }} title={`Late: ${record.late_display}`}>Working (Late)</Badge> :
         <Badge bg="info" className="px-2 py-1">Working</Badge>;
     }
     if (record.status === 'present') {
       return record.is_late ?
-        <Badge bg="warning" className="px-2 py-1" style={{ backgroundColor: '#fd7e14' }}>Present (Late)</Badge> :
+        <Badge bg="warning" className="px-2 py-1" style={{ backgroundColor: '#fd7e14' }} title={`Late: ${record.late_display}`}>Present (Late)</Badge> :
         <Badge bg="success" className="px-2 py-1">Present</Badge>;
     }
     if (record.status === 'half_day') return <Badge bg="warning" className="px-2 py-1">Half Day</Badge>;
@@ -903,23 +931,23 @@ const AttendanceReports = () => {
                 <Table size="sm" striped className="mb-0">
                   <thead className="bg-light sticky-top" style={{ top: 0, zIndex: 10 }}>
                     <tr>
-                      <th className="text-dark fw-normal small text-center" style={{ width: '60px' }}>Sr No</th>
-                      <th className="text-dark fw-normal small">Employee</th>
-                      <th className="text-dark fw-normal small">Department</th>
-                      <th className="text-dark fw-normal small">Shift</th>
-                      <th className="text-dark fw-normal small">Clock In</th>
-                      <th className="text-dark fw-normal small">Late</th>
-                      <th className="text-dark fw-normal small">Clock Out</th>
-                      <th className="text-dark fw-normal small">Hours</th>
-                      <th className="text-dark fw-normal small">Status</th>
+                      <th className="text-dark fw-normal small text-center" style={{ width: '60px', whiteSpace: 'nowrap' }}>Sr No</th>
+                      <th className="text-dark fw-normal small" style={{ whiteSpace: 'nowrap' }}>Employee</th>
+                      <th className="text-dark fw-normal small" style={{ whiteSpace: 'nowrap' }}>Department</th>
+                      <th className="text-dark fw-normal small" style={{ whiteSpace: 'nowrap' }}>Shift</th>
+                      <th className="text-dark fw-normal small" style={{ whiteSpace: 'nowrap' }}>Clock In</th>
+                      <th className="text-dark fw-normal small" style={{ whiteSpace: 'nowrap' }}>Late</th>
+                      <th className="text-dark fw-normal small" style={{ whiteSpace: 'nowrap' }}>Clock Out</th>
+                      <th className="text-dark fw-normal small" style={{ whiteSpace: 'nowrap' }}>Hours</th>
+                      <th className="text-dark fw-normal small" style={{ whiteSpace: 'nowrap' }}>Status</th>
                     </tr>
                   </thead>
                   <tbody>
                     {dailyAttendance.length > 0 ? (
                       dailyAttendance.map((record, index) => (
                         <tr key={index} className={record.is_late ? 'table-warning' : ''}>
-                          <td className="text-center">{index + 1}</td>
-                          <td className="small">
+                          <td className="text-center small align-middle">{index + 1}</td>
+                          <td className="small align-middle">
                             <div className="text-truncate" style={{ maxWidth: '150px' }} title={`${record.first_name} ${record.last_name}`}>
                               {record.first_name} {record.last_name}
                             </div>
@@ -927,37 +955,43 @@ const AttendanceReports = () => {
                               {record.employee_id}
                             </small>
                           </td>
-                          <td className="small">
+                          <td className="small align-middle">
                             <span className="text-truncate d-inline-block" style={{ maxWidth: '100px' }} title={record.department}>
                               {record.department}
                             </span>
                           </td>
-                          <td className="small">
+                          <td className="small align-middle">
                             <span className="text-nowrap">{record.shift_time_used || 'Not set'}</span>
                           </td>
-                          <td className={`small ${record.clock_in ? 'text-success' : 'text-muted'}`}>
+                          <td className={`small align-middle ${record.clock_in ? 'text-success' : 'text-muted'}`}>
                             <span className="text-nowrap" title={formatShortTime(record.clock_in)}>
                               {formatShortTime(record.clock_in)}
                             </span>
                           </td>
-                          <td className="small">
+                          <td className="small align-middle">
                             {record.late_display ? (
-                              <Badge bg="warning" pill className="text-nowrap" style={{ backgroundColor: '#fd7e14' }}>
-                                {record.late_display}
+                              <Badge 
+                                bg="warning" 
+                                pill 
+                                className="text-nowrap" 
+                                style={{ backgroundColor: '#fd7e14', fontSize: '11px' }}
+                                title={`Late by ${record.late_display} (${record.late_hhmmss})`}
+                              >
+                                ⏰ {record.late_display}
                               </Badge>
                             ) : '-'}
                           </td>
-                          <td className={`small ${record.clock_out ? 'text-danger' : 'text-muted'}`}>
+                          <td className={`small align-middle ${record.clock_out ? 'text-danger' : 'text-muted'}`}>
                             <span className="text-nowrap" title={formatShortTime(record.clock_out)}>
                               {formatShortTime(record.clock_out)}
                             </span>
                           </td>
-                          <td className="small">
+                          <td className="small align-middle">
                             <span className="text-nowrap" title={`${record.total_hours || '0.0'} hrs`}>
                               {record.total_hours || '0.0'}
                             </span>
                           </td>
-                          <td className="small">{getStatusBadge(record)}</td>
+                          <td className="small align-middle">{getStatusBadge(record)}</td>
                         </tr>
                       ))
                     ) : (
@@ -1019,28 +1053,34 @@ const AttendanceReports = () => {
                               let statusIcon = '-';
                               let iconClass = 'text-muted';
                               let iconStyle = {};
+                              let title = '';
 
                               if (dayRecord) {
                                 if (dayRecord.status === 'present' || dayRecord.status === 'working') {
                                   statusIcon = '✓';
                                   iconClass = 'text-success fw-bold';
                                   iconStyle = { fontSize: '14px' };
+                                  title = dayRecord.tooltip;
                                 } else if (dayRecord.status === 'half_day') {
                                   statusIcon = '½';
                                   iconClass = 'text-warning fw-bold';
                                   iconStyle = { fontSize: '14px' };
+                                  title = dayRecord.tooltip;
                                 } else if (dayRecord.status === 'on_leave') {
                                   statusIcon = '🏖️';
                                   iconClass = 'text-purple';
                                   iconStyle = { fontSize: '14px' };
+                                  title = dayRecord.tooltip;
                                 } else if (dayRecord.status === 'holiday') {
                                   statusIcon = '🎉';
                                   iconClass = 'text-warning';
                                   iconStyle = { fontSize: '14px' };
+                                  title = dayRecord.tooltip;
                                 } else if (dayRecord.status === 'absent') {
                                   statusIcon = '✗';
                                   iconClass = 'text-danger fw-bold';
                                   iconStyle = { fontSize: '14px' };
+                                  title = dayRecord.tooltip;
                                 }
                               }
 
@@ -1049,7 +1089,7 @@ const AttendanceReports = () => {
                                   style={{ backgroundColor: dayRecord?.is_late ? '#fff3cd' : 'transparent' }}>
                                   {dayRecord ? (
                                     <span
-                                      title={dayRecord.tooltip}
+                                      title={title}
                                       className={iconClass}
                                       style={{ cursor: 'pointer', ...iconStyle }}
                                     >
@@ -1067,8 +1107,15 @@ const AttendanceReports = () => {
                             <td className="text-center align-middle"><Badge bg="danger" pill>{empStats.absent}</Badge></td>
                             <td className="text-center align-middle">
                               {empStats.late_count > 0 ? (
-                                <Badge bg="warning" pill className="text-nowrap" style={{ backgroundColor: '#fd7e14' }}>
-                                  ⚠️ {empStats.late_count}
+                                <Badge 
+                                  bg="warning" 
+                                  pill 
+                                  className="text-nowrap" 
+                                  style={{ backgroundColor: '#fd7e14', fontSize: '11px' }}
+                                  title={`Total Late: ${empStats.total_late_display} (${formatLateToHHMMSS(empStats.total_late_minutes)})`}
+                                >
+                                  ⏰ {empStats.late_count} 
+                                 
                                 </Badge>
                               ) : (
                                 <Badge bg="secondary" pill className="text-nowrap">0</Badge>
