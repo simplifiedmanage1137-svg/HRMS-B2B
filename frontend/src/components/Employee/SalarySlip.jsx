@@ -1,4 +1,4 @@
-// components/Employee/SalarySlip.jsx
+// src/components/Employee/SalarySlip.jsx
 import React, { useState, useEffect } from 'react';
 import {
   Row,
@@ -27,16 +27,20 @@ import {
   FaInfoCircle,
   FaClock,
   FaUserTie,
-  FaSortNumericDown
+  FaSortNumericDown,
+  FaExclamationTriangle
 } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
-import axios from 'axios';
+import { useNotification } from '../../context/NotificationContext';
+import axios from '../../config/axios';
+import API_ENDPOINTS from '../../config/api';
 import { useNavigate } from 'react-router-dom';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
 const SalarySlip = () => {
   const { user } = useAuth();
+  const { showNotification } = useNotification();
   const navigate = useNavigate();
   
   const [loading, setLoading] = useState(true);
@@ -131,17 +135,18 @@ const SalarySlip = () => {
 
   const fetchEmployeeData = async () => {
     try {
-      const response = await axios.get(`http://localhost:5000/api/employees/profile/${user.employeeId}`);
+      const response = await axios.get(API_ENDPOINTS.EMPLOYEE_PROFILE(user.employeeId));
       setEmployee(response.data);
     } catch (error) {
       console.error('Error fetching employee:', error);
+      showNotification(error.response?.data?.message || 'Failed to load employee data', 'danger');
     }
   };
 
   const fetchSalarySlips = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`http://localhost:5000/api/salary/employee/${user.employeeId}`);
+      const response = await axios.get(API_ENDPOINTS.SALARY_EMPLOYEE(user.employeeId));
       setSalarySlips(response.data.salarySlips || []);
       
       if (response.data.joiningInfo) {
@@ -155,7 +160,7 @@ const SalarySlip = () => {
       console.error('Error fetching salary slips:', error);
       setMessage({
         type: 'danger',
-        text: 'Failed to load salary slips'
+        text: error.response?.data?.message || 'Failed to load salary slips'
       });
     } finally {
       setLoading(false);
@@ -229,7 +234,7 @@ const SalarySlip = () => {
     setMessage({ type: '', text: '' });
 
     try {
-      const response = await axios.post('http://localhost:5000/api/salary/generate', {
+      const response = await axios.post(API_ENDPOINTS.SALARY_GENERATE, {
         employee_id: user.employeeId,
         month: parseInt(selectedMonth),
         year: parseInt(selectedYear)
@@ -543,7 +548,7 @@ const SalarySlip = () => {
       console.error('Error generating PDF:', error);
       setMessage({
         type: 'danger',
-        text: 'Failed to download PDF'
+        text: error.message || 'Failed to download PDF'
       });
     }
   };
@@ -634,11 +639,11 @@ const SalarySlip = () => {
   }
 
   return (
-    <Container fluid className="p-4">
+    <Container fluid className="p-4" style={{ backgroundColor: '#f8f9fc', minHeight: '100vh' }}>
       {/* Header */}
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h5 className="mb-0">
-          <FaMoneyBillWave className="me-2 text-dark" />
+          <FaMoneyBillWave className="me-2 text-primary" />
           Salary Slips
         </h5>
         <Badge bg="dark" className="px-3 py-2 small">
@@ -657,6 +662,8 @@ const SalarySlip = () => {
         >
           {message.type === 'success' && <FaCheckCircle className="me-2" size={14} />}
           {message.type === 'info' && <FaInfoCircle className="me-2" size={14} />}
+          {message.type === 'danger' && <FaExclamationTriangle className="me-2" size={14} />}
+          {message.type === 'warning' && <FaInfoCircle className="me-2" size={14} />}
           {message.text}
         </Alert>
       )}
@@ -666,13 +673,13 @@ const SalarySlip = () => {
         <Card className="mb-4 shadow-sm border-0 bg-white">
           <Card.Body className="p-3">
             <div className="d-flex align-items-center">
-              <FaCalendarAlt className="text-dark me-3" size={20} />
+              <FaCalendarAlt className="text-primary me-3" size={20} />
               <div>
-                <h5 className="mb-1 text-dark fw-semibold">Employment Start Date</h5>
-                <p className="mb-0 small text-dark">
+                <h5 className="mb-1 text-dark fw-semibold small">Employment Start Date</h5>
+                <p className="mb-0 small text-muted">
                   You joined on <strong>{joiningInfo.formattedDate}</strong>
                 </p>
-                <small className="text-dark small">
+                <small className="text-muted small">
                   Salary slips available from {months.find(m => m.value === joiningInfo.month)?.label} {joiningInfo.year}
                 </small>
               </div>
@@ -700,7 +707,7 @@ const SalarySlip = () => {
                   <Form.Select
                     value={selectedYear}
                     onChange={(e) => {
-                      setSelectedYear(e.target.value);
+                      setSelectedYear(parseInt(e.target.value));
                     }}
                     size="sm"
                     className="py-2"
@@ -725,9 +732,15 @@ const SalarySlip = () => {
                     <option value="">Choose month...</option>
                     {months.map(month => {
                       const isCurrentMonth = month.value === currentMonth && selectedYear === currentYear;
+                      const isEligible = isMonthEligible(month.value, selectedYear);
                       return (
-                        <option key={month.value} value={month.value}>
+                        <option 
+                          key={month.value} 
+                          value={month.value}
+                          disabled={!isEligible}
+                        >
                           {month.label} {isCurrentMonth ? '(Current)' : ''}
+                          {!isEligible && ' (Not Eligible)'}
                         </option>
                       );
                     })}
@@ -750,11 +763,11 @@ const SalarySlip = () => {
                 </Form.Group>
 
                 <Button
-                  variant="dark"
+                  variant="primary"
                   size="sm"
                   className="w-100 py-2"
                   onClick={handleGenerateSlip}
-                  disabled={generating || !selectedMonth || !selectedYear}
+                  disabled={generating || !selectedMonth || !selectedYear || (joiningInfo && !isMonthEligible(selectedMonth, selectedYear))}
                 >
                   {generating ? (
                     <>
@@ -859,7 +872,7 @@ const SalarySlip = () => {
                             }
                           </p>
                           <Button 
-                            variant="outline-dark" 
+                            variant="outline-primary" 
                             size="sm"
                             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
                           >
@@ -880,7 +893,7 @@ const SalarySlip = () => {
             <Card className="shadow-sm border-0">
               <Card.Header className="bg-white text-dark py-2">
                 <h6 className="mb-0 fw-semibold small">
-                  <FaMoneyBillWave className="me-2" size={14} />
+                  <FaUserTie className="me-2" size={14} />
                   Employee Details
                 </h6>
               </Card.Header>
@@ -888,7 +901,7 @@ const SalarySlip = () => {
                 <div className="d-flex flex-column gap-2">
                   <div className="d-flex">
                     <span className="text-muted small" style={{ minWidth: '120px' }}>Name:</span>
-                    <span className="small">{employee.first_name} {employee.last_name}</span>
+                    <span className="small fw-semibold">{employee.first_name} {employee.last_name}</span>
                   </div>
                   <div className="d-flex">
                     <span className="text-muted small" style={{ minWidth: '120px' }}>Employee ID:</span>
@@ -908,7 +921,7 @@ const SalarySlip = () => {
                   </div>
                   <div className="d-flex">
                     <span className="text-muted small" style={{ minWidth: '120px' }}>Gross Salary:</span>
-                    <span className="small">₹{formatCurrency(employee.gross_salary || employee.salary)}</span>
+                    <span className="small fw-bold text-primary">₹{formatCurrency(employee.gross_salary || employee.salary)}</span>
                   </div>
                 </div>
               </Card.Body>
@@ -928,10 +941,10 @@ const SalarySlip = () => {
         <Modal.Header closeButton className="bg-primary text-white py-2">
           <Modal.Title as="h6" className="mb-0 small fw-semibold">
             <FaFilePdf className="me-2" size={14} />
-            Salary Slip
+            Salary Slip - {selectedSlip && `${getMonthName(selectedSlip.month)} ${selectedSlip.year}`}
           </Modal.Title>
         </Modal.Header>
-        <Modal.Body className="p-3">
+        <Modal.Body className="p-3" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
           {selectedSlip && employee && (
             <div className="salary-slip-content p-3" style={{ 
               fontFamily: 'Arial, sans-serif',

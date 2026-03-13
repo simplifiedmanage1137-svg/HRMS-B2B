@@ -1,4 +1,4 @@
-// components/Employee/ApplyLeave.jsx
+// src/components/Employee/ApplyLeave.jsx
 import React, { useState, useEffect } from 'react';
 import { 
   Card, Form, Button, Row, Col, Alert, 
@@ -18,7 +18,8 @@ import {
 } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
-import axios from 'axios';
+import axios from '../../config/axios';
+import API_ENDPOINTS from '../../config/api';
 import { useNavigate } from 'react-router-dom';
 
 const ApplyLeave = () => {
@@ -112,7 +113,7 @@ const ApplyLeave = () => {
 
   const fetchEmployeeDetails = async () => {
     try {
-      const response = await axios.get(`http://localhost:5000/api/employees/profile/${user.employeeId}`);
+      const response = await axios.get(API_ENDPOINTS.EMPLOYEE_PROFILE(user.employeeId));
       
       // Calculate months completed from joining date
       const joiningDate = new Date(response.data.joining_date);
@@ -142,39 +143,38 @@ const ApplyLeave = () => {
       }
     } catch (error) {
       console.error('Error fetching employee details:', error);
+      showNotification('Failed to load employee details', 'danger');
     }
   };
 
-// ApplyLeave.jsx mein fetchLeaveBalance function mein yeh add karo:
-
-const fetchLeaveBalance = async () => {
-  try {
-    setLoading(true);
-    const response = await axios.get(`http://localhost:5000/api/leaves/balance/${user.employeeId}`);
-    
-    console.log('🔍 LEAVE BALANCE RESPONSE:', response.data); // YEH DEKHO
-    
-    setLeaveBalance({
-      available: response.data.available || 0,
-      total_accrued: response.data.total_accrued || 0,
-      used: response.data.used || 0,
-      pending: response.data.pending || 0,
-      months_completed: response.data.months_completed || 0,
-      is_eligible: response.data.is_eligible || false,
-      eligible_from_date: response.data.eligible_from_date || ''
-    });
-    
-    setLoading(false);
-  } catch (error) {
-    console.error('Error fetching leave balance:', error);
-    showNotification('Failed to load leave balance', 'danger');
-    setLoading(false);
-  }
-};
+  const fetchLeaveBalance = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get(API_ENDPOINTS.LEAVE_BALANCE(user.employeeId));
+      
+      console.log('🔍 LEAVE BALANCE RESPONSE:', response.data);
+      
+      setLeaveBalance({
+        available: response.data.available || 0,
+        total_accrued: response.data.total_accrued || 0,
+        used: response.data.used || 0,
+        pending: response.data.pending || 0,
+        months_completed: response.data.months_completed || 0,
+        is_eligible: response.data.is_eligible || false,
+        eligible_from_date: response.data.eligible_from_date || ''
+      });
+      
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching leave balance:', error);
+      showNotification(error.response?.data?.message || 'Failed to load leave balance', 'danger');
+      setLoading(false);
+    }
+  };
 
   const fetchRecentLeaves = async () => {
     try {
-      const response = await axios.get(`http://localhost:5000/api/leaves?employee_id=${user.employeeId}`);
+      const response = await axios.get(API_ENDPOINTS.LEAVE_BY_EMPLOYEE(user.employeeId));
       setRecentLeaves(response.data.slice(0, 3));
     } catch (error) {
       console.error('Error fetching recent leaves:', error);
@@ -295,7 +295,7 @@ const fetchLeaveBalance = async () => {
         applied_date: new Date().toISOString().split('T')[0]
       };
 
-      const response = await axios.post('http://localhost:5000/api/leaves/apply', leaveData, {
+      const response = await axios.post(API_ENDPOINTS.LEAVE_APPLY, leaveData, {
         headers: {
           'employee-id': user.employeeId
         }

@@ -1,3 +1,4 @@
+// src/components/Admin/LeaveRequests.jsx
 import React, { useState, useEffect } from 'react';
 import {
   Table,
@@ -29,10 +30,11 @@ import {
   FaInfoCircle,
   FaTimes as FaTimesIcon,
   FaChartBar,
-  FaSortNumericDown // Add this icon for Sr No
+  FaSortNumericDown
 } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import axios from '../../config/axios';
+import API_ENDPOINTS from '../../config/api';
 
 const LeaveRequests = () => {
   const navigate = useNavigate();
@@ -79,16 +81,16 @@ const LeaveRequests = () => {
   const fetchLeaveRequests = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('http://localhost:5000/api/leaves');
+      const response = await axios.get(API_ENDPOINTS.LEAVES);
       console.log('Leave requests fetched:', response.data);
       setLeaveRequests(response.data);
       setFilteredRequests(response.data);
-
+      setMessage({ type: '', text: '' });
     } catch (error) {
       console.error('Error fetching leave requests:', error);
       setMessage({
         type: 'danger',
-        text: 'Failed to load leave requests'
+        text: error.response?.data?.message || 'Failed to load leave requests'
       });
     } finally {
       setLoading(false);
@@ -135,7 +137,7 @@ const LeaveRequests = () => {
     setProcessing(true);
 
     try {
-      const response = await axios.put(`http://localhost:5000/api/leaves/${id}/status`, {
+      const response = await axios.put(API_ENDPOINTS.LEAVE_STATUS(id), {
         status,
         comments
       });
@@ -527,7 +529,7 @@ const LeaveRequests = () => {
                       </td>
 
                       <td className=" small">
-                        {leave.leave_type}
+                        {getTypeBadge(leave.leave_type)}
                       </td>
 
                       <td className=" small">
@@ -567,7 +569,7 @@ const LeaveRequests = () => {
                           {/* View */}
                           <FaEye
                             size={16}
-                            className="text-dark action-icon"
+                            className="text-primary"
                             onClick={() => handleViewDetails(leave)}
                             title="View Details"
                             style={{ cursor: "pointer" }}
@@ -578,7 +580,7 @@ const LeaveRequests = () => {
                               {/* Approve */}
                               <FaCheck
                                 size={16}
-                                className="text-success action-icon"
+                                className="text-success"
                                 onClick={() => handleAction(leave, "approve")}
                                 title="Approve Leave"
                                 style={{ cursor: "pointer" }}
@@ -587,7 +589,7 @@ const LeaveRequests = () => {
                               {/* Reject */}
                               <FaTimes
                                 size={16}
-                                className="text-danger action-icon"
+                                className="text-danger"
                                 onClick={() => handleAction(leave, "reject")}
                                 title="Reject Leave"
                                 style={{ cursor: "pointer" }}
@@ -686,7 +688,7 @@ const LeaveRequests = () => {
                       <p className="mb-1"><strong>Name:</strong> {selectedLeave.first_name} {selectedLeave.last_name}</p>
                       <p className="mb-1"><strong>Employee ID:</strong> {selectedLeave.employee_id}</p>
                       <p className="mb-1"><strong>Department:</strong> {selectedLeave.department}</p>
-                      <p className="mb-0"><strong>Position:</strong> {selectedLeave.position}</p>
+                      <p className="mb-0"><strong>Position:</strong> {selectedLeave.designation || selectedLeave.position}</p>
                     </Card.Body>
                   </Card>
                 </Col>

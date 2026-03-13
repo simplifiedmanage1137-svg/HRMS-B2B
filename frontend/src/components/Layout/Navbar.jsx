@@ -12,12 +12,17 @@ import {
   FaUser, 
   FaSignOutAlt,
   FaTrash,
-  FaTimes
+  FaTimes,
+  FaInfoCircle,
+  FaExclamationTriangle,
+  FaBirthdayCake,
+  FaTrophy
 } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
-import axios from 'axios';
-import { Badge, Button, Dropdown } from 'react-bootstrap';
+import axios from '../../config/axios';
+import API_ENDPOINTS from '../../config/api';
+import { Badge, Button, Dropdown, Spinner } from 'react-bootstrap';
 import EventNotification from '../Common/EventNotification';
 
 const Navbar = () => {
@@ -38,6 +43,7 @@ const Navbar = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [pendingRequests, setPendingRequests] = useState([]);
   const [pendingCount, setPendingCount] = useState(0);
+  const [fetchingNotifications, setFetchingNotifications] = useState(false);
   
   const notificationRef = useRef(null);
   const bellRef = useRef(null);
@@ -102,7 +108,7 @@ const Navbar = () => {
         return;
       }
       
-      const response = await axios.get(`http://localhost:5000/api/employees/profile/${user?.employeeId}`);
+      const response = await axios.get(API_ENDPOINTS.EMPLOYEE_PROFILE(user?.employeeId));
       if (response.data) {
         const fullName = `${response.data.first_name || ''} ${response.data.last_name || ''}`.trim();
         setEmployeeName(fullName || 'Employee');
@@ -116,19 +122,22 @@ const Navbar = () => {
   const fetchNotifications = async () => {
     if (!user?.employeeId) return;
     
+    setFetchingNotifications(true);
     try {
-      const response = await axios.get(`http://localhost:5000/api/notifications?employee_id=${user.employeeId}`);
+      const response = await axios.get(API_ENDPOINTS.NOTIFICATIONS_BY_EMPLOYEE(user.employeeId));
       if (response.data && Array.isArray(response.data)) {
         setNotifications(response.data);
       }
     } catch (error) {
       console.error('Error fetching notifications:', error);
+    } finally {
+      setFetchingNotifications(false);
     }
   };
 
   const fetchPendingUpdateRequests = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/employee-updates/pending-requests');
+      const response = await axios.get(API_ENDPOINTS.EMPLOYEE_UPDATES_PENDING);
       
       if (Array.isArray(response.data)) {
         setPendingRequests(response.data);
@@ -144,7 +153,7 @@ const Navbar = () => {
 
   const markAsRead = async (id) => {
     try {
-      await axios.put(`http://localhost:5000/api/notifications/${id}/read`);
+      await axios.put(API_ENDPOINTS.NOTIFICATION_READ(id));
       setNotifications(prev => 
         prev.map(n => n.id === id ? { ...n, is_read: true } : n)
       );
@@ -158,7 +167,7 @@ const Navbar = () => {
     
     try {
       // Call API to delete notification
-      await axios.delete(`http://localhost:5000/api/notifications/${id}`);
+      await axios.delete(API_ENDPOINTS.NOTIFICATION_DELETE(id));
       
       // Remove from local state
       setNotifications(prev => prev.filter(n => n.id !== id));
@@ -221,8 +230,8 @@ const Navbar = () => {
 
     if (diffMins < 1) return 'Just now';
     if (diffMins < 60) return `${diffMins} min ago`;
-    if (diffHours < 24) return `${diffHours} hour ago`;
-    if (diffDays < 7) return `${diffDays} days ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
     return date.toLocaleDateString();
   };
 
@@ -248,13 +257,36 @@ const Navbar = () => {
   const getNotificationIcon = (type) => {
     switch (type) {
       case 'update_approved':
-        return <FaCheckCircle className="me-2 text-success" size={14} />;
+        return <FaCheckCircle className="text-success" size={14} />;
       case 'update_rejected':
-        return <FaTimesCircle className="me-2 text-danger" size={14} />;
+        return <FaTimesCircle className="text-danger" size={14} />;
       case 'update_request':
-        return <FaEdit className="me-2 text-warning" size={14} />;
+        return <FaEdit className="text-warning" size={14} />;
+      case 'leave_approved':
+        return <FaCheckCircle className="text-success" size={14} />;
+      case 'leave_rejected':
+        return <FaTimesCircle className="text-danger" size={14} />;
+      case 'leave_pending':
+        return <FaInfoCircle className="text-info" size={14} />;
       default:
-        return <FaBell className="me-2 text-info" size={14} />;
+        return <FaBell className="text-primary" size={14} />;
+    }
+  };
+
+  // Get notification badge color
+  const getNotificationBadge = (type) => {
+    switch (type) {
+      case 'update_approved':
+      case 'leave_approved':
+        return 'success';
+      case 'update_rejected':
+      case 'leave_rejected':
+        return 'danger';
+      case 'update_request':
+      case 'leave_pending':
+        return 'warning';
+      default:
+        return 'info';
     }
   };
 
@@ -272,10 +304,15 @@ const Navbar = () => {
       width: '100%',
       height: '60px'
     }}>
-      <div>
-        {/* <h5 style={{ margin: 0, fontSize: '16px', fontWeight: 'normal' }}>
+      <div className="d-flex align-items-center">
+        <h5 style={{ margin: 0, fontSize: '16px', fontWeight: 'normal' }}>
           Welcome, <span style={{ color: '#d53f8c', fontWeight: 'bold' }}>{employeeName}</span>
-        </h5> */}
+        </h5>
+        {user?.role === 'admin' && (
+          <Badge bg="dark" className="ms-2 px-2 py-1" style={{ fontSize: '10px' }}>
+            Admin
+          </Badge>
+        )}
       </div>
       
       <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -386,6 +423,13 @@ const Navbar = () => {
             )}
           </div>
           
+          {/* Loading Indicator */}
+          {fetchingNotifications && (
+            <div className="text-center py-2">
+              <Spinner size="sm" animation="border" variant="primary" />
+            </div>
+          )}
+          
           {/* Pending Update Requests Section */}
           {pendingCount > 0 && (
             <div className="mb-3 p-2 bg-warning bg-opacity-10 rounded">
@@ -413,7 +457,7 @@ const Navbar = () => {
             <div className="mb-3">
               <small className="text-muted fw-semibold d-block mb-2">🎉 Today's Events</small>
               {eventNotifications.filter(e => !e.read).map(event => (
-                <div key={event.id} style={{ position: 'relative' }}>
+                <div key={event.id} style={{ position: 'relative', marginBottom: '5px' }}>
                   <EventNotification 
                     event={event} 
                     onClose={() => handleEventClose(event.id)}
@@ -450,13 +494,17 @@ const Navbar = () => {
                     borderBottom: '1px solid #eee',
                     padding: '10px',
                     borderRadius: '4px',
-                    backgroundColor: !notif.is_read ? '#f8f9fa' : 'transparent',
+                    backgroundColor: !notif.is_read ? '#f0f7ff' : 'transparent',
                     marginBottom: '5px',
-                    position: 'relative'
+                    position: 'relative',
+                    cursor: !notif.is_read ? 'pointer' : 'default'
                   }}
+                  onClick={() => !notif.is_read && markAsRead(notif.id)}
                 >
                   <div className="d-flex align-items-start">
-                    {getNotificationIcon(notif.type)}
+                    <div className="me-2 mt-1">
+                      {getNotificationIcon(notif.type)}
+                    </div>
                     <div className="flex-grow-1" style={{ marginRight: '25px' }}>
                       <p style={{ margin: '0 0 5px 0', fontSize: '13px' }}>{notif.message}</p>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -464,7 +512,9 @@ const Navbar = () => {
                           {formatNotificationTime(notif.created_at)}
                         </small>
                         {!notif.is_read && (
-                          <Badge bg="primary" pill style={{ fontSize: '10px' }}>New</Badge>
+                          <Badge bg={getNotificationBadge(notif.type)} pill style={{ fontSize: '10px' }}>
+                            New
+                          </Badge>
                         )}
                       </div>
                     </div>
@@ -487,22 +537,6 @@ const Navbar = () => {
                       <FaTimes />
                     </Button>
                   </div>
-                  
-                  {/* Mark as read on click (but not when clicking delete) */}
-                  {!notif.is_read && (
-                    <div 
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        cursor: 'pointer',
-                        zIndex: 0
-                      }}
-                      onClick={() => markAsRead(notif.id)}
-                    />
-                  )}
                 </div>
               ))}
             </div>

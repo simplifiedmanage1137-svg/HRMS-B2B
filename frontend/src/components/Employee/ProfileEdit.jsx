@@ -1,32 +1,88 @@
 // src/components/Employee/ProfileEdit.jsx
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { 
+  Card, Form, Button, Alert, Spinner, Row, Col, 
+  InputGroup, Tab, Nav, ProgressBar 
+} from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { FaSave, FaTimes, FaUser, FaEnvelope, FaPhone, FaMapMarker, FaBriefcase, FaUniversity, FaCreditCard } from 'react-icons/fa';
+import { useNotification } from '../../context/NotificationContext';
+import axios from '../../config/axios';
+import API_ENDPOINTS from '../../config/api';
+import { 
+  FaSave, 
+  FaTimes, 
+  FaUser, 
+  FaEnvelope, 
+  FaPhone, 
+  FaMapMarkerAlt, 
+  FaBriefcase, 
+  FaUniversity, 
+  FaCreditCard,
+  FaIdCard,
+  FaHeartbeat,
+  FaInfoCircle,
+  FaCheckCircle,
+  FaExclamationTriangle,
+  FaArrowLeft,
+  FaEdit
+} from 'react-icons/fa';
 
 const ProfileEdit = () => {
     const { user } = useAuth();
+    const { showNotification } = useNotification();
     const navigate = useNavigate();
+    
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+    const [activeTab, setActiveTab] = useState('personal');
+    const [validationErrors, setValidationErrors] = useState({});
+    
     const [formData, setFormData] = useState({
+        // Personal Information
         first_name: '',
+        middle_name: '',
         last_name: '',
+        dob: '',
+        blood_group: '',
+        
+        // Contact Information
         email: '',
         phone: '',
+        
+        // Address
         address: '',
         city: '',
         state: '',
         pincode: '',
-        bank_name: '',
+        
+        // Employment Details
+        designation: '',
+        department: '',
+        employment_type: '',
+        shift_timing: '',
+        reporting_manager: '',
+        
+        // Bank Details
+        bank_account_name: '',
         account_number: '',
         ifsc_code: '',
+        branch_name: '',
         pan_number: '',
-        emergency_contact: ''
+        aadhar_number: '',
+        
+        // Emergency Contact
+        emergency_contact: '',
+        
+        // Salary Information
+        gross_salary: '',
+        in_hand_salary: ''
     });
+
+    const bloodGroups = ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'];
+    const employmentTypes = ['Full Time', 'Part Time', 'Contract', 'Intern', 'Probation'];
 
     useEffect(() => {
         fetchEmployeeData();
@@ -35,28 +91,56 @@ const ProfileEdit = () => {
     const fetchEmployeeData = async () => {
         try {
             setLoading(true);
-            const response = await axios.get(`http://localhost:5000/api/employees/profile/${user?.employeeId}`);
+            const response = await axios.get(API_ENDPOINTS.EMPLOYEE_PROFILE(user?.employeeId));
             
             // Populate form data with existing values
             const employeeData = response.data;
             setFormData({
+                // Personal Information
                 first_name: employeeData.first_name || '',
+                middle_name: employeeData.middle_name || '',
                 last_name: employeeData.last_name || '',
+                dob: employeeData.dob ? employeeData.dob.split('T')[0] : '',
+                blood_group: employeeData.blood_group || '',
+                
+                // Contact Information
                 email: employeeData.email || '',
                 phone: employeeData.phone || '',
+                
+                // Address
                 address: employeeData.address || '',
                 city: employeeData.city || '',
                 state: employeeData.state || '',
                 pincode: employeeData.pincode || '',
-                bank_name: employeeData.bank_name || '',
+                
+                // Employment Details
+                designation: employeeData.designation || '',
+                department: employeeData.department || '',
+                employment_type: employeeData.employment_type || 'Full Time',
+                shift_timing: employeeData.shift_timing || '9:00 AM - 6:00 PM',
+                reporting_manager: employeeData.reporting_manager || '',
+                
+                // Bank Details
+                bank_account_name: employeeData.bank_account_name || '',
                 account_number: employeeData.account_number || '',
                 ifsc_code: employeeData.ifsc_code || '',
+                branch_name: employeeData.branch_name || '',
                 pan_number: employeeData.pan_number || '',
-                emergency_contact: employeeData.emergency_contact || ''
+                aadhar_number: employeeData.aadhar_number || '',
+                
+                // Emergency Contact
+                emergency_contact: employeeData.emergency_contact || '',
+                
+                // Salary Information
+                gross_salary: employeeData.gross_salary || '',
+                in_hand_salary: employeeData.in_hand_salary || ''
             });
+            
+            setError('');
         } catch (error) {
             console.error('Error fetching employee data:', error);
-            setError('Failed to load profile data');
+            setError(error.response?.data?.message || 'Failed to load profile data');
+            showNotification(error.response?.data?.message || 'Failed to load profile data', 'danger');
         } finally {
             setLoading(false);
         }
@@ -68,10 +152,66 @@ const ProfileEdit = () => {
             ...prev,
             [name]: value
         }));
+        
+        // Clear validation error for this field
+        if (validationErrors[name]) {
+            setValidationErrors(prev => ({
+                ...prev,
+                [name]: ''
+            }));
+        }
+    };
+
+    const validateForm = () => {
+        const errors = {};
+        
+        // Personal Information validation
+        if (!formData.first_name?.trim()) errors.first_name = 'First name is required';
+        if (!formData.last_name?.trim()) errors.last_name = 'Last name is required';
+        
+        // Contact validation
+        if (!formData.email?.trim()) {
+            errors.email = 'Email is required';
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+            errors.email = 'Invalid email format';
+        }
+        
+        if (formData.phone && !/^\d{10}$/.test(formData.phone)) {
+            errors.phone = 'Phone must be 10 digits';
+        }
+        
+        // PAN validation (optional but must be valid if provided)
+        if (formData.pan_number && !/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(formData.pan_number)) {
+            errors.pan_number = 'Invalid PAN format (e.g., ABCDE1234F)';
+        }
+        
+        // Aadhar validation (optional but must be valid if provided)
+        if (formData.aadhar_number && !/^\d{12}$/.test(formData.aadhar_number)) {
+            errors.aadhar_number = 'Aadhar must be 12 digits';
+        }
+        
+        // IFSC validation (optional but must be valid if provided)
+        if (formData.ifsc_code && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(formData.ifsc_code)) {
+            errors.ifsc_code = 'Invalid IFSC format (e.g., SBIN0012345)';
+        }
+        
+        // Emergency contact validation
+        if (formData.emergency_contact && !/^\d{10}$/.test(formData.emergency_contact)) {
+            errors.emergency_contact = 'Emergency contact must be 10 digits';
+        }
+        
+        setValidationErrors(errors);
+        return Object.keys(errors).length === 0;
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        
+        if (!validateForm()) {
+            showNotification('Please fix the validation errors', 'warning');
+            return;
+        }
+        
         setSaving(true);
         setError('');
         setSuccess('');
@@ -80,9 +220,10 @@ const ProfileEdit = () => {
             // Get employee ID from user object
             const employeeId = user?.employeeId;
             
-            await axios.put(`http://localhost:5000/api/employees/${employeeId}`, formData);
+            await axios.put(API_ENDPOINTS.EMPLOYEE_UPDATE(employeeId), formData);
             
             setSuccess('Profile updated successfully!');
+            showNotification('Profile updated successfully!', 'success');
             
             // Redirect to profile view after 2 seconds
             setTimeout(() => {
@@ -91,242 +232,537 @@ const ProfileEdit = () => {
             
         } catch (error) {
             console.error('Error updating profile:', error);
-            setError('Failed to update profile. Please try again.');
+            const errorMsg = error.response?.data?.message || 'Failed to update profile. Please try again.';
+            setError(errorMsg);
+            showNotification(errorMsg, 'danger');
         } finally {
             setSaving(false);
         }
     };
 
+    const handleCancel = () => {
+        navigate('/profile');
+    };
+
     if (loading) {
         return (
             <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-                <div className="spinner-border text-primary" role="status">
-                    <span className="visually-hidden">Loading...</span>
+                <div className="text-center">
+                    <Spinner animation="border" variant="primary" />
+                    <p className="mt-3 text-muted small">Loading profile data...</p>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="profile-edit container py-4">
+        <div className="profile-edit p-4" style={{ backgroundColor: '#f8f9fc', minHeight: '100vh' }}>
+            {/* Header */}
             <div className="d-flex justify-content-between align-items-center mb-4">
-                <h3>Edit Profile</h3>
-                <button 
-                    className="btn btn-secondary"
-                    onClick={() => navigate('/profile')}
+                <div>
+                    <h4 className="mb-1">
+                        <FaEdit className="me-2 text-primary" />
+                        Edit Profile
+                    </h4>
+                    <p className="text-muted small mb-0">
+                        Update your personal and professional information
+                    </p>
+                </div>
+                <Button 
+                    variant="outline-secondary" 
+                    size="sm"
+                    onClick={handleCancel}
                 >
-                    <FaTimes /> Cancel
-                </button>
+                    <FaTimes className="me-2" size={12} />
+                    Cancel
+                </Button>
             </div>
 
+            {/* Alerts */}
             {error && (
-                <div className="alert alert-danger" role="alert">
+                <Alert variant="danger" onClose={() => setError('')} dismissible className="mb-4">
+                    <FaExclamationTriangle className="me-2" />
                     {error}
-                </div>
+                </Alert>
             )}
 
             {success && (
-                <div className="alert alert-success" role="alert">
+                <Alert variant="success" onClose={() => setSuccess('')} dismissible className="mb-4">
+                    <FaCheckCircle className="me-2" />
                     {success}
-                </div>
+                </Alert>
             )}
 
-            <div className="card">
-                <div className="card-body">
-                    <form onSubmit={handleSubmit}>
-                        {/* Personal Information */}
-                        <h5 className="mb-3">
-                            <FaUser className="me-2" /> Personal Information
-                        </h5>
-                        <div className="row mb-4">
-                            <div className="col-md-6 mb-3">
-                                <label htmlFor="first_name" className="form-label">First Name</label>
-                                <input
-                                    type="text"
-                                    className="form-control"
-                                    id="first_name"
-                                    name="first_name"
-                                    value={formData.first_name}
-                                    onChange={handleChange}
-                                    required
-                                />
-                            </div>
-                            <div className="col-md-6 mb-3">
-                                <label htmlFor="last_name" className="form-label">Last Name</label>
-                                <input
-                                    type="text"
-                                    className="form-control"
-                                    id="last_name"
-                                    name="last_name"
-                                    value={formData.last_name}
-                                    onChange={handleChange}
-                                    required
-                                />
-                            </div>
-                        </div>
+            {/* Main Form Card */}
+            <Card className="border-0 shadow-sm">
+                <Card.Header className="bg-white py-3 border-0">
+                    <Nav variant="tabs" activeKey={activeTab} onSelect={(k) => setActiveTab(k)} className="border-0">
+                        <Nav.Item>
+                            <Nav.Link eventKey="personal" className="small">
+                                <FaUser className="me-2" size={12} />
+                                Personal
+                            </Nav.Link>
+                        </Nav.Item>
+                        <Nav.Item>
+                            <Nav.Link eventKey="contact" className="small">
+                                <FaEnvelope className="me-2" size={12} />
+                                Contact
+                            </Nav.Link>
+                        </Nav.Item>
+                        <Nav.Item>
+                            <Nav.Link eventKey="address" className="small">
+                                <FaMapMarkerAlt className="me-2" size={12} />
+                                Address
+                            </Nav.Link>
+                        </Nav.Item>
+                        <Nav.Item>
+                            <Nav.Link eventKey="employment" className="small">
+                                <FaBriefcase className="me-2" size={12} />
+                                Employment
+                            </Nav.Link>
+                        </Nav.Item>
+                        <Nav.Item>
+                            <Nav.Link eventKey="bank" className="small">
+                                <FaUniversity className="me-2" size={12} />
+                                Bank
+                            </Nav.Link>
+                        </Nav.Item>
+                        <Nav.Item>
+                            <Nav.Link eventKey="emergency" className="small">
+                                <FaHeartbeat className="me-2" size={12} />
+                                Emergency
+                            </Nav.Link>
+                        </Nav.Item>
+                    </Nav>
+                </Card.Header>
 
-                        {/* Contact Information */}
-                        <h5 className="mb-3">
-                            <FaEnvelope className="me-2" /> Contact Information
-                        </h5>
-                        <div className="row mb-4">
-                            <div className="col-md-6 mb-3">
-                                <label htmlFor="email" className="form-label">Email</label>
-                                <input
-                                    type="email"
-                                    className="form-control"
-                                    id="email"
-                                    name="email"
-                                    value={formData.email}
-                                    onChange={handleChange}
-                                    required
-                                />
-                            </div>
-                            <div className="col-md-6 mb-3">
-                                <label htmlFor="phone" className="form-label">Phone</label>
-                                <input
-                                    type="text"
-                                    className="form-control"
-                                    id="phone"
-                                    name="phone"
-                                    value={formData.phone}
-                                    onChange={handleChange}
-                                    required
-                                />
-                            </div>
-                        </div>
+                <Card.Body className="p-4">
+                    <Form onSubmit={handleSubmit}>
+                        {/* Personal Information Tab */}
+                        {activeTab === 'personal' && (
+                            <div>
+                                <h6 className="mb-3">Personal Information</h6>
+                                <Row>
+                                    <Col md={4}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label className="small fw-semibold">
+                                                First Name <span className="text-danger">*</span>
+                                            </Form.Label>
+                                            <Form.Control
+                                                type="text"
+                                                name="first_name"
+                                                value={formData.first_name}
+                                                onChange={handleChange}
+                                                isInvalid={!!validationErrors.first_name}
+                                                size="sm"
+                                            />
+                                            <Form.Control.Feedback type="invalid">
+                                                {validationErrors.first_name}
+                                            </Form.Control.Feedback>
+                                        </Form.Group>
+                                    </Col>
+                                    <Col md={4}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label className="small fw-semibold">Middle Name</Form.Label>
+                                            <Form.Control
+                                                type="text"
+                                                name="middle_name"
+                                                value={formData.middle_name}
+                                                onChange={handleChange}
+                                                size="sm"
+                                            />
+                                        </Form.Group>
+                                    </Col>
+                                    <Col md={4}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label className="small fw-semibold">
+                                                Last Name <span className="text-danger">*</span>
+                                            </Form.Label>
+                                            <Form.Control
+                                                type="text"
+                                                name="last_name"
+                                                value={formData.last_name}
+                                                onChange={handleChange}
+                                                isInvalid={!!validationErrors.last_name}
+                                                size="sm"
+                                            />
+                                            <Form.Control.Feedback type="invalid">
+                                                {validationErrors.last_name}
+                                            </Form.Control.Feedback>
+                                        </Form.Group>
+                                    </Col>
+                                </Row>
 
-                        {/* Address */}
-                        <h5 className="mb-3">
-                            <FaMapMarker className="me-2" /> Address
-                        </h5>
-                        <div className="row mb-4">
-                            <div className="col-12 mb-3">
-                                <label htmlFor="address" className="form-label">Address</label>
-                                <textarea
-                                    className="form-control"
-                                    id="address"
-                                    name="address"
-                                    rows="2"
-                                    value={formData.address}
-                                    onChange={handleChange}
-                                />
+                                <Row>
+                                    <Col md={6}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label className="small fw-semibold">Date of Birth</Form.Label>
+                                            <Form.Control
+                                                type="date"
+                                                name="dob"
+                                                value={formData.dob}
+                                                onChange={handleChange}
+                                                size="sm"
+                                            />
+                                        </Form.Group>
+                                    </Col>
+                                    <Col md={6}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label className="small fw-semibold">Blood Group</Form.Label>
+                                            <Form.Select
+                                                name="blood_group"
+                                                value={formData.blood_group}
+                                                onChange={handleChange}
+                                                size="sm"
+                                            >
+                                                <option value="">Select Blood Group</option>
+                                                {bloodGroups.map(bg => (
+                                                    <option key={bg} value={bg}>{bg}</option>
+                                                ))}
+                                            </Form.Select>
+                                        </Form.Group>
+                                    </Col>
+                                </Row>
                             </div>
-                            <div className="col-md-4 mb-3">
-                                <label htmlFor="city" className="form-label">City</label>
-                                <input
-                                    type="text"
-                                    className="form-control"
-                                    id="city"
-                                    name="city"
-                                    value={formData.city}
-                                    onChange={handleChange}
-                                />
-                            </div>
-                            <div className="col-md-4 mb-3">
-                                <label htmlFor="state" className="form-label">State</label>
-                                <input
-                                    type="text"
-                                    className="form-control"
-                                    id="state"
-                                    name="state"
-                                    value={formData.state}
-                                    onChange={handleChange}
-                                />
-                            </div>
-                            <div className="col-md-4 mb-3">
-                                <label htmlFor="pincode" className="form-label">Pincode</label>
-                                <input
-                                    type="text"
-                                    className="form-control"
-                                    id="pincode"
-                                    name="pincode"
-                                    value={formData.pincode}
-                                    onChange={handleChange}
-                                />
-                            </div>
-                        </div>
+                        )}
 
-                        {/* Bank Details */}
-                        <h5 className="mb-3">
-                            <FaUniversity className="me-2" /> Bank Details
-                        </h5>
-                        <div className="row mb-4">
-                            <div className="col-md-6 mb-3">
-                                <label htmlFor="bank_name" className="form-label">Bank Name</label>
-                                <input
-                                    type="text"
-                                    className="form-control"
-                                    id="bank_name"
-                                    name="bank_name"
-                                    value={formData.bank_name}
-                                    onChange={handleChange}
-                                />
+                        {/* Contact Information Tab */}
+                        {activeTab === 'contact' && (
+                            <div>
+                                <h6 className="mb-3">Contact Information</h6>
+                                <Row>
+                                    <Col md={6}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label className="small fw-semibold">
+                                                Email <span className="text-danger">*</span>
+                                            </Form.Label>
+                                            <Form.Control
+                                                type="email"
+                                                name="email"
+                                                value={formData.email}
+                                                onChange={handleChange}
+                                                isInvalid={!!validationErrors.email}
+                                                size="sm"
+                                            />
+                                            <Form.Control.Feedback type="invalid">
+                                                {validationErrors.email}
+                                            </Form.Control.Feedback>
+                                        </Form.Group>
+                                    </Col>
+                                    <Col md={6}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label className="small fw-semibold">Phone</Form.Label>
+                                            <Form.Control
+                                                type="tel"
+                                                name="phone"
+                                                value={formData.phone}
+                                                onChange={handleChange}
+                                                isInvalid={!!validationErrors.phone}
+                                                size="sm"
+                                                placeholder="10 digit mobile number"
+                                            />
+                                            <Form.Control.Feedback type="invalid">
+                                                {validationErrors.phone}
+                                            </Form.Control.Feedback>
+                                        </Form.Group>
+                                    </Col>
+                                </Row>
                             </div>
-                            <div className="col-md-6 mb-3">
-                                <label htmlFor="account_number" className="form-label">Account Number</label>
-                                <input
-                                    type="text"
-                                    className="form-control"
-                                    id="account_number"
-                                    name="account_number"
-                                    value={formData.account_number}
-                                    onChange={handleChange}
-                                />
-                            </div>
-                            <div className="col-md-6 mb-3">
-                                <label htmlFor="ifsc_code" className="form-label">IFSC Code</label>
-                                <input
-                                    type="text"
-                                    className="form-control"
-                                    id="ifsc_code"
-                                    name="ifsc_code"
-                                    value={formData.ifsc_code}
-                                    onChange={handleChange}
-                                />
-                            </div>
-                            <div className="col-md-6 mb-3">
-                                <label htmlFor="pan_number" className="form-label">PAN Number</label>
-                                <input
-                                    type="text"
-                                    className="form-control"
-                                    id="pan_number"
-                                    name="pan_number"
-                                    value={formData.pan_number}
-                                    onChange={handleChange}
-                                />
-                            </div>
-                        </div>
+                        )}
 
-                        {/* Emergency Contact */}
-                        <h5 className="mb-3">Emergency Contact</h5>
-                        <div className="row mb-4">
-                            <div className="col-12 mb-3">
-                                <label htmlFor="emergency_contact" className="form-label">Emergency Contact</label>
-                                <input
-                                    type="text"
-                                    className="form-control"
-                                    id="emergency_contact"
-                                    name="emergency_contact"
-                                    value={formData.emergency_contact}
-                                    onChange={handleChange}
-                                />
-                            </div>
-                        </div>
+                        {/* Address Tab */}
+                        {activeTab === 'address' && (
+                            <div>
+                                <h6 className="mb-3">Address</h6>
+                                <Form.Group className="mb-3">
+                                    <Form.Label className="small fw-semibold">Address</Form.Label>
+                                    <Form.Control
+                                        as="textarea"
+                                        rows={2}
+                                        name="address"
+                                        value={formData.address}
+                                        onChange={handleChange}
+                                        size="sm"
+                                    />
+                                </Form.Group>
 
-                        <div className="text-end">
-                            <button
+                                <Row>
+                                    <Col md={4}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label className="small fw-semibold">City</Form.Label>
+                                            <Form.Control
+                                                type="text"
+                                                name="city"
+                                                value={formData.city}
+                                                onChange={handleChange}
+                                                size="sm"
+                                            />
+                                        </Form.Group>
+                                    </Col>
+                                    <Col md={4}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label className="small fw-semibold">State</Form.Label>
+                                            <Form.Control
+                                                type="text"
+                                                name="state"
+                                                value={formData.state}
+                                                onChange={handleChange}
+                                                size="sm"
+                                            />
+                                        </Form.Group>
+                                    </Col>
+                                    <Col md={4}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label className="small fw-semibold">Pincode</Form.Label>
+                                            <Form.Control
+                                                type="text"
+                                                name="pincode"
+                                                value={formData.pincode}
+                                                onChange={handleChange}
+                                                size="sm"
+                                            />
+                                        </Form.Group>
+                                    </Col>
+                                </Row>
+                            </div>
+                        )}
+
+                        {/* Employment Details Tab */}
+                        {activeTab === 'employment' && (
+                            <div>
+                                <h6 className="mb-3">Employment Details</h6>
+                                <Row>
+                                    <Col md={6}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label className="small fw-semibold">Designation</Form.Label>
+                                            <Form.Control
+                                                type="text"
+                                                name="designation"
+                                                value={formData.designation}
+                                                onChange={handleChange}
+                                                size="sm"
+                                            />
+                                        </Form.Group>
+                                    </Col>
+                                    <Col md={6}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label className="small fw-semibold">Department</Form.Label>
+                                            <Form.Control
+                                                type="text"
+                                                name="department"
+                                                value={formData.department}
+                                                onChange={handleChange}
+                                                size="sm"
+                                            />
+                                        </Form.Group>
+                                    </Col>
+                                </Row>
+
+                                <Row>
+                                    <Col md={6}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label className="small fw-semibold">Employment Type</Form.Label>
+                                            <Form.Select
+                                                name="employment_type"
+                                                value={formData.employment_type}
+                                                onChange={handleChange}
+                                                size="sm"
+                                            >
+                                                {employmentTypes.map(type => (
+                                                    <option key={type} value={type}>{type}</option>
+                                                ))}
+                                            </Form.Select>
+                                        </Form.Group>
+                                    </Col>
+                                    <Col md={6}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label className="small fw-semibold">Shift Timing</Form.Label>
+                                            <Form.Control
+                                                type="text"
+                                                name="shift_timing"
+                                                value={formData.shift_timing}
+                                                onChange={handleChange}
+                                                size="sm"
+                                                placeholder="9:00 AM - 6:00 PM"
+                                            />
+                                        </Form.Group>
+                                    </Col>
+                                </Row>
+
+                                <Form.Group className="mb-3">
+                                    <Form.Label className="small fw-semibold">Reporting Manager</Form.Label>
+                                    <Form.Control
+                                        type="text"
+                                        name="reporting_manager"
+                                        value={formData.reporting_manager}
+                                        onChange={handleChange}
+                                        size="sm"
+                                    />
+                                </Form.Group>
+                            </div>
+                        )}
+
+                        {/* Bank Details Tab */}
+                        {activeTab === 'bank' && (
+                            <div>
+                                <h6 className="mb-3">Bank Details</h6>
+                                <Row>
+                                    <Col md={6}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label className="small fw-semibold">Account Holder Name</Form.Label>
+                                            <Form.Control
+                                                type="text"
+                                                name="bank_account_name"
+                                                value={formData.bank_account_name}
+                                                onChange={handleChange}
+                                                size="sm"
+                                            />
+                                        </Form.Group>
+                                    </Col>
+                                    <Col md={6}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label className="small fw-semibold">Account Number</Form.Label>
+                                            <Form.Control
+                                                type="text"
+                                                name="account_number"
+                                                value={formData.account_number}
+                                                onChange={handleChange}
+                                                size="sm"
+                                            />
+                                        </Form.Group>
+                                    </Col>
+                                </Row>
+
+                                <Row>
+                                    <Col md={4}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label className="small fw-semibold">IFSC Code</Form.Label>
+                                            <Form.Control
+                                                type="text"
+                                                name="ifsc_code"
+                                                value={formData.ifsc_code}
+                                                onChange={handleChange}
+                                                isInvalid={!!validationErrors.ifsc_code}
+                                                size="sm"
+                                                placeholder="e.g., SBIN0012345"
+                                            />
+                                            <Form.Control.Feedback type="invalid">
+                                                {validationErrors.ifsc_code}
+                                            </Form.Control.Feedback>
+                                        </Form.Group>
+                                    </Col>
+                                    <Col md={4}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label className="small fw-semibold">Branch Name</Form.Label>
+                                            <Form.Control
+                                                type="text"
+                                                name="branch_name"
+                                                value={formData.branch_name}
+                                                onChange={handleChange}
+                                                size="sm"
+                                            />
+                                        </Form.Group>
+                                    </Col>
+                                    <Col md={4}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label className="small fw-semibold">PAN Number</Form.Label>
+                                            <Form.Control
+                                                type="text"
+                                                name="pan_number"
+                                                value={formData.pan_number}
+                                                onChange={handleChange}
+                                                isInvalid={!!validationErrors.pan_number}
+                                                size="sm"
+                                                placeholder="e.g., ABCDE1234F"
+                                            />
+                                            <Form.Control.Feedback type="invalid">
+                                                {validationErrors.pan_number}
+                                            </Form.Control.Feedback>
+                                        </Form.Group>
+                                    </Col>
+                                </Row>
+
+                                <Form.Group className="mb-3">
+                                    <Form.Label className="small fw-semibold">Aadhar Number</Form.Label>
+                                    <Form.Control
+                                        type="text"
+                                        name="aadhar_number"
+                                        value={formData.aadhar_number}
+                                        onChange={handleChange}
+                                        isInvalid={!!validationErrors.aadhar_number}
+                                        size="sm"
+                                        placeholder="12 digit Aadhar number"
+                                    />
+                                    <Form.Control.Feedback type="invalid">
+                                        {validationErrors.aadhar_number}
+                                    </Form.Control.Feedback>
+                                </Form.Group>
+                            </div>
+                        )}
+
+                        {/* Emergency Contact Tab */}
+                        {activeTab === 'emergency' && (
+                            <div>
+                                <h6 className="mb-3">Emergency Contact</h6>
+                                <Form.Group className="mb-3">
+                                    <Form.Label className="small fw-semibold">Emergency Contact Number</Form.Label>
+                                    <Form.Control
+                                        type="tel"
+                                        name="emergency_contact"
+                                        value={formData.emergency_contact}
+                                        onChange={handleChange}
+                                        isInvalid={!!validationErrors.emergency_contact}
+                                        size="sm"
+                                        placeholder="10 digit mobile number"
+                                    />
+                                    <Form.Control.Feedback type="invalid">
+                                        {validationErrors.emergency_contact}
+                                    </Form.Control.Feedback>
+                                </Form.Group>
+                            </div>
+                        )}
+
+                        {/* Form Actions */}
+                        <div className="d-flex justify-content-end gap-2 mt-4">
+                            <Button
+                                type="button"
+                                variant="outline-secondary"
+                                size="sm"
+                                onClick={handleCancel}
+                            >
+                                <FaTimes className="me-2" size={12} />
+                                Cancel
+                            </Button>
+                            <Button
                                 type="submit"
-                                className="btn btn-primary"
+                                variant="primary"
+                                size="sm"
                                 disabled={saving}
                             >
-                                <FaSave className="me-2" />
-                                {saving ? 'Saving...' : 'Save Changes'}
-                            </button>
+                                {saving ? (
+                                    <>
+                                        <Spinner size="sm" animation="border" className="me-2" />
+                                        Saving...
+                                    </>
+                                ) : (
+                                    <>
+                                        <FaSave className="me-2" size={12} />
+                                        Save Changes
+                                    </>
+                                )}
+                            </Button>
                         </div>
-                    </form>
-                </div>
-            </div>
+
+                        {/* Validation Summary */}
+                        {Object.keys(validationErrors).length > 0 && (
+                            <Alert variant="warning" className="mt-3 py-2 small">
+                                <FaInfoCircle className="me-2" size={12} />
+                                Please fix the validation errors before saving
+                            </Alert>
+                        )}
+                    </Form>
+                </Card.Body>
+            </Card>
         </div>
     );
 };

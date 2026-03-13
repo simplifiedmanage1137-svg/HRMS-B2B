@@ -1,22 +1,24 @@
 // src/components/Employee/EmployeeUpdateRequests.jsx
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { 
+  Card, Button, Form, Alert, Spinner, ProgressBar,
+  Row, Col, Badge
+} from 'react-bootstrap';
 import { useAuth } from '../../context/AuthContext';
+import axios from '../../config/axios';
+import API_ENDPOINTS from '../../config/api';
 import { 
   FaSave, 
   FaArrowLeft, 
   FaEdit, 
   FaCheckCircle, 
   FaUpload, 
-  FaFileAlt 
+  FaFileAlt,
+  FaTimesCircle,
+  FaInfoCircle,
+  FaHourglassHalf,
+  FaCloudUploadAlt
 } from 'react-icons/fa';
-import { 
-  Button, 
-  Col, 
-  Form, 
-  ProgressBar, 
-  Spinner 
-} from 'react-bootstrap';
 
 const EmployeeUpdateRequests = () => {
   const { user } = useAuth();
@@ -32,11 +34,13 @@ const EmployeeUpdateRequests = () => {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [documentTypes, setDocumentTypes] = useState([]);
 
   // Field definitions with categories
   const fieldDefinitions = {
     personal: {
       label: 'Personal Information',
+      icon: '👤',
       fields: [
         { name: 'first_name', label: 'First Name', type: 'text', required: true },
         { name: 'middle_name', label: 'Middle Name', type: 'text' },
@@ -47,6 +51,7 @@ const EmployeeUpdateRequests = () => {
     },
     contact: {
       label: 'Contact Details',
+      icon: '📞',
       fields: [
         { name: 'email', label: 'Email Address', type: 'email', required: true },
         { name: 'phone', label: 'Phone Number', type: 'tel' }
@@ -54,6 +59,7 @@ const EmployeeUpdateRequests = () => {
     },
     address: {
       label: 'Address',
+      icon: '🏠',
       fields: [
         { name: 'address', label: 'Address', type: 'textarea' },
         { name: 'city', label: 'City', type: 'text' },
@@ -63,6 +69,7 @@ const EmployeeUpdateRequests = () => {
     },
     bank: {
       label: 'Bank Details',
+      icon: '🏦',
       fields: [
         { name: 'bank_account_name', label: 'Account Holder Name', type: 'text' },
         { name: 'account_number', label: 'Account Number', type: 'text' },
@@ -73,6 +80,7 @@ const EmployeeUpdateRequests = () => {
     },
     employment: {
       label: 'Employment Details',
+      icon: '💼',
       fields: [
         { name: 'designation', label: 'Designation', type: 'text' },
         { name: 'department', label: 'Department', type: 'text' },
@@ -83,12 +91,14 @@ const EmployeeUpdateRequests = () => {
     },
     emergency: {
       label: 'Emergency Contact',
+      icon: '🚨',
       fields: [
         { name: 'emergency_contact', label: 'Emergency Contact Number', type: 'tel' }
       ]
     },
     documents: {
       label: 'Documents',
+      icon: '📄',
       fields: [
         { name: 'aadhar_card', label: 'Aadhar Card', type: 'file', documentType: true },
         { name: 'pan_card', label: 'PAN Card', type: 'file', documentType: true },
@@ -104,6 +114,7 @@ const EmployeeUpdateRequests = () => {
     },
     salary: {
       label: 'Salary Information',
+      icon: '💰',
       fields: [
         { name: 'gross_salary', label: 'Gross Salary', type: 'number' },
         { name: 'in_hand_salary', label: 'In Hand Salary', type: 'number' }
@@ -112,7 +123,7 @@ const EmployeeUpdateRequests = () => {
   };
 
   // Document types mapping for file uploads
-  const documentTypes = [
+  const documentTypeOptions = [
     { value: 'appointment_letter', label: 'Appointment Letter' },
     { value: 'offer_letter', label: 'Offer Letter' },
     { value: 'contract_document', label: 'Contract Document' },
@@ -149,10 +160,7 @@ const EmployeeUpdateRequests = () => {
       
       console.log('📤 Fetching pending requests for employee:', user?.employeeId);
       
-      const token = localStorage.getItem('token');
-      const response = await axios.get('http://localhost:5000/api/employee-updates/pending-requests', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const response = await axios.get(API_ENDPOINTS.EMPLOYEE_UPDATES_PENDING);
       
       console.log('✅ API Response:', response.data);
       
@@ -184,7 +192,7 @@ const EmployeeUpdateRequests = () => {
       
     } catch (err) {
       console.error('❌ Error fetching requests:', err);
-      setError('Failed to load requests. Please try again.');
+      setError(err.response?.data?.message || 'Failed to load requests. Please try again.');
       setRequests([]);
     } finally {
       setLoading(false);
@@ -193,10 +201,7 @@ const EmployeeUpdateRequests = () => {
 
   const fetchCurrentEmployeeData = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`http://localhost:5000/api/employees/profile/${user?.employeeId}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const response = await axios.get(API_ENDPOINTS.EMPLOYEE_PROFILE(user?.employeeId));
       console.log('✅ Current employee data:', response.data);
       setFormData(response.data);
     } catch (error) {
@@ -211,28 +216,18 @@ const EmployeeUpdateRequests = () => {
       
       console.log('📤 Accepting request:', request);
       console.log('📤 Request ID:', request.id);
-      console.log('📤 Employee ID:', user?.employeeId);
       
-      const token = localStorage.getItem('token');
-      console.log('📤 Using token:', token ? 'Token exists' : 'No token');
-      
-      const url = `http://localhost:5000/api/employee-updates/accept-request/${request.id}`;
-      console.log('📤 Calling URL:', url);
-      
-      const response = await axios.post(
-        url,
-        {},
-        { 
-          headers: { 
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          } 
-        }
-      );
+      const response = await axios.post(API_ENDPOINTS.EMPLOYEE_UPDATES_ACCEPT(request.id));
       
       console.log('✅ Accept response:', response.data);
       
       setSelectedRequest(request);
+      
+      // Determine which document types are allowed
+      if (checkIfDocumentRequest(request)) {
+        const allowedDocs = getAllowedDocumentTypes(request);
+        setDocumentTypes(allowedDocs);
+      }
       
       // Check if this is a document-only request
       const isDocumentRequest = checkIfDocumentRequest(request);
@@ -244,8 +239,6 @@ const EmployeeUpdateRequests = () => {
       
     } catch (error) {
       console.error('❌ Error accepting request:', error);
-      console.error('❌ Error response:', error.response?.data);
-      console.error('❌ Error status:', error.response?.status);
       
       if (error.response?.data?.message) {
         setError(error.response.data.message);
@@ -266,7 +259,7 @@ const EmployeeUpdateRequests = () => {
     
     // Check by requested_field_names (specific fields)
     if (request.requested_field_names) {
-      const documentFieldNames = documentTypes.map(dt => dt.value);
+      const documentFieldNames = documentTypeOptions.map(dt => dt.value);
       const allFieldsAreDocuments = request.requested_field_names.every(field => 
         documentFieldNames.includes(field)
       );
@@ -276,6 +269,20 @@ const EmployeeUpdateRequests = () => {
     }
     
     return false;
+  };
+
+  // Get allowed document types based on request
+  const getAllowedDocumentTypes = (request) => {
+    if (request.requested_fields?.includes('documents')) {
+      // If 'documents' category is selected, allow all document types
+      return documentTypeOptions;
+    } else if (request.requested_field_names) {
+      // If specific fields are selected, only allow those
+      return documentTypeOptions.filter(dt => 
+        request.requested_field_names.includes(dt.value)
+      );
+    }
+    return [];
   };
 
   // Handle file selection for document upload
@@ -311,7 +318,7 @@ const EmployeeUpdateRequests = () => {
     let allowedDocumentTypes = [];
     if (selectedRequest.requested_fields?.includes('documents')) {
       // If 'documents' category is selected, allow all document types
-      allowedDocumentTypes = documentTypes.map(dt => dt.value);
+      allowedDocumentTypes = documentTypeOptions.map(dt => dt.value);
     } else if (selectedRequest.requested_field_names) {
       // If specific fields are selected, only allow those
       allowedDocumentTypes = selectedRequest.requested_field_names;
@@ -330,7 +337,7 @@ const EmployeeUpdateRequests = () => {
       try {
         setUploadProgress(Math.round(((i + 1) / validUploads.length) * 100));
         
-        const url = `http://localhost:5000/api/employees/${user?.employeeId}/documents`;
+        const url = API_ENDPOINTS.EMPLOYEE_DOCUMENTS(user?.employeeId);
         console.log(`📤 Uploading document type: ${documentType}, File:`, file.name);
         
         await axios.post(url, formDataObj, {
@@ -365,14 +372,12 @@ const EmployeeUpdateRequests = () => {
     try {
       setSubmitting(true);
       
-      const token = localStorage.getItem('token');
       await axios.post(
-        'http://localhost:5000/api/employee-updates/submit-update',
+        API_ENDPOINTS.EMPLOYEE_UPDATES_SUBMIT,
         {
           requestId: selectedRequest.id,
           updatedData: { document_updated: true } // Just a flag to indicate documents were updated
-        },
-        { headers: { 'Authorization': `Bearer ${token}` } }
+        }
       );
 
       setSuccess('Documents uploaded successfully! Waiting for admin approval.');
@@ -385,7 +390,7 @@ const EmployeeUpdateRequests = () => {
       
     } catch (error) {
       console.error('Error submitting update:', error);
-      setError('Failed to submit update');
+      setError(error.response?.data?.message || 'Failed to submit update');
     } finally {
       setSubmitting(false);
     }
@@ -434,14 +439,12 @@ const EmployeeUpdateRequests = () => {
 
       console.log('📤 Submitting update data:', updateData);
 
-      const token = localStorage.getItem('token');
       await axios.post(
-        'http://localhost:5000/api/employee-updates/submit-update',
+        API_ENDPOINTS.EMPLOYEE_UPDATES_SUBMIT,
         {
           requestId: selectedRequest.id,
           updatedData: updateData
-        },
-        { headers: { 'Authorization': `Bearer ${token}` } }
+        }
       );
 
       setSuccess('Update submitted successfully! Waiting for admin approval.');
@@ -454,7 +457,7 @@ const EmployeeUpdateRequests = () => {
       
     } catch (error) {
       console.error('Error submitting update:', error);
-      setError('Failed to submit update');
+      setError(error.response?.data?.message || 'Failed to submit update');
     } finally {
       setSubmitting(false);
     }
@@ -477,14 +480,38 @@ const EmployeeUpdateRequests = () => {
     return false;
   };
 
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
+
+  const getStatusBadge = (status) => {
+    switch(status) {
+      case 'pending':
+        return <Badge bg="warning" pill><FaHourglassHalf className="me-1" /> Pending</Badge>;
+      case 'accepted':
+        return <Badge bg="info" pill><FaEdit className="me-1" /> In Progress</Badge>;
+      case 'submitted':
+        return <Badge bg="success" pill><FaCheckCircle className="me-1" /> Submitted</Badge>;
+      case 'approved':
+        return <Badge bg="success" pill><FaCheckCircle className="me-1" /> Approved</Badge>;
+      case 'rejected':
+        return <Badge bg="danger" pill><FaTimesCircle className="me-1" /> Rejected</Badge>;
+      default:
+        return <Badge bg="secondary" pill>{status}</Badge>;
+    }
+  };
+
   // Loading state
   if (loading) {
     return (
       <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
         <div className="text-center">
-          <div className="spinner-border text-primary" role="status">
-            <span className="visually-hidden">Loading...</span>
-          </div>
+          <Spinner animation="border" variant="primary" />
           <p className="mt-3 text-muted">Loading update requests...</p>
         </div>
       </div>
@@ -496,41 +523,95 @@ const EmployeeUpdateRequests = () => {
     const isDocumentRequest = checkIfDocumentRequest(selectedRequest);
     
     return (
-      <div className="container py-4">
-        <button
-          className="btn btn-link mb-3"
+      <div className="p-4">
+        <Button
+          variant="link"
+          className="mb-3 text-decoration-none"
           onClick={() => setSelectedRequest(null)}
         >
           <FaArrowLeft /> Back to Requests
-        </button>
+        </Button>
 
-        <div className="card">
-          <div className="card-header bg-primary text-white">
-            <h5 className="mb-0">Update Request #{selectedRequest.id}</h5>
-            <small>
-              {isDocumentRequest ? 'Document Upload Required' : `Fields to update: ${selectedRequest.requested_fields?.join(', ')}`}
-            </small>
-          </div>
+        <Card className="border-0 shadow-sm">
+          <Card.Header className={`py-3 text-white ${isDocumentRequest ? 'bg-info' : 'bg-primary'}`}>
+            <div className="d-flex justify-content-between align-items-center">
+              <div>
+                <h5 className="mb-1">Update Request #{selectedRequest.id}</h5>
+                <small>
+                  {isDocumentRequest ? 'Document Upload Required' : `Update your information as requested by admin`}
+                </small>
+              </div>
+              <div>
+                {getStatusBadge(selectedRequest.status)}
+              </div>
+            </div>
+          </Card.Header>
           
-          <div className="card-body">
+          <Card.Body>
             {success && (
-              <div className="alert alert-success">{success}</div>
+              <Alert variant="success" onClose={() => setSuccess('')} dismissible className="mb-4">
+                <FaCheckCircle className="me-2" />
+                {success}
+              </Alert>
             )}
+            
             {error && (
-              <div className="alert alert-danger">{error}</div>
+              <Alert variant="danger" onClose={() => setError('')} dismissible className="mb-4">
+                <FaTimesCircle className="me-2" />
+                {error}
+              </Alert>
             )}
+
+            {/* Request Info */}
+            <Card className="bg-light border-0 mb-4">
+              <Card.Body className="p-3">
+                <h6 className="mb-2">Request Details</h6>
+                <Row>
+                  <Col md={4}>
+                    <small className="text-muted">Requested On:</small>
+                    <p className="fw-semibold mb-2">{formatDate(selectedRequest.created_at)}</p>
+                  </Col>
+                  <Col md={4}>
+                    <small className="text-muted">Fields to Update:</small>
+                    <div className="d-flex flex-wrap gap-1">
+                      {selectedRequest.requested_fields?.map(field => (
+                        <Badge key={field} bg="secondary" className="px-2 py-1">
+                          {field === 'documents' ? '📄 Documents' : field}
+                        </Badge>
+                      ))}
+                    </div>
+                  </Col>
+                  {selectedRequest.notes && (
+                    <Col md={4}>
+                      <small className="text-muted">Admin Notes:</small>
+                      <p className="fst-italic mb-0">"{selectedRequest.notes}"</p>
+                    </Col>
+                  )}
+                </Row>
+              </Card.Body>
+            </Card>
 
             {isDocumentRequest ? (
               // Document Upload UI
               <div>
                 <h6 className="mb-3">Upload Required Documents</h6>
-                <p className="text-muted small mb-4">
-                  Please upload the following documents as requested by admin:
-                </p>
+                
+                {documentTypes.length > 0 && (
+                  <div className="bg-light p-2 rounded mb-3">
+                    <small className="text-muted d-block mb-1">Allowed document types:</small>
+                    <div className="d-flex flex-wrap gap-1">
+                      {documentTypes.map(doc => (
+                        <Badge key={doc.value} bg="info" className="px-2 py-1">
+                          {doc.label}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {selectedFiles.map((_, index) => (
-                  <div key={index} className="row g-2 mb-2 align-items-center">
-                    <div className="col-md-8">
+                  <Row key={index} className="g-2 mb-2 align-items-center">
+                    <Col md={8}>
                       <Form.Control
                         type="file"
                         onChange={(e) => handleFileSelect(index, e.target.files[0])}
@@ -538,8 +619,8 @@ const EmployeeUpdateRequests = () => {
                         accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
                         disabled={uploading}
                       />
-                    </div>
-                    <div className="col-md-4">
+                    </Col>
+                    <Col md={4}>
                       <Button
                         variant="outline-danger"
                         size="sm"
@@ -548,8 +629,8 @@ const EmployeeUpdateRequests = () => {
                       >
                         Remove
                       </Button>
-                    </div>
-                  </div>
+                    </Col>
+                  </Row>
                 ))}
 
                 <div className="mt-3">
@@ -575,7 +656,7 @@ const EmployeeUpdateRequests = () => {
                   </div>
                 )}
 
-                <div className="mt-4 text-end">
+                <div className="mt-4 d-flex justify-content-end">
                   <Button
                     variant="success"
                     onClick={uploadDocuments}
@@ -588,7 +669,7 @@ const EmployeeUpdateRequests = () => {
                       </>
                     ) : (
                       <>
-                        <FaUpload className="me-2" />
+                        <FaCloudUploadAlt className="me-2" />
                         Upload Documents
                       </>
                     )}
@@ -618,150 +699,192 @@ const EmployeeUpdateRequests = () => {
                   if (!hasFieldsToShow) return null;
 
                   return (
-                    <div key={category} className="mb-4">
-                      <h6 className="border-bottom pb-2">{definition.label}</h6>
-                      <div className="row">
-                        {definition.fields.map(field => {
-                          if (!shouldShowField(category, field.name)) return null;
+                    <Card key={category} className="border-0 bg-light mb-4">
+                      <Card.Body className="p-3">
+                        <h6 className="mb-3">
+                          <span className="me-2">{definition.icon}</span>
+                          {definition.label}
+                        </h6>
+                        <Row>
+                          {definition.fields.map(field => {
+                            if (!shouldShowField(category, field.name)) return null;
 
-                          return (
-                            <div key={field.name} className="col-md-6 mb-3">
-                              <label className="form-label">
-                                {field.label} {field.required && <span className="text-danger">*</span>}
-                              </label>
-                              
-                              {field.type === 'select' ? (
-                                <select
-                                  className="form-control"
-                                  name={field.name}
-                                  value={formData[field.name] || ''}
-                                  onChange={handleInputChange}
-                                  required={field.required}
-                                >
-                                  <option value="">Select {field.label}</option>
-                                  {field.options?.map(opt => (
-                                    <option key={opt} value={opt}>{opt}</option>
-                                  ))}
-                                </select>
-                              ) : field.type === 'textarea' ? (
-                                <textarea
-                                  className="form-control"
-                                  name={field.name}
-                                  value={formData[field.name] || ''}
-                                  onChange={handleInputChange}
-                                  rows="3"
-                                />
-                              ) : (
-                                <input
-                                  type={field.type}
-                                  className="form-control"
-                                  name={field.name}
-                                  value={formData[field.name] || ''}
-                                  onChange={handleInputChange}
-                                  required={field.required}
-                                />
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
+                            return (
+                              <Col md={6} key={field.name} className="mb-3">
+                                <Form.Group>
+                                  <Form.Label className="small fw-semibold">
+                                    {field.label} {field.required && <span className="text-danger">*</span>}
+                                  </Form.Label>
+                                  
+                                  {field.type === 'select' ? (
+                                    <Form.Select
+                                      name={field.name}
+                                      value={formData[field.name] || ''}
+                                      onChange={handleInputChange}
+                                      size="sm"
+                                      required={field.required}
+                                    >
+                                      <option value="">Select {field.label}</option>
+                                      {field.options?.map(opt => (
+                                        <option key={opt} value={opt}>{opt}</option>
+                                      ))}
+                                    </Form.Select>
+                                  ) : field.type === 'textarea' ? (
+                                    <Form.Control
+                                      as="textarea"
+                                      rows={3}
+                                      name={field.name}
+                                      value={formData[field.name] || ''}
+                                      onChange={handleInputChange}
+                                      size="sm"
+                                    />
+                                  ) : (
+                                    <Form.Control
+                                      type={field.type}
+                                      name={field.name}
+                                      value={formData[field.name] || ''}
+                                      onChange={handleInputChange}
+                                      size="sm"
+                                      required={field.required}
+                                    />
+                                  )}
+                                </Form.Group>
+                              </Col>
+                            );
+                          })}
+                        </Row>
+                      </Card.Body>
+                    </Card>
                   );
                 })}
 
-                <div className="text-end">
-                  <button
-                    type="submit"
-                    className="btn btn-success"
+                <div className="d-flex justify-content-end gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={() => setSelectedRequest(null)}
                     disabled={submitting}
                   >
-                    <FaSave /> {submitting ? 'Submitting...' : 'Submit Update for Approval'}
-                  </button>
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    variant="success"
+                    disabled={submitting}
+                  >
+                    {submitting ? (
+                      <>
+                        <Spinner size="sm" animation="border" className="me-2" />
+                        Submitting...
+                      </>
+                    ) : (
+                      <>
+                        <FaSave className="me-2" />
+                        Submit Update for Approval
+                      </>
+                    )}
+                  </Button>
                 </div>
               </form>
             )}
-          </div>
-        </div>
+          </Card.Body>
+        </Card>
       </div>
     );
   }
 
   // Main list view
   return (
-    <div className="container py-4">
-      <h4 className="mb-4">Update Requests</h4>
+    <div className="p-4">
+      <h4 className="mb-4">
+        <FaEdit className="me-2 text-primary" />
+        Update Requests
+      </h4>
 
       {error && (
-        <div className="alert alert-info">{error}</div>
+        <Alert variant="info" onClose={() => setError('')} dismissible className="mb-4">
+          <FaInfoCircle className="me-2" />
+          {error}
+        </Alert>
       )}
 
       {requests.length > 0 ? (
-        <div className="row">
+        <Row>
           {requests.map(request => {
             const isDocumentRequest = checkIfDocumentRequest(request);
             
             return (
-              <div key={request.id} className="col-md-6 mb-3">
-                <div className="card">
-                  <div className="card-body">
-                    <h5 className="card-title">
-                      Update Request #{request.id}
-                      <span className={`badge bg-${request.status === 'pending' ? 'warning' : 'info'} ms-2`}>
-                        {request.status}
-                      </span>
-                    </h5>
-                    <p className="card-text">
-                      <strong>Type:</strong>{' '}
-                      {isDocumentRequest ? (
-                        <span className="badge bg-primary">Document Upload Required</span>
-                      ) : (
-                        <span className="badge bg-secondary">Information Update</span>
-                      )}
-                    </p>
-                    <p className="card-text">
-                      <strong>Fields to Update:</strong><br />
-                      {request.requested_fields?.map(field => (
-                        <span key={field} className="badge bg-secondary me-1 p-2">
-                          {field === 'documents' ? '📄 Documents' : field}
-                        </span>
-                      ))}
-                    </p>
-                    <p className="card-text">
-                      <strong>Requested on:</strong> {new Date(request.created_at).toLocaleDateString()}
-                    </p>
+              <Col md={6} lg={4} key={request.id} className="mb-3">
+                <Card className="border-0 shadow-sm h-100">
+                  <Card.Header className={`py-2 text-white ${isDocumentRequest ? 'bg-info' : 'bg-primary'}`}>
+                    <small className="fw-semibold">Request #{request.id}</small>
+                  </Card.Header>
+                  <Card.Body>
+                    <div className="d-flex justify-content-between align-items-start mb-2">
+                      <Badge 
+                        bg={isDocumentRequest ? 'info' : 'secondary'} 
+                        className="px-2 py-1"
+                      >
+                        {isDocumentRequest ? '📄 Document Upload' : 'ℹ️ Information Update'}
+                      </Badge>
+                      {getStatusBadge(request.status)}
+                    </div>
+                    
+                    <div className="mb-3">
+                      <small className="text-muted d-block mb-1">Fields to Update:</small>
+                      <div className="d-flex flex-wrap gap-1">
+                        {request.requested_fields?.map(field => (
+                          <Badge key={field} bg="light" text="dark" className="px-2 py-1">
+                            {field === 'documents' ? '📄 Documents' : field}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    <small className="text-muted d-block mb-2">
+                      Requested on: {formatDate(request.created_at)}
+                    </small>
+                    
                     {request.notes && (
-                      <p className="card-text">
-                        <strong>Notes:</strong> {request.notes}
-                      </p>
+                      <div className="bg-light p-2 rounded small mb-3">
+                        <FaInfoCircle className="text-muted me-1" size={10} />
+                        {request.notes}
+                      </div>
                     )}
-                    <button
-                      className="btn btn-primary"
+                    
+                    <Button
+                      variant={isDocumentRequest ? 'info' : 'primary'}
+                      size="sm"
+                      className="w-100"
                       onClick={() => handleAcceptRequest(request)}
                       disabled={submitting}
                     >
-                      {isDocumentRequest ? (
-                        <><FaUpload /> Upload Documents</>
+                      {submitting ? (
+                        <Spinner size="sm" animation="border" className="me-2" />
+                      ) : isDocumentRequest ? (
+                        <><FaUpload className="me-2" /> Upload Documents</>
                       ) : (
-                        <><FaEdit /> Review & Update</>
+                        <><FaEdit className="me-2" /> Review & Update</>
                       )}
-                    </button>
-                  </div>
-                </div>
-              </div>
+                    </Button>
+                  </Card.Body>
+                </Card>
+              </Col>
             );
           })}
-        </div>
+        </Row>
       ) : (
         !error && (
-          <div className="text-center py-5">
-            <div className="mb-3">
-              <FaCheckCircle size={50} className="text-muted" />
-            </div>
-            <h5>No Pending Update Requests</h5>
-            <p className="text-muted">
-              You don't have any pending update requests from admin at the moment.
-            </p>
-          </div>
+          <Card className="border-0 shadow-sm text-center py-5">
+            <Card.Body>
+              <div className="mb-3">
+                <FaCheckCircle size={50} className="text-success opacity-50" />
+              </div>
+              <h5>No Pending Update Requests</h5>
+              <p className="text-muted mb-0">
+                You don't have any pending update requests from admin at the moment.
+              </p>
+            </Card.Body>
+          </Card>
         )
       )}
     </div>

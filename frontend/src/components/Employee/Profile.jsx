@@ -1,6 +1,9 @@
-// components/Employee/Profile.jsx
+// src/components/Employee/Profile.jsx
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Badge, Spinner, Alert, Tab, Nav, Table } from 'react-bootstrap';
+import { 
+  Card, Row, Col, Badge, Spinner, Alert, Tab, Nav, Table, 
+  Button, ProgressBar, ListGroup 
+} from 'react-bootstrap';
 import { 
   FaUserCircle, 
   FaCalendar, 
@@ -17,16 +20,29 @@ import {
   FaCheckCircle,
   FaTimesCircle,
   FaHourglassHalf,
-  FaEye
+  FaEye,
+  FaBuilding,
+  FaUserTie,
+  FaHeartbeat,
+  FaUniversity,
+  FaCreditCard,
+  FaFilePdf,
+  FaDownload,
+  FaEdit,
+  FaInfoCircle,
+  FaExclamationTriangle
 } from 'react-icons/fa';
-import axios from 'axios';
+import axios from '../../config/axios';
+import API_ENDPOINTS from '../../config/api';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 import HolidayCalendar from './HolidayCalendar';
+import { useNavigate } from 'react-router-dom';
 
 const Profile = () => {
     const { user } = useAuth();
     const { employeeUpdate, clearEmployeeUpdate, showNotification } = useNotification();
+    const navigate = useNavigate();
     
     const [employee, setEmployee] = useState(null);
     const [leaveBalance, setLeaveBalance] = useState({
@@ -42,12 +58,14 @@ const Profile = () => {
     const [error, setError] = useState('');
     const [imageError, setImageError] = useState(false);
     const [activeTab, setActiveTab] = useState('personal');
+    const [documentCount, setDocumentCount] = useState(0);
 
     useEffect(() => {
         if (user?.employeeId) {
             fetchEmployeeProfile();
             fetchLeaveBalance();
             fetchLeaveRequests();
+            fetchDocumentCount();
         }
     }, [user]);
 
@@ -67,7 +85,7 @@ const Profile = () => {
             
             let empData = user?.employeeData;
             if (!empData && user?.employeeId) {
-                const response = await axios.get(`http://localhost:5000/api/employees/profile/${user?.employeeId}`);
+                const response = await axios.get(API_ENDPOINTS.EMPLOYEE_PROFILE(user?.employeeId));
                 empData = response.data;
             }
             
@@ -76,8 +94,8 @@ const Profile = () => {
             }
         } catch (error) {
             console.error('Error fetching profile:', error);
-            setError('Failed to load profile data');
-            showNotification('Failed to load profile data', 'danger');
+            setError(error.response?.data?.message || 'Failed to load profile data');
+            showNotification(error.response?.data?.message || 'Failed to load profile data', 'danger');
         } finally {
             setLoading(false);
         }
@@ -85,7 +103,7 @@ const Profile = () => {
 
     const fetchLeaveBalance = async () => {
         try {
-            const response = await axios.get(`http://localhost:5000/api/leaves/balance/${user?.employeeId}`);
+            const response = await axios.get(API_ENDPOINTS.LEAVE_BALANCE(user?.employeeId));
             setLeaveBalance(response.data);
         } catch (error) {
             console.error('Error fetching leave balance:', error);
@@ -94,10 +112,20 @@ const Profile = () => {
 
     const fetchLeaveRequests = async () => {
         try {
-            const response = await axios.get(`http://localhost:5000/api/leaves?employee_id=${user?.employeeId}`);
+            const response = await axios.get(API_ENDPOINTS.LEAVE_BY_EMPLOYEE(user?.employeeId));
             setLeaveRequests(response.data || []);
         } catch (error) {
             console.error('Error fetching leave requests:', error);
+        }
+    };
+
+    const fetchDocumentCount = async () => {
+        try {
+            const response = await axios.get(API_ENDPOINTS.EMPLOYEE_DOCUMENTS(user?.employeeId));
+            const docs = Object.values(response.data).filter(v => v && v !== 'null' && v !== '');
+            setDocumentCount(docs.length);
+        } catch (error) {
+            console.error('Error fetching document count:', error);
         }
     };
 
@@ -130,18 +158,28 @@ const Profile = () => {
     const getLeaveStatusBadge = (status) => {
         switch(status) {
             case 'approved':
-                return <Badge bg="success"><FaCheckCircle className="me-1" /> Approved</Badge>;
+                return <Badge bg="success" pill><FaCheckCircle className="me-1" size={10} /> Approved</Badge>;
             case 'pending':
-                return <Badge bg="warning"><FaHourglassHalf className="me-1" /> Pending</Badge>;
+                return <Badge bg="warning" pill><FaHourglassHalf className="me-1" size={10} /> Pending</Badge>;
             case 'rejected':
-                return <Badge bg="danger"><FaTimesCircle className="me-1" /> Rejected</Badge>;
+                return <Badge bg="danger" pill><FaTimesCircle className="me-1" size={10} /> Rejected</Badge>;
             default:
-                return <Badge bg="secondary">Unknown</Badge>;
+                return <Badge bg="secondary" pill>Unknown</Badge>;
         }
     };
 
     const handleImageError = () => {
         setImageError(true);
+    };
+
+    const handleEditProfile = () => {
+        navigate('/employee/update-requests');
+    };
+
+    const calculateLeavePercentage = () => {
+        const used = parseFloat(leaveBalance.used) || 0;
+        const total = parseFloat(leaveBalance.total_accrued) || 1;
+        return (used / total * 100).toFixed(1);
     };
 
     if (loading) {
@@ -156,154 +194,276 @@ const Profile = () => {
     }
 
     if (error) {
-        return <Alert variant="danger" className="m-4">{error}</Alert>;
+        return (
+            <Alert variant="danger" className="m-4" onClose={() => setError('')} dismissible>
+                <FaExclamationTriangle className="me-2" />
+                {error}
+            </Alert>
+        );
     }
 
     if (!employee) {
-        return <Alert variant="warning" className="m-4">No employee data found. Please contact admin.</Alert>;
+        return (
+            <Alert variant="warning" className="m-4">
+                <FaInfoCircle className="me-2" />
+                No employee data found. Please contact admin.
+            </Alert>
+        );
     }
 
     return (
-        <div className="p-4">
-            <h4 className="mb-4">
-                <FaUserCircle className="me-2 text-primary" />
-                My Profile
-            </h4>
+        <div className="p-4" style={{ backgroundColor: '#f8f9fc', minHeight: '100vh' }}>
+            {/* Header */}
+            <div className="d-flex justify-content-between align-items-center mb-4">
+                <h4 className="mb-0">
+                    <FaUserCircle className="me-2 text-primary" />
+                    My Profile
+                </h4>
+                <div className="d-flex gap-2">
+                    <Badge bg="dark" className="px-3 py-2">
+                        ID: {employee.employee_id}
+                    </Badge>
+                    <Button 
+                        variant="outline-primary" 
+                        size="sm"
+                        onClick={handleEditProfile}
+                    >
+                        <FaEdit className="me-2" size={12} />
+                        Update Profile
+                    </Button>
+                </div>
+            </div>
 
+            {/* Main Profile Card */}
             <Card className="mb-4 border-0 shadow-sm">
-                <Card.Header className="bg-light py-2">
-                    <Nav variant="tabs" defaultActiveKey="personal" onSelect={(k) => setActiveTab(k)}>
-                        <Nav.Item>
-                            <Nav.Link eventKey="personal" className="text-dark small">
-                                Personal Information
-                            </Nav.Link>
-                        </Nav.Item>
-                       
-                        <Nav.Item>
-                            <Nav.Link eventKey="bank" className="text-dark small">
-                                Bank Details
-                            </Nav.Link>
-                        </Nav.Item>
-                        <Nav.Item>
-                            <Nav.Link eventKey="salary" className="text-dark small">
-                                Salary Information
-                            </Nav.Link>
-                        </Nav.Item>
-                        <Nav.Item>
-                            <Nav.Link eventKey="policy" className="text-dark small">
-                                Contract Policy
-                            </Nav.Link>
-                        </Nav.Item>
-                    </Nav>
+                <Card.Header className="bg-white py-2 border-0">
+                    {/* FIXED: Tabs are now always visible with proper styling */}
+                    <div className="d-flex border-bottom">
+                        <Button
+                            variant={activeTab === 'personal' ? 'primary' : 'light'}
+                            size="sm"
+                            onClick={() => setActiveTab('personal')}
+                            className="me-1 rounded-0 border-0"
+                            style={{ 
+                                backgroundColor: activeTab === 'personal' ? '#0d6efd' : '#f8f9fa',
+                                color: activeTab === 'personal' ? 'white' : '#6c757d',
+                                borderBottom: activeTab === 'personal' ? '3px solid #0d6efd' : '3px solid transparent',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            <FaUserCircle className="me-2" size={12} />
+                            Personal
+                        </Button>
+                        <Button
+                            variant={activeTab === 'leave' ? 'primary' : 'light'}
+                            size="sm"
+                            onClick={() => setActiveTab('leave')}
+                            className="me-1 rounded-0 border-0"
+                            style={{ 
+                                backgroundColor: activeTab === 'leave' ? '#0d6efd' : '#f8f9fa',
+                                color: activeTab === 'leave' ? 'white' : '#6c757d',
+                                borderBottom: activeTab === 'leave' ? '3px solid #0d6efd' : '3px solid transparent',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            <FaUmbrellaBeach className="me-2" size={12} />
+                            Leave
+                        </Button>
+                        <Button
+                            variant={activeTab === 'bank' ? 'primary' : 'light'}
+                            size="sm"
+                            onClick={() => setActiveTab('bank')}
+                            className="me-1 rounded-0 border-0"
+                            style={{ 
+                                backgroundColor: activeTab === 'bank' ? '#0d6efd' : '#f8f9fa',
+                                color: activeTab === 'bank' ? 'white' : '#6c757d',
+                                borderBottom: activeTab === 'bank' ? '3px solid #0d6efd' : '3px solid transparent',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            <FaUniversity className="me-2" size={12} />
+                            Bank
+                        </Button>
+                        <Button
+                            variant={activeTab === 'salary' ? 'primary' : 'light'}
+                            size="sm"
+                            onClick={() => setActiveTab('salary')}
+                            className="me-1 rounded-0 border-0"
+                            style={{ 
+                                backgroundColor: activeTab === 'salary' ? '#0d6efd' : '#f8f9fa',
+                                color: activeTab === 'salary' ? 'white' : '#6c757d',
+                                borderBottom: activeTab === 'salary' ? '3px solid #0d6efd' : '3px solid transparent',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            <FaRupeeSign className="me-2" size={12} />
+                            Salary
+                        </Button>
+                        <Button
+                            variant={activeTab === 'policy' ? 'primary' : 'light'}
+                            size="sm"
+                            onClick={() => setActiveTab('policy')}
+                            className="me-1 rounded-0 border-0"
+                            style={{ 
+                                backgroundColor: activeTab === 'policy' ? '#0d6efd' : '#f8f9fa',
+                                color: activeTab === 'policy' ? 'white' : '#6c757d',
+                                borderBottom: activeTab === 'policy' ? '3px solid #0d6efd' : '3px solid transparent',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            <FaFileSignature className="me-2" size={12} />
+                            Contract
+                        </Button>
+                    </div>
                 </Card.Header>
+                
                 <Card.Body className="p-3">
                     {activeTab === 'personal' && (
                         <Row>
+                            {/* Profile Picture Card */}
                             <Col md={4}>
-                                {/* Profile Card */}
-                                <Card className="text-center mb-3 shadow-sm border-0">
+                                <Card className="text-center mb-3 border-0 shadow-sm">
                                     <Card.Body className="p-3">
-                                        <div className="mb-2">
+                                        <div className="mb-3">
                                             {employee.profile_image && !imageError ? (
                                                 <img 
-                                                    src={`http://localhost:5000/uploads/profiles/${encodeURIComponent(employee.profile_image)}`}
+                                                    src={`${API_ENDPOINTS.EMPLOYEE_DOCUMENT_BY_TYPE(employee.employee_id, 'profile_image')}?inline=true`}
                                                     alt="Profile"
                                                     className="rounded-circle border"
                                                     style={{ 
-                                                        width: '100px', 
-                                                        height: '100px', 
+                                                        width: '120px', 
+                                                        height: '120px', 
                                                         objectFit: 'cover',
                                                         border: '3px solid #4e73df'
                                                     }}
                                                     onError={handleImageError}
                                                 />
                                             ) : (
-                                                <FaUserCircle size={80} className="text-secondary" />
+                                                <FaUserCircle size={100} className="text-secondary" />
                                             )}
                                         </div>
-                                        <h5 className="mb-1">{employee.first_name} {employee.middle_name} {employee.last_name}</h5>
+                                        <h5 className="mb-1">
+                                            {employee.first_name} {employee.middle_name} {employee.last_name}
+                                        </h5>
                                         <p className="text-muted small mb-2">{employee.designation}</p>
-                                        <Badge bg="dark" className="px-3 py-2 mb-2 small">{employee.employment_type}</Badge>
+                                        <Badge bg="info" className="px-3 py-2 mb-2 small">{employee.employment_type}</Badge>
                                         
-                                        <div className="text-start mt-2 small">
-                                            <div className="d-flex align-items-center mb-1">
-                                                <FaEnvelope className="text-dark me-2" size={10} />
-                                                <small>{employee.email}</small>
-                                            </div>
-                                            <div className="d-flex align-items-center mb-1">
-                                                <FaIdCard className="text-dark me-2" size={10} />
-                                                <small>ID: {employee.employee_id}</small>
-                                            </div>
-                                            {employee.emergency_contact && (
-                                                <div className="d-flex align-items-center">
-                                                    <FaPhoneAlt className="text-dark me-2" size={10} />
-                                                    <small>Emergency: {employee.emergency_contact}</small>
-                                                </div>
-                                            )}
+                                        <div className="text-start mt-3">
+                                            <ListGroup variant="flush" className="border-0">
+                                                <ListGroup.Item className="px-0 py-1 border-0 bg-transparent">
+                                                    <FaEnvelope className="text-primary me-2" size={12} />
+                                                    <small>{employee.email}</small>
+                                                </ListGroup.Item>
+                                                {employee.phone && (
+                                                    <ListGroup.Item className="px-0 py-1 border-0 bg-transparent">
+                                                        <FaPhoneAlt className="text-primary me-2" size={12} />
+                                                        <small>{employee.phone}</small>
+                                                    </ListGroup.Item>
+                                                )}
+                                                {employee.emergency_contact && (
+                                                    <ListGroup.Item className="px-0 py-1 border-0 bg-transparent">
+                                                        <FaHeartbeat className="text-danger me-2" size={12} />
+                                                        <small>Emergency: {employee.emergency_contact}</small>
+                                                    </ListGroup.Item>
+                                                )}
+                                            </ListGroup>
+                                        </div>
+
+                                        <div className="mt-3">
+                                            <small className="text-muted d-block mb-1">Documents Uploaded:</small>
+                                            <Badge bg="success" className="px-3 py-2">
+                                                <FaFilePdf className="me-2" size={12} />
+                                                {documentCount} Documents
+                                            </Badge>
                                         </div>
                                     </Card.Body>
                                 </Card>
                             </Col>
 
+                            {/* Personal Details */}
                             <Col md={8}>
-                                {/* Personal Information */}
-                                <Card className="mb-3 shadow-sm border-0">
-                                    <Card.Header className="bg-light py-2">
-                                        <h6 className="mb-0 small fw-semibold">Personal Details</h6>
-                                    </Card.Header>
-                                    <Card.Body className="p-2">
-                                        <Row className="g-2">
-                                            <Col md={6}>
-                                                <div className="d-flex mb-1">
-                                                    <span className="text-muted small" style={{ minWidth: '100px' }}>Full Name:</span>
-                                                    <span className="small">{employee.first_name} {employee.middle_name} {employee.last_name}</span>
-                                                </div>
-                                                <div className="d-flex mb-1">
-                                                    <span className="text-muted small" style={{ minWidth: '100px' }}>Date of Birth:</span>
-                                                    <span className="small">{formatDate(employee.dob)}</span>
-                                                </div>
-                                                <div className="d-flex mb-1">
-                                                    <span className="text-muted small" style={{ minWidth: '100px' }}>Department:</span>
-                                                    <span className="small">{employee.department}</span>
-                                                </div>
-                                                <div className="d-flex mb-1">
-                                                    <span className="text-muted small" style={{ minWidth: '100px' }}>Designation:</span>
-                                                    <span className="small">{employee.designation}</span>
-                                                </div>
-                                            </Col>
-                                            <Col md={6}>
-                                                <div className="d-flex mb-1">
-                                                    <span className="text-muted small" style={{ minWidth: '130px' }}>Joining Date:</span>
-                                                    <span className="small">{formatDate(employee.joining_date)}</span>
-                                                </div>
-                                                <div className="d-flex mb-1">
-                                                    <span className="text-muted small" style={{ minWidth: '130px' }}>Reporting Manager:</span>
-                                                    <span className="small">{employee.reporting_manager || 'N/A'}</span>
-                                                </div>
-                                                <div className="d-flex mb-1">
-                                                    <span className="text-muted small" style={{ minWidth: '130px' }}>Employment Type:</span>
-                                                    <span className="small">{employee.employment_type}</span>
-                                                </div>
-                                                <div className="d-flex mb-1">
-                                                    <span className="text-muted small" style={{ minWidth: '130px' }}>Shift Timing:</span>
-                                                    <span className="small">{employee.shift_timing || '9:00 AM - 6:00 PM'}</span>
-                                                </div>
-                                            </Col>
-                                        </Row>
-                                    </Card.Body>
-                                </Card>
+                                <Row>
+                                    <Col md={6}>
+                                        <Card className="mb-3 border-0 shadow-sm">
+                                            <Card.Header className="bg-light py-2">
+                                                <h6 className="mb-0 small fw-semibold">
+                                                    <FaUserCircle className="me-2" size={12} />
+                                                    Personal Details
+                                                </h6>
+                                            </Card.Header>
+                                            <Card.Body className="p-3">
+                                                <ListGroup variant="flush" className="border-0">
+                                                    <ListGroup.Item className="px-0 py-2 border-0 d-flex">
+                                                        <span className="text-muted small" style={{ minWidth: '100px' }}>Full Name:</span>
+                                                        <span className="small">{employee.first_name} {employee.middle_name} {employee.last_name}</span>
+                                                    </ListGroup.Item>
+                                                    <ListGroup.Item className="px-0 py-2 border-0 d-flex">
+                                                        <span className="text-muted small" style={{ minWidth: '100px' }}>Date of Birth:</span>
+                                                        <span className="small">{formatDate(employee.dob)}</span>
+                                                    </ListGroup.Item>
+                                                    <ListGroup.Item className="px-0 py-2 border-0 d-flex">
+                                                        <span className="text-muted small" style={{ minWidth: '100px' }}>Blood Group:</span>
+                                                        <Badge bg="danger" pill className="px-2 py-1">
+                                                            {employee.blood_group || 'N/A'}
+                                                        </Badge>
+                                                    </ListGroup.Item>
+                                                </ListGroup>
+                                            </Card.Body>
+                                        </Card>
+                                    </Col>
+
+                                    <Col md={6}>
+                                        <Card className="mb-3 border-0 shadow-sm">
+                                            <Card.Header className="bg-light py-2">
+                                                <h6 className="mb-0 small fw-semibold">
+                                                    <FaBriefcase className="me-2" size={12} />
+                                                    Employment Details
+                                                </h6>
+                                            </Card.Header>
+                                            <Card.Body className="p-3">
+                                                <ListGroup variant="flush" className="border-0">
+                                                    <ListGroup.Item className="px-0 py-2 border-0 d-flex">
+                                                        <span className="text-muted small" style={{ minWidth: '120px' }}>Department:</span>
+                                                        <span className="small">{employee.department}</span>
+                                                    </ListGroup.Item>
+                                                    <ListGroup.Item className="px-0 py-2 border-0 d-flex">
+                                                        <span className="text-muted small" style={{ minWidth: '120px' }}>Designation:</span>
+                                                        <span className="small">{employee.designation}</span>
+                                                    </ListGroup.Item>
+                                                    <ListGroup.Item className="px-0 py-2 border-0 d-flex">
+                                                        <span className="text-muted small" style={{ minWidth: '120px' }}>Joining Date:</span>
+                                                        <span className="small">{formatDate(employee.joining_date)}</span>
+                                                    </ListGroup.Item>
+                                                    <ListGroup.Item className="px-0 py-2 border-0 d-flex">
+                                                        <span className="text-muted small" style={{ minWidth: '130px' }}>Reporting Manager:</span>
+                                                        <span className="small">{employee.reporting_manager || 'N/A'}</span>
+                                                    </ListGroup.Item>
+                                                    <ListGroup.Item className="px-0 py-2 border-0 d-flex">
+                                                        <span className="text-muted small" style={{ minWidth: '120px' }}>Shift Timing:</span>
+                                                        <span className="small">{employee.shift_timing || '9:00 AM - 6:00 PM'}</span>
+                                                    </ListGroup.Item>
+                                                </ListGroup>
+                                            </Card.Body>
+                                        </Card>
+                                    </Col>
+                                </Row>
 
                                 {/* Address Card */}
                                 {employee.address && (
-                                    <Card className="mb-3 shadow-sm border-0">
+                                    <Card className="border-0 shadow-sm">
                                         <Card.Header className="bg-light py-2">
                                             <h6 className="mb-0 small fw-semibold">
                                                 <FaMapMarkerAlt className="me-2" size={12} />
                                                 Address
                                             </h6>
                                         </Card.Header>
-                                        <Card.Body className="p-2">
+                                        <Card.Body className="p-3">
                                             <p className="mb-0 small">{employee.address}</p>
+                                            {(employee.city || employee.state || employee.pincode) && (
+                                                <small className="text-muted d-block mt-1">
+                                                    {[employee.city, employee.state, employee.pincode].filter(Boolean).join(', ')}
+                                                </small>
+                                            )}
                                         </Card.Body>
                                     </Card>
                                 )}
@@ -315,7 +475,7 @@ const Profile = () => {
                         <Row>
                             <Col md={4}>
                                 {/* Leave Balance Card */}
-                                <Card className="mb-3 shadow-sm border-0">
+                                <Card className="border-0 shadow-sm">
                                     <Card.Header className="bg-primary text-white py-2">
                                         <h6 className="mb-0 small fw-semibold">
                                             <FaUmbrellaBeach className="me-2" size={12} />
@@ -348,19 +508,20 @@ const Profile = () => {
                                             </div>
 
                                             {leaveBalance.message && (
-                                                <div className="alert alert-info p-2 small mb-2" role="alert">
+                                                <Alert variant="info" className="p-2 small mb-2">
+                                                    <FaInfoCircle className="me-2" size={10} />
                                                     {leaveBalance.message}
-                                                </div>
+                                                </Alert>
                                             )}
 
-                                            <div className="progress" style={{ height: '6px' }}>
-                                                <div 
-                                                    className="progress-bar bg-success" 
-                                                    style={{ width: `${(parseFloat(leaveBalance.used) / parseFloat(leaveBalance.total_accrued) * 100) || 0}%` }}
-                                                ></div>
-                                            </div>
-                                            <small className="text-muted d-block text-center mt-1">
-                                                {((parseFloat(leaveBalance.used) / parseFloat(leaveBalance.total_accrued) * 100) || 0).toFixed(1)}% used
+                                            <ProgressBar 
+                                                now={parseFloat(calculateLeavePercentage())} 
+                                                variant="success" 
+                                                style={{ height: '6px' }}
+                                                className="mb-1"
+                                            />
+                                            <small className="text-muted d-block text-center">
+                                                {calculateLeavePercentage()}% used
                                             </small>
                                         </div>
 
@@ -368,7 +529,7 @@ const Profile = () => {
                                             variant="primary" 
                                             size="sm" 
                                             className="w-100"
-                                            onClick={() => window.location.href = '/apply-leave'}
+                                            onClick={() => navigate('/apply-leave')}
                                         >
                                             Apply for Leave
                                         </Button>
@@ -378,15 +539,18 @@ const Profile = () => {
 
                             <Col md={8}>
                                 {/* Leave History */}
-                                <Card className="shadow-sm border-0">
-                                    <Card.Header className="bg-light py-2">
+                                <Card className="border-0 shadow-sm">
+                                    <Card.Header className="bg-light py-2 d-flex justify-content-between align-items-center">
                                         <h6 className="mb-0 small fw-semibold">Leave History</h6>
+                                        <Badge bg="dark" pill>
+                                            {leaveRequests.length} Records
+                                        </Badge>
                                     </Card.Header>
                                     <Card.Body className="p-0">
                                         {leaveRequests.length > 0 ? (
-                                            <div className="table-responsive">
+                                            <div className="table-responsive" style={{ maxHeight: '300px', overflowY: 'auto' }}>
                                                 <Table hover size="sm" className="mb-0">
-                                                    <thead className="bg-light">
+                                                    <thead className="bg-light sticky-top" style={{ top: 0, zIndex: 10 }}>
                                                         <tr>
                                                             <th className="small text-dark">Leave Type</th>
                                                             <th className="small text-dark">Duration</th>
@@ -417,8 +581,16 @@ const Profile = () => {
                                             </div>
                                         ) : (
                                             <div className="text-center py-4">
-                                                <FaUmbrellaBeach size={30} className="text-muted mb-2 opacity-50" />
+                                                <FaUmbrellaBeach size={40} className="text-muted mb-3 opacity-50" />
                                                 <p className="text-muted small mb-0">No leave requests found</p>
+                                                <Button 
+                                                    variant="link" 
+                                                    size="sm" 
+                                                    onClick={() => navigate('/apply-leave')}
+                                                    className="mt-2"
+                                                >
+                                                    Apply for your first leave
+                                                </Button>
                                             </div>
                                         )}
                                     </Card.Body>
@@ -428,28 +600,46 @@ const Profile = () => {
                     )}
 
                     {activeTab === 'bank' && (
-                        <Card className="border-0">
-                            <Card.Body className="p-2">
+                        <Card className="border-0 shadow-sm">
+                            <Card.Header className="bg-light py-2">
+                                <h6 className="mb-0 small fw-semibold">
+                                    <FaUniversity className="me-2" size={12} />
+                                    Bank Details
+                                </h6>
+                            </Card.Header>
+                            <Card.Body className="p-3">
                                 <Row>
                                     <Col md={6}>
-                                        <div className="d-flex mb-2">
-                                            <span className="text-muted small" style={{ minWidth: '120px' }}>Account Name:</span>
-                                            <span className="small fw-semibold">{employee.bank_account_name}</span>
-                                        </div>
-                                        <div className="d-flex mb-2">
-                                            <span className="text-muted small" style={{ minWidth: '120px' }}>Account Number:</span>
-                                            <span className="small fw-semibold">{employee.account_number}</span>
-                                        </div>
+                                        <ListGroup variant="flush" className="border-0">
+                                            <ListGroup.Item className="px-0 py-2 border-0 d-flex">
+                                                <span className="text-muted small" style={{ minWidth: '120px' }}>Account Name:</span>
+                                                <span className="small fw-semibold">{employee.bank_account_name || 'N/A'}</span>
+                                            </ListGroup.Item>
+                                            <ListGroup.Item className="px-0 py-2 border-0 d-flex">
+                                                <span className="text-muted small" style={{ minWidth: '120px' }}>Account Number:</span>
+                                                <span className="small fw-semibold">{employee.account_number || 'N/A'}</span>
+                                            </ListGroup.Item>
+                                            <ListGroup.Item className="px-0 py-2 border-0 d-flex">
+                                                <span className="text-muted small" style={{ minWidth: '120px' }}>IFSC Code:</span>
+                                                <span className="small fw-semibold">{employee.ifsc_code || 'N/A'}</span>
+                                            </ListGroup.Item>
+                                        </ListGroup>
                                     </Col>
                                     <Col md={6}>
-                                        <div className="d-flex mb-2">
-                                            <span className="text-muted small" style={{ minWidth: '120px' }}>IFSC Code:</span>
-                                            <span className="small fw-semibold">{employee.ifsc_code}</span>
-                                        </div>
-                                        <div className="d-flex mb-2">
-                                            <span className="text-muted small" style={{ minWidth: '120px' }}>Branch Name:</span>
-                                            <span className="small fw-semibold">{employee.branch_name}</span>
-                                        </div>
+                                        <ListGroup variant="flush" className="border-0">
+                                            <ListGroup.Item className="px-0 py-2 border-0 d-flex">
+                                                <span className="text-muted small" style={{ minWidth: '120px' }}>Branch Name:</span>
+                                                <span className="small fw-semibold">{employee.branch_name || 'N/A'}</span>
+                                            </ListGroup.Item>
+                                            <ListGroup.Item className="px-0 py-2 border-0 d-flex">
+                                                <span className="text-muted small" style={{ minWidth: '120px' }}>PAN Number:</span>
+                                                <span className="small fw-semibold">{employee.pan_number || 'N/A'}</span>
+                                            </ListGroup.Item>
+                                            <ListGroup.Item className="px-0 py-2 border-0 d-flex">
+                                                <span className="text-muted small" style={{ minWidth: '120px' }}>Aadhar Number:</span>
+                                                <span className="small fw-semibold">{employee.aadhar_number || 'N/A'}</span>
+                                            </ListGroup.Item>
+                                        </ListGroup>
                                     </Col>
                                 </Row>
                             </Card.Body>
@@ -457,32 +647,38 @@ const Profile = () => {
                     )}
 
                     {activeTab === 'salary' && (
-                        <Card className="border-0">
-                            <Card.Body className="p-2">
+                        <Card className="border-0 shadow-sm">
+                            <Card.Header className="bg-light py-2">
+                                <h6 className="mb-0 small fw-semibold">
+                                    <FaRupeeSign className="me-2" size={12} />
+                                    Salary Information
+                                </h6>
+                            </Card.Header>
+                            <Card.Body className="p-3">
                                 <Row>
                                     <Col md={6}>
-                                        <div className="d-flex mb-2">
-                                            <span className="text-muted small" style={{ minWidth: '120px' }}>Gross Salary:</span>
-                                            <span className="small fw-semibold text-primary">{formatCurrency(employee.gross_salary)}</span>
+                                        <div className="bg-light p-3 rounded mb-3">
+                                            <small className="text-muted d-block mb-1">Gross Salary</small>
+                                            <h4 className="text-primary mb-0">{formatCurrency(employee.gross_salary)}</h4>
                                         </div>
                                     </Col>
                                     <Col md={6}>
-                                        <div className="d-flex mb-2">
-                                            <span className="text-muted small" style={{ minWidth: '120px' }}>In-hand Salary:</span>
-                                            <span className="small fw-semibold text-success">{formatCurrency(employee.in_hand_salary)}</span>
+                                        <div className="bg-light p-3 rounded mb-3">
+                                            <small className="text-muted d-block mb-1">In-hand Salary</small>
+                                            <h4 className="text-success mb-0">{formatCurrency(employee.in_hand_salary)}</h4>
                                         </div>
                                     </Col>
                                 </Row>
-                                <div className="mt-2 p-2 bg-light rounded small">
-                                    <FaRupeeSign className="me-2 text-primary" size={10} />
-                                    <span className="text-muted">Monthly Deduction: ₹200 (Fixed)</span>
-                                </div>
+                                <Alert variant="info" className="py-2 small mb-0">
+                                    <FaInfoCircle className="me-2" size={10} />
+                                    Monthly Deduction: ₹200 (Fixed)
+                                </Alert>
                             </Card.Body>
                         </Card>
                     )}
 
                     {activeTab === 'policy' && (
-                        <Card className="border-0">
+                        <Card className="border-0 shadow-sm">
                             <Card.Header className="bg-light py-2">
                                 <h6 className="mb-0 small fw-semibold">
                                     <FaFileSignature className="me-2" size={12} />
@@ -492,7 +688,7 @@ const Profile = () => {
                             <Card.Body className="p-3">
                                 {employee.contract_policy ? (
                                     <div 
-                                        className="bg-white p-3 rounded border"
+                                        className="bg-light p-3 rounded"
                                         style={{ 
                                             maxHeight: '400px', 
                                             overflowY: 'auto',
@@ -505,7 +701,7 @@ const Profile = () => {
                                     </div>
                                 ) : (
                                     <div className="text-center py-4">
-                                        <FaFileSignature size={30} className="text-muted mb-2 opacity-50" />
+                                        <FaFileSignature size={40} className="text-muted mb-3 opacity-50" />
                                         <p className="text-muted small mb-0">No contract policy found</p>
                                     </div>
                                 )}
@@ -515,12 +711,8 @@ const Profile = () => {
                 </Card.Body>
             </Card>
 
-            {/* Holiday Calendar Card */}
-            <Card className="mb-4 shadow-sm border-0">
-                <Card.Body className="p-0">
-                    <HolidayCalendar employeeRegion={employee.region || 'All'} />
-                </Card.Body>
-            </Card>
+            {/* Holiday Calendar */}
+            <HolidayCalendar employeeRegion={employee.region || 'All'} />
         </div>
     );
 };

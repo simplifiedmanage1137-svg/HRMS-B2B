@@ -6,7 +6,8 @@ import {
     FaBriefcase, FaUniversity, FaCreditCard, FaIdCard, 
     FaUserTie, FaHeart, FaFileAlt, FaTimes, FaEdit 
 } from 'react-icons/fa';
-import axios from 'axios';
+import axios from '../../config/axios';
+import API_ENDPOINTS from '../../config/api';
 import { useNavigate } from 'react-router-dom';
 
 const EmployeeProfileView = ({ show, onHide, employeeId }) => {
@@ -27,7 +28,7 @@ const EmployeeProfileView = ({ show, onHide, employeeId }) => {
             setError('');
             console.log('📤 Fetching employee details for ID:', employeeId);
             
-            const response = await axios.get(`http://localhost:5000/api/employees/${employeeId}`);
+            const response = await axios.get(API_ENDPOINTS.EMPLOYEE_BY_ID(employeeId));
             console.log('✅ Employee data received:', response.data);
             
             // Log specific fields to debug
@@ -38,7 +39,7 @@ const EmployeeProfileView = ({ show, onHide, employeeId }) => {
             setEmployee(response.data);
         } catch (error) {
             console.error('❌ Error fetching employee details:', error);
-            setError('Failed to load employee details');
+            setError(error.response?.data?.message || 'Failed to load employee details');
         } finally {
             setLoading(false);
         }
@@ -65,6 +66,11 @@ const EmployeeProfileView = ({ show, onHide, employeeId }) => {
             currency: 'INR',
             minimumFractionDigits: 0
         }).format(amount);
+    };
+
+    const getDisplayName = () => {
+        if (!employee) return '';
+        return `${employee.first_name || ''} ${employee.middle_name || ''} ${employee.last_name || ''}`.trim();
     };
 
     return (
@@ -96,7 +102,7 @@ const EmployeeProfileView = ({ show, onHide, employeeId }) => {
                             <Row className="align-items-center">
                                 <Col>
                                     <h4 className="mb-1">
-                                        {employee.first_name || ''} {employee.middle_name || ''} {employee.last_name || ''}
+                                        {getDisplayName()}
                                     </h4>
                                     <p className="mb-0 text-muted small">
                                         <Badge bg="secondary" className="me-2">ID: {employee.employee_id}</Badge>
@@ -125,7 +131,7 @@ const EmployeeProfileView = ({ show, onHide, employeeId }) => {
                                 <Col md={4} className="mb-2">
                                     <small className="text-muted d-block">Full Name</small>
                                     <span className="fw-semibold">
-                                        {employee.first_name || ''} {employee.middle_name || ''} {employee.last_name || ''}
+                                        {getDisplayName()}
                                     </span>
                                 </Col>
                                 <Col md={4} className="mb-2">

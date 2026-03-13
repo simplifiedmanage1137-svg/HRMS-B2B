@@ -1,7 +1,28 @@
+// src/components/Employee/EmployeeUpdateSection.jsx
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { 
+  Card, Button, Form, Alert, Spinner, 
+  Row, Col, Badge, Tab, Nav
+} from 'react-bootstrap';
 import { useAuth } from '../../context/AuthContext';
-import { FaEdit, FaSave, FaTimes } from 'react-icons/fa';
+import axios from '../../config/axios';
+import API_ENDPOINTS from '../../config/api';
+import { 
+  FaEdit, 
+  FaSave, 
+  FaTimes, 
+  FaInfoCircle,
+  FaCheckCircle,
+  FaExclamationTriangle,
+  FaHourglassHalf,
+  FaUser,
+  FaEnvelope,
+  FaPhone,
+  FaMapMarkerAlt,
+  FaUniversity,
+  FaBriefcase,
+  FaFileAlt
+} from 'react-icons/fa';
 
 const EmployeeUpdateSection = () => {
   const { user } = useAuth();
@@ -9,7 +30,9 @@ const EmployeeUpdateSection = () => {
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [formData, setFormData] = useState({});
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
+  const [fetching, setFetching] = useState(true);
+  const [message, setMessage] = useState({ type: '', text: '' });
+  const [activeTab, setActiveTab] = useState('pending');
 
   useEffect(() => {
     if (user?.employeeId) {
@@ -19,12 +42,18 @@ const EmployeeUpdateSection = () => {
 
   const fetchPendingRequests = async () => {
     try {
-      const response = await axios.get(
-        `http://localhost:5000/api/admin-updates/employee-requests/${user.employeeId}`
-      );
+      setFetching(true);
+      const response = await axios.get(API_ENDPOINTS.ADMIN_UPDATES_EMPLOYEE_REQUESTS(user.employeeId));
       setPendingRequests(response.data);
+      setMessage({ type: '', text: '' });
     } catch (error) {
       console.error('Error fetching requests:', error);
+      setMessage({
+        type: 'danger',
+        text: error.response?.data?.message || 'Failed to load update requests'
+      });
+    } finally {
+      setFetching(false);
     }
   };
 
@@ -32,16 +61,19 @@ const EmployeeUpdateSection = () => {
     setSelectedRequest(request);
     // Fetch current employee data
     fetchCurrentEmployeeData();
+    setMessage({ type: '', text: '' });
   };
 
   const fetchCurrentEmployeeData = async () => {
     try {
-      const response = await axios.get(
-        `http://localhost:5000/api/employees/profile/${user.employeeId}`
-      );
+      const response = await axios.get(API_ENDPOINTS.EMPLOYEE_PROFILE(user.employeeId));
       setFormData(response.data);
     } catch (error) {
       console.error('Error fetching employee data:', error);
+      setMessage({
+        type: 'danger',
+        text: error.response?.data?.message || 'Failed to load current employee data'
+      });
     }
   };
 
@@ -56,269 +88,552 @@ const EmployeeUpdateSection = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setMessage('');
+    setMessage({ type: '', text: '' });
 
     try {
-      await axios.post('http://localhost:5000/api/admin-updates/submit-update', {
+      await axios.post(API_ENDPOINTS.ADMIN_UPDATES_SUBMIT, {
         requestId: selectedRequest._id,
         updatedData: formData
       });
 
-      setMessage('Update submitted successfully! Waiting for admin approval.');
-      setSelectedRequest(null);
-      fetchPendingRequests();
+      setMessage({
+        type: 'success',
+        text: 'Update submitted successfully! Waiting for admin approval.'
+      });
+      
+      // Clear selected request after successful submission
+      setTimeout(() => {
+        setSelectedRequest(null);
+        fetchPendingRequests();
+      }, 2000);
+      
     } catch (error) {
-      setMessage('Error submitting update. Please try again.');
+      setMessage({
+        type: 'danger',
+        text: error.response?.data?.message || 'Error submitting update. Please try again.'
+      });
       console.error('Error:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  if (!pendingRequests.length) {
+  const handleCancel = () => {
+    setSelectedRequest(null);
+    setFormData({});
+    setMessage({ type: '', text: '' });
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
+
+  const getStatusBadge = (status) => {
+    switch(status) {
+      case 'pending':
+        return <Badge bg="warning" pill><FaHourglassHalf className="me-1" /> Pending</Badge>;
+      case 'approved':
+        return <Badge bg="success" pill><FaCheckCircle className="me-1" /> Approved</Badge>;
+      case 'rejected':
+        return <Badge bg="danger" pill><FaExclamationTriangle className="me-1" /> Rejected</Badge>;
+      default:
+        return <Badge bg="secondary" pill>{status}</Badge>;
+    }
+  };
+
+  if (fetching) {
     return (
-      <div className="card">
-        <div className="card-body text-center py-5">
-          <h5>No Pending Update Requests</h5>
-          <p className="text-muted">
-            You don't have any pending update requests from admin.
-          </p>
+      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
+        <div className="text-center">
+          <Spinner animation="border" variant="primary" />
+          <p className="mt-3 text-muted">Loading update requests...</p>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="employee-update-section">
-      <h4 className="mb-4">Pending Update Requests</h4>
+  if (!pendingRequests.length && !selectedRequest) {
+    return (
+      <Card className="border-0 shadow-sm">
+        <Card.Body className="text-center py-5">
+          <div className="mb-3">
+            <FaInfoCircle size={50} className="text-muted opacity-50" />
+          </div>
+          <h5>No Pending Update Requests</h5>
+          <p className="text-muted mb-0">
+            You don't have any pending update requests from admin at the moment.
+          </p>
+        </Card.Body>
+      </Card>
+    );
+  }
 
-      {message && (
-        <div className={`alert ${message.includes('success') ? 'alert-success' : 'alert-danger'}`}>
-          {message}
-        </div>
+  return (
+    <div className="employee-update-section p-4">
+      <h4 className="mb-4">
+        <FaEdit className="me-2 text-primary" />
+        Pending Update Requests
+      </h4>
+
+      {/* Message Alert */}
+      {message.text && (
+        <Alert 
+          variant={message.type} 
+          onClose={() => setMessage({ type: '', text: '' })} 
+          dismissible
+          className="mb-4"
+        >
+          {message.type === 'success' && <FaCheckCircle className="me-2" />}
+          {message.type === 'danger' && <FaExclamationTriangle className="me-2" />}
+          {message.text}
+        </Alert>
       )}
 
-      {!selectedRequest ? (
-        // Show list of pending requests
-        <div className="row">
-          {pendingRequests.map(request => (
-            <div key={request._id} className="col-md-6 mb-3">
-              <div className="card">
-                <div className="card-body">
-                  <h6 className="card-title">Update Request #{request._id.slice(-6)}</h6>
-                  <p className="card-text">
-                    <strong>Status:</strong> {request.status}
-                  </p>
-                  <p className="card-text">
-                    <strong>Fields to Update:</strong>{' '}
-                    {request.requestedFields.join(', ')}
-                  </p>
-                  <p className="card-text">
-                    <strong>Requested on:</strong>{' '}
-                    {new Date(request.createdAt).toLocaleDateString()}
-                  </p>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={() => handleEdit(request)}
-                  >
-                    <FaEdit /> Edit Information
-                  </button>
-                </div>
-              </div>
+      {selectedRequest ? (
+        // Edit Form View
+        <Card className="border-0 shadow-sm">
+          <Card.Header className="bg-white py-3 d-flex justify-content-between align-items-center">
+            <div>
+              <h5 className="mb-1">Edit Your Information</h5>
+              <small className="text-muted">
+                Request ID: #{selectedRequest._id?.slice(-6) || 'N/A'}
+              </small>
             </div>
-          ))}
-        </div>
-      ) : (
-        // Show edit form
-        <div className="card">
-          <div className="card-header d-flex justify-content-between align-items-center">
-            <h5>Edit Your Information</h5>
-            <button
-              className="btn btn-sm btn-secondary"
-              onClick={() => setSelectedRequest(null)}
+            <Button 
+              variant="outline-secondary" 
+              size="sm"
+              onClick={handleCancel}
             >
-              <FaTimes /> Cancel
-            </button>
-          </div>
-          <div className="card-body">
+              <FaTimes className="me-2" size={12} />
+              Cancel
+            </Button>
+          </Card.Header>
+          <Card.Body>
             <form onSubmit={handleSubmit}>
-              {/* Personal Information */}
-              <h6 className="mb-3">Personal Information</h6>
-              <div className="row mb-3">
-                <div className="col-md-6">
-                  <label className="form-label">First Name</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    name="firstName"
-                    value={formData.firstName || ''}
-                    onChange={handleInputChange}
-                  />
-                </div>
-                <div className="col-md-6">
-                  <label className="form-label">Last Name</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    name="lastName"
-                    value={formData.lastName || ''}
-                    onChange={handleInputChange}
-                  />
-                </div>
-              </div>
+              {/* Tabs for different sections */}
+              <Nav variant="tabs" className="mb-3" activeKey={activeTab} onSelect={(k) => setActiveTab(k)}>
+                <Nav.Item>
+                  <Nav.Link eventKey="pending" className="small">
+                    <FaUser className="me-2" size={12} />
+                    Personal
+                  </Nav.Link>
+                </Nav.Item>
+                <Nav.Item>
+                  <Nav.Link eventKey="contact" className="small">
+                    <FaEnvelope className="me-2" size={12} />
+                    Contact
+                  </Nav.Link>
+                </Nav.Item>
+                <Nav.Item>
+                  <Nav.Link eventKey="address" className="small">
+                    <FaMapMarkerAlt className="me-2" size={12} />
+                    Address
+                  </Nav.Link>
+                </Nav.Item>
+                <Nav.Item>
+                  <Nav.Link eventKey="employment" className="small">
+                    <FaBriefcase className="me-2" size={12} />
+                    Employment
+                  </Nav.Link>
+                </Nav.Item>
+                <Nav.Item>
+                  <Nav.Link eventKey="bank" className="small">
+                    <FaUniversity className="me-2" size={12} />
+                    Bank
+                  </Nav.Link>
+                </Nav.Item>
+              </Nav>
 
-              <div className="row mb-3">
-                <div className="col-md-6">
-                  <label className="form-label">Email</label>
-                  <input
-                    type="email"
-                    className="form-control"
-                    name="email"
-                    value={formData.email || ''}
-                    onChange={handleInputChange}
-                  />
-                </div>
-                <div className="col-md-6">
-                  <label className="form-label">Phone</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    name="phone"
-                    value={formData.phone || ''}
-                    onChange={handleInputChange}
-                  />
-                </div>
-              </div>
+              {/* Personal Information Tab */}
+              {activeTab === 'pending' && (
+                <div>
+                  <h6 className="mb-3">Personal Information</h6>
+                  <Row className="mb-3">
+                    <Col md={6}>
+                      <Form.Group>
+                        <Form.Label className="small fw-semibold">First Name</Form.Label>
+                        <Form.Control
+                          type="text"
+                          name="first_name"
+                          value={formData.first_name || ''}
+                          onChange={handleInputChange}
+                          size="sm"
+                        />
+                      </Form.Group>
+                    </Col>
+                    <Col md={6}>
+                      <Form.Group>
+                        <Form.Label className="small fw-semibold">Last Name</Form.Label>
+                        <Form.Control
+                          type="text"
+                          name="last_name"
+                          value={formData.last_name || ''}
+                          onChange={handleInputChange}
+                          size="sm"
+                        />
+                      </Form.Group>
+                    </Col>
+                  </Row>
 
-              <div className="row mb-3">
-                <div className="col-md-6">
-                  <label className="form-label">Designation</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    name="designation"
-                    value={formData.designation || ''}
-                    onChange={handleInputChange}
-                  />
+                  <Row className="mb-3">
+                    <Col md={6}>
+                      <Form.Group>
+                        <Form.Label className="small fw-semibold">Date of Birth</Form.Label>
+                        <Form.Control
+                          type="date"
+                          name="dob"
+                          value={formData.dob || ''}
+                          onChange={handleInputChange}
+                          size="sm"
+                        />
+                      </Form.Group>
+                    </Col>
+                    <Col md={6}>
+                      <Form.Group>
+                        <Form.Label className="small fw-semibold">Blood Group</Form.Label>
+                        <Form.Select
+                          name="blood_group"
+                          value={formData.blood_group || ''}
+                          onChange={handleInputChange}
+                          size="sm"
+                        >
+                          <option value="">Select Blood Group</option>
+                          <option value="A+">A+</option>
+                          <option value="A-">A-</option>
+                          <option value="B+">B+</option>
+                          <option value="B-">B-</option>
+                          <option value="O+">O+</option>
+                          <option value="O-">O-</option>
+                          <option value="AB+">AB+</option>
+                          <option value="AB-">AB-</option>
+                        </Form.Select>
+                      </Form.Group>
+                    </Col>
+                  </Row>
                 </div>
-                <div className="col-md-6">
-                  <label className="form-label">Department</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    name="department"
-                    value={formData.department || ''}
-                    onChange={handleInputChange}
-                  />
-                </div>
-              </div>
+              )}
 
-              {/* Address */}
-              <h6 className="mb-3 mt-4">Address</h6>
-              <div className="mb-3">
-                <label className="form-label">Address</label>
-                <textarea
-                  className="form-control"
-                  name="address"
-                  rows="2"
-                  value={formData.address || ''}
-                  onChange={handleInputChange}
-                />
-              </div>
+              {/* Contact Information Tab */}
+              {activeTab === 'contact' && (
+                <div>
+                  <h6 className="mb-3">Contact Information</h6>
+                  <Row className="mb-3">
+                    <Col md={6}>
+                      <Form.Group>
+                        <Form.Label className="small fw-semibold">Email</Form.Label>
+                        <Form.Control
+                          type="email"
+                          name="email"
+                          value={formData.email || ''}
+                          onChange={handleInputChange}
+                          size="sm"
+                        />
+                      </Form.Group>
+                    </Col>
+                    <Col md={6}>
+                      <Form.Group>
+                        <Form.Label className="small fw-semibold">Phone</Form.Label>
+                        <Form.Control
+                          type="tel"
+                          name="phone"
+                          value={formData.phone || ''}
+                          onChange={handleInputChange}
+                          size="sm"
+                          placeholder="10 digit mobile number"
+                        />
+                      </Form.Group>
+                    </Col>
+                  </Row>
+                </div>
+              )}
 
-              <div className="row mb-3">
-                <div className="col-md-4">
-                  <label className="form-label">City</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    name="city"
-                    value={formData.city || ''}
-                    onChange={handleInputChange}
-                  />
-                </div>
-                <div className="col-md-4">
-                  <label className="form-label">State</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    name="state"
-                    value={formData.state || ''}
-                    onChange={handleInputChange}
-                  />
-                </div>
-                <div className="col-md-4">
-                  <label className="form-label">Pincode</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    name="pincode"
-                    value={formData.pincode || ''}
-                    onChange={handleInputChange}
-                  />
-                </div>
-              </div>
+              {/* Address Tab */}
+              {activeTab === 'address' && (
+                <div>
+                  <h6 className="mb-3">Address</h6>
+                  <Form.Group className="mb-3">
+                    <Form.Label className="small fw-semibold">Address</Form.Label>
+                    <Form.Control
+                      as="textarea"
+                      rows={2}
+                      name="address"
+                      value={formData.address || ''}
+                      onChange={handleInputChange}
+                      size="sm"
+                      placeholder="Full address"
+                    />
+                  </Form.Group>
 
-              {/* Bank Details */}
-              <h6 className="mb-3 mt-4">Bank Details</h6>
-              <div className="row mb-3">
-                <div className="col-md-6">
-                  <label className="form-label">Bank Name</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    name="bankName"
-                    value={formData.bankName || ''}
-                    onChange={handleInputChange}
-                  />
+                  <Row className="mb-3">
+                    <Col md={4}>
+                      <Form.Group>
+                        <Form.Label className="small fw-semibold">City</Form.Label>
+                        <Form.Control
+                          type="text"
+                          name="city"
+                          value={formData.city || ''}
+                          onChange={handleInputChange}
+                          size="sm"
+                        />
+                      </Form.Group>
+                    </Col>
+                    <Col md={4}>
+                      <Form.Group>
+                        <Form.Label className="small fw-semibold">State</Form.Label>
+                        <Form.Control
+                          type="text"
+                          name="state"
+                          value={formData.state || ''}
+                          onChange={handleInputChange}
+                          size="sm"
+                        />
+                      </Form.Group>
+                    </Col>
+                    <Col md={4}>
+                      <Form.Group>
+                        <Form.Label className="small fw-semibold">Pincode</Form.Label>
+                        <Form.Control
+                          type="text"
+                          name="pincode"
+                          value={formData.pincode || ''}
+                          onChange={handleInputChange}
+                          size="sm"
+                        />
+                      </Form.Group>
+                    </Col>
+                  </Row>
                 </div>
-                <div className="col-md-6">
-                  <label className="form-label">Account Number</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    name="accountNumber"
-                    value={formData.accountNumber || ''}
-                    onChange={handleInputChange}
-                  />
-                </div>
-              </div>
+              )}
 
-              <div className="row mb-3">
-                <div className="col-md-6">
-                  <label className="form-label">IFSC Code</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    name="ifscCode"
-                    value={formData.ifscCode || ''}
-                    onChange={handleInputChange}
-                  />
+              {/* Employment Details Tab */}
+              {activeTab === 'employment' && (
+                <div>
+                  <h6 className="mb-3">Employment Details</h6>
+                  <Row className="mb-3">
+                    <Col md={6}>
+                      <Form.Group>
+                        <Form.Label className="small fw-semibold">Designation</Form.Label>
+                        <Form.Control
+                          type="text"
+                          name="designation"
+                          value={formData.designation || ''}
+                          onChange={handleInputChange}
+                          size="sm"
+                        />
+                      </Form.Group>
+                    </Col>
+                    <Col md={6}>
+                      <Form.Group>
+                        <Form.Label className="small fw-semibold">Department</Form.Label>
+                        <Form.Control
+                          type="text"
+                          name="department"
+                          value={formData.department || ''}
+                          onChange={handleInputChange}
+                          size="sm"
+                        />
+                      </Form.Group>
+                    </Col>
+                  </Row>
+
+                  <Row className="mb-3">
+                    <Col md={6}>
+                      <Form.Group>
+                        <Form.Label className="small fw-semibold">Employment Type</Form.Label>
+                        <Form.Select
+                          name="employment_type"
+                          value={formData.employment_type || ''}
+                          onChange={handleInputChange}
+                          size="sm"
+                        >
+                          <option value="">Select Type</option>
+                          <option value="Full Time">Full Time</option>
+                          <option value="Part Time">Part Time</option>
+                          <option value="Contract">Contract</option>
+                          <option value="Intern">Intern</option>
+                          <option value="Probation">Probation</option>
+                        </Form.Select>
+                      </Form.Group>
+                    </Col>
+                    <Col md={6}>
+                      <Form.Group>
+                        <Form.Label className="small fw-semibold">Shift Timing</Form.Label>
+                        <Form.Control
+                          type="text"
+                          name="shift_timing"
+                          value={formData.shift_timing || ''}
+                          onChange={handleInputChange}
+                          size="sm"
+                          placeholder="e.g., 9:00 AM - 6:00 PM"
+                        />
+                      </Form.Group>
+                    </Col>
+                  </Row>
+
+                  <Form.Group className="mb-3">
+                    <Form.Label className="small fw-semibold">Reporting Manager</Form.Label>
+                    <Form.Control
+                      type="text"
+                      name="reporting_manager"
+                      value={formData.reporting_manager || ''}
+                      onChange={handleInputChange}
+                      size="sm"
+                    />
+                  </Form.Group>
                 </div>
-                <div className="col-md-6">
-                  <label className="form-label">PAN Card</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    name="panNumber"
-                    value={formData.panNumber || ''}
-                    onChange={handleInputChange}
-                  />
+              )}
+
+              {/* Bank Details Tab */}
+              {activeTab === 'bank' && (
+                <div>
+                  <h6 className="mb-3">Bank Details</h6>
+                  <Row className="mb-3">
+                    <Col md={6}>
+                      <Form.Group>
+                        <Form.Label className="small fw-semibold">Bank Account Name</Form.Label>
+                        <Form.Control
+                          type="text"
+                          name="bank_account_name"
+                          value={formData.bank_account_name || ''}
+                          onChange={handleInputChange}
+                          size="sm"
+                        />
+                      </Form.Group>
+                    </Col>
+                    <Col md={6}>
+                      <Form.Group>
+                        <Form.Label className="small fw-semibold">Account Number</Form.Label>
+                        <Form.Control
+                          type="text"
+                          name="account_number"
+                          value={formData.account_number || ''}
+                          onChange={handleInputChange}
+                          size="sm"
+                        />
+                      </Form.Group>
+                    </Col>
+                  </Row>
+
+                  <Row className="mb-3">
+                    <Col md={4}>
+                      <Form.Group>
+                        <Form.Label className="small fw-semibold">IFSC Code</Form.Label>
+                        <Form.Control
+                          type="text"
+                          name="ifsc_code"
+                          value={formData.ifsc_code || ''}
+                          onChange={handleInputChange}
+                          size="sm"
+                          placeholder="e.g., SBIN0001234"
+                        />
+                      </Form.Group>
+                    </Col>
+                    <Col md={4}>
+                      <Form.Group>
+                        <Form.Label className="small fw-semibold">Branch Name</Form.Label>
+                        <Form.Control
+                          type="text"
+                          name="branch_name"
+                          value={formData.branch_name || ''}
+                          onChange={handleInputChange}
+                          size="sm"
+                        />
+                      </Form.Group>
+                    </Col>
+                    <Col md={4}>
+                      <Form.Group>
+                        <Form.Label className="small fw-semibold">PAN Number</Form.Label>
+                        <Form.Control
+                          type="text"
+                          name="pan_number"
+                          value={formData.pan_number || ''}
+                          onChange={handleInputChange}
+                          size="sm"
+                        />
+                      </Form.Group>
+                    </Col>
+                  </Row>
                 </div>
-              </div>
+              )}
 
               <div className="text-end mt-4">
-                <button
+                <Button
                   type="submit"
-                  className="btn btn-success"
+                  variant="success"
                   disabled={loading}
+                  className="px-4"
                 >
-                  <FaSave /> {loading ? 'Submitting...' : 'Submit Update for Approval'}
-                </button>
+                  {loading ? (
+                    <>
+                      <Spinner size="sm" animation="border" className="me-2" />
+                      Submitting...
+                    </>
+                  ) : (
+                    <>
+                      <FaSave className="me-2" size={12} />
+                      Submit Update for Approval
+                    </>
+                  )}
+                </Button>
               </div>
             </form>
-          </div>
-        </div>
+          </Card.Body>
+        </Card>
+      ) : (
+        // List View of Pending Requests
+        <Row>
+          {pendingRequests.map(request => (
+            <Col md={6} lg={4} key={request._id} className="mb-3">
+              <Card className="border-0 shadow-sm h-100">
+                <Card.Header className="bg-white py-2">
+                  <div className="d-flex justify-content-between align-items-center">
+                    <small className="fw-semibold">Request #{request._id?.slice(-6)}</small>
+                    {getStatusBadge(request.status)}
+                  </div>
+                </Card.Header>
+                <Card.Body>
+                  <div className="mb-3">
+                    <small className="text-muted d-block mb-2">Fields to Update:</small>
+                    <div className="d-flex flex-wrap gap-1">
+                      {request.requestedFields?.map(field => (
+                        <Badge key={field} bg="light" text="dark" className="px-2 py-1">
+                          {field}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mb-2">
+                    <small className="text-muted d-block">Requested on:</small>
+                    <small className="fw-semibold">{formatDate(request.createdAt)}</small>
+                  </div>
+
+                  {request.notes && (
+                    <div className="bg-light p-2 rounded small mb-3">
+                      <FaInfoCircle className="text-muted me-1" size={10} />
+                      {request.notes}
+                    </div>
+                  )}
+
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    className="w-100"
+                    onClick={() => handleEdit(request)}
+                  >
+                    <FaEdit className="me-2" size={12} />
+                    Edit Information
+                  </Button>
+                </Card.Body>
+              </Card>
+            </Col>
+          ))}
+        </Row>
       )}
     </div>
   );

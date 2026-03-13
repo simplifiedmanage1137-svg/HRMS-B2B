@@ -19,7 +19,8 @@ import {
   FaUniversity,
   FaIdCard
 } from 'react-icons/fa';
-import axios from 'axios';
+import axios from '../../config/axios'; // Import configured axios instance
+import API_ENDPOINTS from '../../config/api'; // Import API endpoints
 import * as XLSX from 'xlsx';
 import { holidays as holidayData } from '../../data/holidays';
 
@@ -53,6 +54,7 @@ const AttendanceReports = () => {
   // Common State
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [messageType, setMessageType] = useState('');
 
   const months = [
     { value: 1, label: 'January', short: 'Jan' },
@@ -102,15 +104,16 @@ const AttendanceReports = () => {
   // ============== FETCH ALL EMPLOYEES ==============
   const fetchAllEmployees = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/employees');
+      const response = await axios.get(API_ENDPOINTS.EMPLOYEES);
       setAllEmployees(response.data);
 
       const depts = ['all', ...new Set(response.data.map(emp => emp.department).filter(Boolean))];
       setDepartments(depts);
-
+      setMessage('');
     } catch (error) {
       console.error('Error fetching employees:', error);
       setMessage('Failed to load employees');
+      setMessageType('danger');
     }
   };
 
@@ -118,10 +121,10 @@ const AttendanceReports = () => {
   const fetchDailyAttendance = async () => {
     try {
       setLoading(true);
+      setMessage('');
 
-      const response = await axios.get(
-        `http://localhost:5000/api/attendance/report?start=${selectedDate}&end=${selectedDate}`
-      );
+      const url = `${API_ENDPOINTS.ATTENDANCE_REPORT}?start=${selectedDate}&end=${selectedDate}`;
+      const response = await axios.get(url);
 
       const attendanceData = response.data.attendance || [];
 
@@ -152,11 +155,10 @@ const AttendanceReports = () => {
       });
 
       setDailyAttendance(processedAttendance);
-      setMessage('');
-
     } catch (error) {
       console.error('Error fetching daily attendance:', error);
-      setMessage('Failed to load attendance');
+      setMessage(error.response?.data?.message || 'Failed to load attendance');
+      setMessageType('danger');
     } finally {
       setLoading(false);
     }
@@ -166,6 +168,7 @@ const AttendanceReports = () => {
   const fetchMonthlyAttendance = async () => {
     try {
       setLoading(true);
+      setMessage('');
 
       const startDate = new Date(selectedYear, selectedMonth - 1, 1);
       const endDate = new Date(selectedYear, selectedMonth, 0);
@@ -173,7 +176,7 @@ const AttendanceReports = () => {
       const startDateStr = startDate.toISOString().split('T')[0];
       const endDateStr = endDate.toISOString().split('T')[0];
 
-      let url = `http://localhost:5000/api/attendance/report?start=${startDateStr}&end=${endDateStr}`;
+      let url = `${API_ENDPOINTS.ATTENDANCE_REPORT}?start=${startDateStr}&end=${endDateStr}`;
       if (department !== 'all') {
         url += `&department=${department}`;
       }
@@ -184,7 +187,7 @@ const AttendanceReports = () => {
       // Fetch leave data
       let leaveData = [];
       try {
-        const leaveResponse = await axios.get('http://localhost:5000/api/leaves');
+        const leaveResponse = await axios.get(API_ENDPOINTS.LEAVES);
         leaveData = leaveResponse.data.filter(leave =>
           leave.status === 'approved' &&
           new Date(leave.end_date) >= startDate &&
@@ -213,11 +216,10 @@ const AttendanceReports = () => {
 
       setMonthlyAttendance(processedData);
       calculateMonthlyStatistics(processedData);
-      setMessage('');
-
     } catch (error) {
       console.error('Error fetching monthly attendance:', error);
-      setMessage('Failed to load monthly attendance');
+      setMessage(error.response?.data?.message || 'Failed to load monthly attendance');
+      setMessageType('danger');
     } finally {
       setLoading(false);
     }
@@ -442,7 +444,7 @@ const AttendanceReports = () => {
   // ============== GET LEAVE BALANCE FOR EMPLOYEE ==============
   const getLeaveBalance = async (employeeId) => {
     try {
-      const response = await axios.get(`http://localhost:5000/api/leaves/balance/${employeeId}`);
+      const response = await axios.get(API_ENDPOINTS.LEAVE_BALANCE(employeeId));
       return response.data.available || '0';
     } catch (error) {
       console.error('Error fetching leave balance:', error);
@@ -517,185 +519,196 @@ const AttendanceReports = () => {
 
   // ============== EXPORT TO EXCEL - COMPLETE FORMAT ==============
   const handleExportExcel = async () => {
-    if (activeView === 'daily') {
-      // Daily Export (keep existing format)
-      const exportDate = new Date(selectedDate);
-      const formattedDate = exportDate.toLocaleDateString();
+    try {
+      if (activeView === 'daily') {
+        // Daily Export
+        const exportDate = new Date(selectedDate);
+        const formattedDate = exportDate.toLocaleDateString();
 
-      const exportData = dailyAttendance.map((record, index) => ({
-        'Sr No': index + 1,
-        'Date': formattedDate,
-        'Employee ID': record.employee_id,
-        'Employee Name': `${record.first_name} ${record.last_name}`,
-        'Department': record.department,
-        'Shift': record.shift_time_used || 'Not set',
-        'Clock In': record.clock_in ? formatTime(record.clock_in) : '-',
-        'Clock Out': record.clock_out ? formatTime(record.clock_out) : '-',
-        'Total Hours': record.total_hours || '0.0',
-        'Late Duration': record.late_display || '0',
-        'Late (minutes)': record.late_minutes ? (record.late_minutes * 60).toFixed(0) : '0',
-        'Status': record.status === 'present' ? 'Present' :
-          record.status === 'half_day' ? 'Half Day' :
-            record.status === 'working' ? 'Working' :
-              record.status === 'on_leave' ? 'On Leave' :
-                record.status === 'holiday' ? 'Holiday' : 'Absent'
-      }));
+        const exportData = dailyAttendance.map((record, index) => ({
+          'Sr No': index + 1,
+          'Date': formattedDate,
+          'Employee ID': record.employee_id,
+          'Employee Name': `${record.first_name} ${record.last_name}`,
+          'Department': record.department,
+          'Shift': record.shift_time_used || 'Not set',
+          'Clock In': record.clock_in ? formatTime(record.clock_in) : '-',
+          'Clock Out': record.clock_out ? formatTime(record.clock_out) : '-',
+          'Total Hours': record.total_hours || '0.0',
+          'Late Duration': record.late_display || '0',
+          'Late (minutes)': record.late_minutes ? (record.late_minutes * 60).toFixed(0) : '0',
+          'Status': record.status === 'present' ? 'Present' :
+            record.status === 'half_day' ? 'Half Day' :
+              record.status === 'working' ? 'Working' :
+                record.status === 'on_leave' ? 'On Leave' :
+                  record.status === 'holiday' ? 'Holiday' : 'Absent'
+        }));
 
-      const ws = XLSX.utils.json_to_sheet(exportData);
+        const ws = XLSX.utils.json_to_sheet(exportData);
 
-      const colWidths = [
-        { wch: 8 },   // Sr No
-        { wch: 12 },  // Date
-        { wch: 15 },  // Employee ID
-        { wch: 25 },  // Employee Name
-        { wch: 15 },  // Department
-        { wch: 15 },  // Shift
-        { wch: 10 },  // Clock In
-        { wch: 10 },  // Clock Out
-        { wch: 10 },  // Total Hours
-        { wch: 12 },  // Late Duration
-        { wch: 12 },  // Late (minutes)
-        { wch: 12 }   // Status
-      ];
-      ws['!cols'] = colWidths;
+        const colWidths = [
+          { wch: 8 },   // Sr No
+          { wch: 12 },  // Date
+          { wch: 15 },  // Employee ID
+          { wch: 25 },  // Employee Name
+          { wch: 15 },  // Department
+          { wch: 15 },  // Shift
+          { wch: 10 },  // Clock In
+          { wch: 10 },  // Clock Out
+          { wch: 10 },  // Total Hours
+          { wch: 12 },  // Late Duration
+          { wch: 12 },  // Late (minutes)
+          { wch: 12 }   // Status
+        ];
+        ws['!cols'] = colWidths;
 
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Daily Attendance');
-      XLSX.writeFile(wb, `Daily_Attendance_${selectedDate}.xlsx`);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Daily Attendance');
+        XLSX.writeFile(wb, `Daily_Attendance_${selectedDate}.xlsx`);
 
-    } else {
-      // Monthly Export - COMPLETE FORMAT
-      const currentMonthData = months.find(m => m.value === selectedMonth);
-      const monthShort = currentMonthData?.short || 'Month';
-      const monthName = currentMonthData?.label || 'Month';
+      } else {
+        // Monthly Export - COMPLETE FORMAT
+        const currentMonthData = months.find(m => m.value === selectedMonth);
+        const monthShort = currentMonthData?.short || 'Month';
+        const monthName = currentMonthData?.label || 'Month';
 
-      const exportData = [];
+        const exportData = [];
 
-      // Sort employees
-      const sortedEmployees = [...allEmployees].sort((a, b) => {
-        if (department !== 'all') {
-          if (a.department === department && b.department !== department) return -1;
-          if (a.department !== department && b.department === department) return 1;
-        }
-        return (a.first_name || '').localeCompare(b.first_name || '');
-      });
+        // Sort employees
+        const sortedEmployees = [...allEmployees].sort((a, b) => {
+          if (department !== 'all') {
+            if (a.department === department && b.department !== department) return -1;
+            if (a.department !== department && b.department === department) return 1;
+          }
+          return (a.first_name || '').localeCompare(b.first_name || '');
+        });
 
-      for (const employee of sortedEmployees) {
-        // Filter department if needed
-        if (department !== 'all' && employee.department !== department) continue;
+        for (const employee of sortedEmployees) {
+          // Filter department if needed
+          if (department !== 'all' && employee.department !== department) continue;
 
-        const empRecords = monthlyAttendance.filter(r => r.employee_id === employee.employee_id);
-        const empStats = monthlyStats[employee.employee_id] || {
-          present: 0,
-          half_day: 0,
-          absent: 0,
-          on_leave: 0,
-          late_count: 0
-        };
+          const empRecords = monthlyAttendance.filter(r => r.employee_id === employee.employee_id);
+          const empStats = monthlyStats[employee.employee_id] || {
+            present: 0,
+            half_day: 0,
+            absent: 0,
+            on_leave: 0,
+            late_count: 0
+          };
 
-        // Get leave balance
-        const leaveBalance = await getLeaveBalance(employee.employee_id);
+          // Get leave balance
+          const leaveBalance = await getLeaveBalance(employee.employee_id);
 
-        // Calculate salary components
-        const salary = calculateSalary(employee, empStats.present, empStats.half_day, empStats.late_count);
+          // Calculate salary components
+          const salary = calculateSalary(employee, empStats.present, empStats.half_day, empStats.late_count);
 
-        // Create row for this employee
-        const row = {
-          'Employee Name': `${employee.first_name || ''} ${employee.last_name || ''}`.trim(),
-          'Date of Joining': employee.joining_date ? new Date(employee.joining_date).toLocaleDateString() : 'N/A',
-          'Leave Balance': leaveBalance,
-        };
+          // Create row for this employee
+          const row = {
+            'Employee Name': `${employee.first_name || ''} ${employee.last_name || ''}`.trim(),
+            'Date of Joining': employee.joining_date ? new Date(employee.joining_date).toLocaleDateString() : 'N/A',
+            'Leave Balance': leaveBalance,
+          };
 
-        // Add each day's status with month and date
-        for (let day = 1; day <= daysInMonth; day++) {
-          const dayRecord = empRecords.find(r => r.day === day);
-          let status = '';
+          // Add each day's status with month and date
+          for (let day = 1; day <= daysInMonth; day++) {
+            const dayRecord = empRecords.find(r => r.day === day);
+            let status = '';
 
-          if (dayRecord) {
-            if (dayRecord.status === 'present' || dayRecord.status === 'working') {
-              status = 'P';
-            } else if (dayRecord.status === 'half_day') {
-              status = 'HD';
-            } else if (dayRecord.status === 'on_leave') {
-              status = 'L';
-            } else if (dayRecord.status === 'holiday') {
-              status = 'H';
+            if (dayRecord) {
+              if (dayRecord.status === 'present' || dayRecord.status === 'working') {
+                status = 'P';
+              } else if (dayRecord.status === 'half_day') {
+                status = 'HD';
+              } else if (dayRecord.status === 'on_leave') {
+                status = 'L';
+              } else if (dayRecord.status === 'holiday') {
+                status = 'H';
+              } else {
+                status = 'A';
+              }
             } else {
               status = 'A';
             }
-          } else {
-            status = 'A';
+
+            // Format: "Mar 1", "Mar 2", etc.
+            row[`${monthShort} ${day}`] = status;
           }
 
-          // Format: "Mar 1", "Mar 2", etc.
-          row[`${monthShort} ${day}`] = status;
+          // Add all required columns
+          row['Days of the Month'] = daysInMonth;
+          row['Actual Present Days'] = (empStats.present + (empStats.half_day * 0.5)).toFixed(1);
+          row['Present Days'] = empStats.present || 0;
+          row['Half Days'] = empStats.half_day || 0;
+          row['PL Leave'] = empStats.on_leave || 0;
+          row['Absent'] = empStats.absent || 0;
+          row['Late Coming'] = empStats.late_count || 0;
+          row['Amount'] = salary.actualSalary;
+          row['Gross Salary'] = salary.grossSalary;
+          row['Net Salary'] = salary.inHandSalary;
+          row['Actual Salary'] = salary.actualSalary;
+          row['Professional Tax'] = salary.profTax;
+          row['Deduction'] = salary.totalDeductions;
+          row['Net Salary To be Pay'] = salary.netSalaryToPay;
+          row['Gender'] = getGender(employee);
+          row['Account Number'] = employee.account_number || 'N/A';
+          row['IFSC Code'] = employee.ifsc_code || 'N/A';
+          row['Bank Name'] = employee.bank_account_name || 'N/A';
+
+          exportData.push(row);
         }
 
-        // Add all required columns
-        row['Days of the Month'] = daysInMonth;
-        row['Actual Present Days'] = (empStats.present + (empStats.half_day * 0.5)).toFixed(1);
-        row['Present Days'] = empStats.present || 0;
-        row['Half Days'] = empStats.half_day || 0;
-        row['PL Leave'] = empStats.on_leave || 0;
-        row['Absent'] = empStats.absent || 0;
-        row['Late Coming'] = empStats.late_count || 0;
-        row['Amount'] = salary.actualSalary;
-        row['Gross Salary'] = salary.grossSalary;
-        row['Net Salary'] = salary.inHandSalary;
-        row['Actual Salary'] = salary.actualSalary;
-        row['Professional Tax'] = salary.profTax;
-        row['Deduction'] = salary.totalDeductions;
-        row['Net Salary To be Pay'] = salary.netSalaryToPay;
-        row['Gender'] = getGender(employee);
-        row['Account Number'] = employee.account_number || 'N/A';
-        row['IFSC Code'] = employee.ifsc_code || 'N/A';
-        row['Bank Name'] = employee.bank_account_name || 'N/A';
+        // Create worksheet
+        const ws = XLSX.utils.json_to_sheet(exportData);
 
-        exportData.push(row);
+        // Calculate column widths
+        const colWidths = [
+          { wch: 25 }, // Employee Name
+          { wch: 15 }, // Date of Joining
+          { wch: 12 }, // Leave Balance
+        ];
+
+        // Add widths for each day column
+        for (let i = 1; i <= daysInMonth; i++) {
+          colWidths.push({ wch: 8 }); // "Mar 1" style
+        }
+
+        // Add widths for summary columns
+        colWidths.push(
+          { wch: 15 }, // Days of the Month
+          { wch: 15 }, // Actual Present Days
+          { wch: 12 }, // Present Days
+          { wch: 10 }, // Half Days
+          { wch: 10 }, // PL Leave
+          { wch: 10 }, // Absent
+          { wch: 12 }, // Late Coming
+          { wch: 12 }, // Amount
+          { wch: 12 }, // Gross Salary
+          { wch: 12 }, // Net Salary
+          { wch: 12 }, // Actual Salary
+          { wch: 15 }, // Professional Tax
+          { wch: 12 }, // Deduction
+          { wch: 18 }, // Net Salary To be Pay
+          { wch: 20 }, // Account Number
+          { wch: 15 }, // IFSC Code
+          { wch: 20 }  // Bank Name
+        );
+
+        ws['!cols'] = colWidths;
+
+        // Create workbook and save
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Monthly Attendance');
+        XLSX.writeFile(wb, `Attendance_Report_${monthName}_${selectedYear}.xlsx`);
       }
-
-      // Create worksheet
-      const ws = XLSX.utils.json_to_sheet(exportData);
-
-      // Calculate column widths
-      const colWidths = [
-        { wch: 25 }, // Employee Name
-        { wch: 15 }, // Date of Joining
-        { wch: 12 }, // Leave Balance
-      ];
-
-      // Add widths for each day column
-      for (let i = 1; i <= daysInMonth; i++) {
-        colWidths.push({ wch: 8 }); // "Mar 1" style
-      }
-
-      // Add widths for summary columns
-      colWidths.push(
-        { wch: 15 }, // Days of the Month
-        { wch: 15 }, // Actual Present Days
-        { wch: 12 }, // Present Days
-        { wch: 10 }, // Half Days
-        { wch: 10 }, // PL Leave
-        { wch: 10 }, // Absent
-        { wch: 12 }, // Late Coming
-        { wch: 12 }, // Amount
-        { wch: 12 }, // Gross Salary
-        { wch: 12 }, // Net Salary
-        { wch: 12 }, // Actual Salary
-        { wch: 15 }, // Professional Tax
-        { wch: 12 }, // Deduction
-        { wch: 18 }, // Net Salary To be Pay
-        { wch: 20 }, // Account Number
-        { wch: 15 }, // IFSC Code
-        { wch: 20 }  // Bank Name
-      );
-
-      ws['!cols'] = colWidths;
-
-      // Create workbook and save
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Monthly Attendance');
-      XLSX.writeFile(wb, `Attendance_Report_${monthName}_${selectedYear}.xlsx`);
+      
+      setMessage('Export completed successfully!');
+      setMessageType('success');
+      setTimeout(() => setMessage(''), 3000);
+      
+    } catch (error) {
+      console.error('Error exporting to Excel:', error);
+      setMessage('Failed to export data');
+      setMessageType('danger');
     }
   };
 
@@ -765,7 +778,7 @@ const AttendanceReports = () => {
 
       {/* Message Alert */}
       {message && (
-        <Alert variant="danger" onClose={() => setMessage('')} dismissible className="mb-3 py-2">
+        <Alert variant={messageType} onClose={() => setMessage('')} dismissible className="mb-3 py-2">
           <small>{message}</small>
         </Alert>
       )}

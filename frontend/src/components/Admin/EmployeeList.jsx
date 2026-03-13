@@ -3,7 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { Table, Button, Card, Modal, Alert, Badge, Spinner } from 'react-bootstrap';
 import { FaEdit, FaTrash, FaEye, FaPlus, FaDownload, FaFilePdf, FaFileImage, FaFileAlt } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import axios from '../../config/axios';
+import API_ENDPOINTS from '../../config/api';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 import EmployeeProfileView from './EmployeeProfileView';
@@ -40,13 +41,13 @@ const EmployeeList = () => {
   const fetchEmployees = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('http://localhost:5000/api/employees');
+      const response = await axios.get(API_ENDPOINTS.EMPLOYEES);
       setEmployees(response.data);
       setError('');
     } catch (error) {
       console.error('Error fetching employees:', error);
-      setError('Failed to load employees');
-      showNotification('Failed to load employees', 'danger');
+      setError(error.response?.data?.message || 'Failed to load employees');
+      showNotification(error.response?.data?.message || 'Failed to load employees', 'danger');
     } finally {
       setLoading(false);
     }
@@ -58,7 +59,7 @@ const EmployeeList = () => {
       setSelectedEmployeeForDocs(employee);
       
       console.log('Fetching documents for employee:', employee.employee_id);
-      const response = await axios.get(`http://localhost:5000/api/employees/${employee.employee_id}/documents`);
+      const response = await axios.get(API_ENDPOINTS.EMPLOYEE_DOCUMENTS(employee.employee_id));
       console.log('Documents received:', response.data);
       
       // Process documents - filter out null/empty values
@@ -74,10 +75,10 @@ const EmployeeList = () => {
       console.log('Processed documents:', docs);
       setEmployeeDocuments(docs);
       setShowDocumentModal(true);
-      setDocLoading(false);
     } catch (error) {
       console.error('Error fetching documents:', error);
-      showNotification('Failed to load documents', 'danger');
+      showNotification(error.response?.data?.message || 'Failed to load documents', 'danger');
+    } finally {
       setDocLoading(false);
     }
   };
@@ -113,7 +114,7 @@ const EmployeeList = () => {
     return <FaFileAlt className="text-secondary" size={20} />;
   };
 
-  // FIXED: View Document Function - Opens in new tab
+  // View Document Function - Opens in new tab
   const handleViewDocument = async (doc) => {
     try {
       if (!selectedEmployeeForDocs) {
@@ -125,7 +126,7 @@ const EmployeeList = () => {
       console.log('Employee ID:', selectedEmployeeForDocs.employee_id);
       
       // Use employee_id for the API call
-      const viewUrl = `http://localhost:5000/api/employees/${selectedEmployeeForDocs.employee_id}/documents/${doc.type}?inline=true`;
+      const viewUrl = API_ENDPOINTS.EMPLOYEE_DOCUMENT_BY_TYPE(selectedEmployeeForDocs.employee_id, doc.type) + '?inline=true';
       console.log('Opening URL:', viewUrl);
       
       // Open in new tab
@@ -137,7 +138,7 @@ const EmployeeList = () => {
     }
   };
 
-  // FIXED: Download Document Function
+  // Download Document Function
   const handleDownloadDocument = async (doc) => {
     try {
       if (!selectedEmployeeForDocs) {
@@ -150,7 +151,7 @@ const EmployeeList = () => {
 
       // Make API call with responseType blob
       const response = await axios.get(
-        `http://localhost:5000/api/employees/${selectedEmployeeForDocs.employee_id}/documents/${doc.type}`,
+        API_ENDPOINTS.EMPLOYEE_DOCUMENT_BY_TYPE(selectedEmployeeForDocs.employee_id, doc.type),
         {
           responseType: 'blob',
           headers: {
@@ -182,7 +183,7 @@ const EmployeeList = () => {
     } catch (error) {
       console.error('Error downloading document:', error);
       console.error('Error response:', error.response?.data);
-      showNotification('Failed to download document', 'danger');
+      showNotification(error.response?.data?.message || 'Failed to download document', 'danger');
     }
   };
 
@@ -191,15 +192,15 @@ const EmployeeList = () => {
     
     setDeleting(true);
     try {
-      await axios.delete(`http://localhost:5000/api/employees/${selectedEmployee.id}`);
+      await axios.delete(API_ENDPOINTS.EMPLOYEE_DELETE(selectedEmployee.id));
       setShowDeleteModal(false);
       await fetchEmployees();
       showNotification(`Employee "${selectedEmployee.first_name} ${selectedEmployee.last_name}" deleted successfully!`, 'success');
       setSelectedEmployee(null);
     } catch (error) {
       console.error('Error deleting employee:', error);
-      setError('Failed to delete employee');
-      showNotification('Failed to delete employee', 'danger');
+      setError(error.response?.data?.message || 'Failed to delete employee');
+      showNotification(error.response?.data?.message || 'Failed to delete employee', 'danger');
     } finally {
       setDeleting(false);
     }

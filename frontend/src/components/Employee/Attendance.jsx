@@ -1,4 +1,4 @@
-// components/Employee/Attendance.jsx
+// src/components/Employee/Attendance.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card, Button, Alert, Spinner, Badge,
@@ -25,7 +25,8 @@ import {
   FaUserCheck,
   FaUserClock
 } from 'react-icons/fa';
-import axios from 'axios';
+import axios from '../../config/axios';
+import API_ENDPOINTS from '../../config/api';
 import { useAuth } from '../../context/AuthContext';
 import { Line } from 'react-chartjs-2';
 import {
@@ -289,9 +290,7 @@ const Attendance = () => {
     try {
       console.log('📊 Fetching today attendance for:', user.employeeId);
 
-      const response = await axios.get(
-        `http://localhost:5000/api/attendance/today/${user.employeeId}`
-      );
+      const response = await axios.get(API_ENDPOINTS.ATTENDANCE_TODAY(user.employeeId));
 
       console.log('📊 Today attendance response:', response.data);
 
@@ -357,7 +356,7 @@ const Attendance = () => {
       console.log('📅 Today is:', todayStr);
 
       const response = await axios.get(
-        `http://localhost:5000/api/attendance/report?start=${startDateStr}&end=${endDateStr}&employee_id=${user.employeeId}`
+        `${API_ENDPOINTS.ATTENDANCE_REPORT}?start=${startDateStr}&end=${endDateStr}&employee_id=${user.employeeId}`
       );
 
       console.log('📊 Attendance API Response:', response.data);
@@ -410,9 +409,7 @@ const Attendance = () => {
       // Get today's attendance separately
       let todayAttendance = null;
       try {
-        const todayResponse = await axios.get(
-          `http://localhost:5000/api/attendance/today/${user.employeeId}`
-        );
+        const todayResponse = await axios.get(API_ENDPOINTS.ATTENDANCE_TODAY(user.employeeId));
         todayAttendance = todayResponse.data.attendance;
         console.log('📊 Today attendance from separate call:', todayAttendance);
       } catch (todayError) {
@@ -713,7 +710,7 @@ const Attendance = () => {
   const sendHeartbeat = async () => {
     try {
       if (activeSession && location) {
-        await axios.post('http://localhost:5000/api/attendance/heartbeat', {
+        await axios.post(API_ENDPOINTS.ATTENDANCE_HEARTBEAT, {
           employee_id: user.employeeId,
           session_id: activeSession.session_id,
           latitude: location.latitude,
@@ -741,7 +738,7 @@ const Attendance = () => {
         );
       }
 
-      const response = await axios.post('http://localhost:5000/api/attendance/clock-in', {
+      const response = await axios.post(API_ENDPOINTS.ATTENDANCE_CLOCK_IN, {
         employee_id: user.employeeId,
         latitude: location.latitude,
         longitude: location.longitude,
@@ -809,7 +806,7 @@ const Attendance = () => {
         setActiveSession(storedSession);
 
         // Continue with the stored session
-        const response = await axios.post('http://localhost:5000/api/attendance/clock-out', {
+        const response = await axios.post(API_ENDPOINTS.ATTENDANCE_CLOCK_OUT, {
           employee_id: user.employeeId,
           session_id: storedSession.session_id,
           latitude: location?.latitude,
@@ -823,7 +820,7 @@ const Attendance = () => {
 
       console.log('Using active session:', activeSession);
 
-      const response = await axios.post('http://localhost:5000/api/attendance/clock-out', {
+      const response = await axios.post(API_ENDPOINTS.ATTENDANCE_CLOCK_OUT, {
         employee_id: user.employeeId,
         session_id: activeSession.session_id,
         latitude: location?.latitude,
@@ -888,6 +885,7 @@ const Attendance = () => {
     fetchTodayAttendance();
     fetchAttendanceHistory();
   };
+  
   const getLocationBadge = () => {
     if (locationLoading) {
       return (
@@ -1046,6 +1044,7 @@ const Attendance = () => {
   const getMonthName = (month) => {
     return new Date(2000, month - 1, 1).toLocaleString('default', { month: 'long' });
   };
+  
   // Add this function after handleClockOutResponse
   const handleManualClockOut = async () => {
     setShowExitWarning(false);
@@ -1409,7 +1408,7 @@ const Attendance = () => {
           <Button variant="secondary" onClick={() => setShowExitWarning(false)}>
             Cancel
           </Button>
-          <Button variant="warning" onClick={handleManualClockOut}>  {/* This function is missing */}
+          <Button variant="warning" onClick={handleManualClockOut}>
             <FaSignOutAlt className="me-2" />
             Clock Out Now
           </Button>

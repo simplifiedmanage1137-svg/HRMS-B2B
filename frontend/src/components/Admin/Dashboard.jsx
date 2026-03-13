@@ -38,7 +38,8 @@ import {
   Legend,
   ArcElement
 } from 'chart.js';
-import axios from 'axios';
+import axios from '../../config/axios';
+import API_ENDPOINTS from '../../config/api';
 import { useNavigate } from 'react-router-dom';
 import { useNotification } from '../../context/NotificationContext';
 
@@ -94,7 +95,7 @@ const AdminDashboard = () => {
         refreshLeaveRequests();
         fetchTodayEvents();
       }
-    }, 10000);
+    }, 30000); // Increased to 30 seconds for better performance
 
     return () => clearInterval(timer);
   }, [autoRefresh]);
@@ -103,7 +104,7 @@ const AdminDashboard = () => {
     try {
       setLoading(true);
       
-      const employeesRes = await axios.get('http://localhost:5000/api/employees');
+      const employeesRes = await axios.get(API_ENDPOINTS.EMPLOYEES);
       const employees = employeesRes.data;
       
       setTotalEmployees(employees.length);
@@ -115,7 +116,7 @@ const AdminDashboard = () => {
       
       const balancesPromises = employees.map(async (emp) => {
         try {
-          const balanceRes = await axios.get(`http://localhost:5000/api/leaves/balance/${emp.employee_id}`);
+          const balanceRes = await axios.get(API_ENDPOINTS.LEAVE_BALANCE(emp.employee_id));
           return {
             ...emp,
             leaveBalance: balanceRes.data
@@ -146,7 +147,7 @@ const AdminDashboard = () => {
       console.error('Error fetching dashboard data:', error);
       setMessage({
         type: 'danger',
-        text: 'Failed to load dashboard data'
+        text: error.response?.data?.message || 'Failed to load dashboard data'
       });
     } finally {
       setLoading(false);
@@ -156,7 +157,9 @@ const AdminDashboard = () => {
   const refreshAttendanceData = async () => {
     try {
       const today = new Date().toISOString().split('T')[0];
-      const attendanceRes = await axios.get(`http://localhost:5000/api/attendance/report?start=${today}&end=${today}`);
+      const attendanceRes = await axios.get(
+        `${API_ENDPOINTS.ATTENDANCE_REPORT}?start=${today}&end=${today}`
+      );
       
       const attendanceData = attendanceRes.data.attendance || [];
       setTodayAttendance(attendanceData);
@@ -171,7 +174,7 @@ const AdminDashboard = () => {
 
   const refreshLeaveRequests = async () => {
     try {
-      const leavesRes = await axios.get('http://localhost:5000/api/leaves');
+      const leavesRes = await axios.get(API_ENDPOINTS.LEAVES);
       setLeaveRequests(leavesRes.data.filter(leave => leave.status === 'pending'));
     } catch (error) {
       console.error('Error refreshing leave requests:', error);
@@ -346,11 +349,31 @@ const AdminDashboard = () => {
             <FaUsers className="me-2 text-dark" />
             Admin Dashboard
           </h4>
-          <p className="text-muted mb-0 small">
-            Welcome back! Last updated: {lastUpdated.toLocaleTimeString()}
+          <p className="text-muted mb-0 small d-flex align-items-center">
+            <FaClock className="me-1" size={12} />
+            Last updated: {lastUpdated.toLocaleTimeString()}
+            <Button
+              variant="link"
+              size="sm"
+              className="ms-2 p-0 text-decoration-none"
+              onClick={() => {
+                refreshAttendanceData();
+                refreshLeaveRequests();
+                fetchTodayEvents();
+              }}
+            >
+              <FaSyncAlt size={12} className="text-primary" />
+            </Button>
           </p>
         </div>
-
+        <Form.Check
+          type="switch"
+          id="auto-refresh"
+          label="Auto-refresh"
+          checked={autoRefresh}
+          onChange={(e) => setAutoRefresh(e.target.checked)}
+          className="mb-0"
+        />
       </div>
 
       {/* Message Alert */}
@@ -708,7 +731,6 @@ const AdminDashboard = () => {
                 <option value="department">Sort by Department</option>
               </Form.Select>
             </Col>
-            
           </Row>
 
           {/* Table with Scroll */}

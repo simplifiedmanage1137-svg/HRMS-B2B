@@ -1,8 +1,10 @@
+// components/Admin/EditEmployee.jsx
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Form, Button, Card, Row, Col, Spinner, Alert, Modal, Table, Badge, ProgressBar } from 'react-bootstrap';
 import { FaSave, FaArrowLeft, FaFileAlt, FaFileImage, FaFilePdf, FaDownload, FaEye, FaUpload, FaTrash, FaPlus } from 'react-icons/fa';
-import axios from 'axios';
+import axios from '../../config/axios';
+import API_ENDPOINTS from '../../config/api';
 
 const EditEmployee = () => {
     const { id } = useParams();
@@ -87,7 +89,7 @@ const EditEmployee = () => {
             setLoading(true);
             console.log('📤 Fetching employee details for ID:', id);
 
-            const response = await axios.get(`http://localhost:5000/api/employees/${id}`);
+            const response = await axios.get(API_ENDPOINTS.EMPLOYEE_BY_ID(id));
             console.log('✅ Employee data:', response.data);
 
             // Format dates for input fields
@@ -107,7 +109,7 @@ const EditEmployee = () => {
 
         } catch (error) {
             console.error('❌ Error fetching employee:', error);
-            setError('Failed to load employee details');
+            setError(error.response?.data?.message || 'Failed to load employee details');
         } finally {
             setLoading(false);
         }
@@ -119,7 +121,7 @@ const EditEmployee = () => {
             console.log('📄 Fetching documents for employee ID:', employeeId);
 
             // Use employee_id, not the database id
-            const response = await axios.get(`http://localhost:5000/api/employees/${employeeId}/documents`);
+            const response = await axios.get(API_ENDPOINTS.EMPLOYEE_DOCUMENTS(employeeId));
             console.log('✅ Documents response:', response.data);
 
             // Process documents - filter out null/empty values
@@ -175,13 +177,13 @@ const EditEmployee = () => {
     };
 
     const handleViewDocument = (doc) => {
-        window.open(`http://localhost:5000/api/employees/${formData.employee_id}/documents/${doc.type}?inline=true`, '_blank');
+        window.open(`${API_ENDPOINTS.EMPLOYEE_DOCUMENT_BY_TYPE(formData.employee_id, doc.type)}?inline=true`, '_blank');
     };
 
     const handleDownloadDocument = async (doc) => {
         try {
             const response = await axios.get(
-                `http://localhost:5000/api/employees/${formData.employee_id}/documents/${doc.type}`,
+                API_ENDPOINTS.EMPLOYEE_DOCUMENT_BY_TYPE(formData.employee_id, doc.type),
                 {
                     responseType: 'blob',
                     headers: { 'Accept': '*/*' }
@@ -206,7 +208,7 @@ const EditEmployee = () => {
 
         } catch (error) {
             console.error('Error downloading document:', error);
-            alert('Failed to download document');
+            alert(error.response?.data?.message || 'Failed to download document');
         }
     };
 
@@ -261,21 +263,21 @@ const EditEmployee = () => {
         for (let i = 0; i < validUploads.length; i++) {
             const upload = validUploads[i];
 
-            // FIXED: Create a new FormData object for each file
+            // Create a new FormData object for each file
             const formDataObj = new FormData();
             formDataObj.append(upload.type, upload.file);
 
             try {
                 setUploadProgress(Math.round(((i + 1) / validUploads.length) * 100));
 
-                // FIXED: Use formData.employee_id from state
+                // Use formData.employee_id from state
                 if (!formData.employee_id) {
                     console.error('Employee ID not found in form data');
                     failCount++;
                     continue;
                 }
 
-                const url = `http://localhost:5000/api/employees/${formData.employee_id}/documents`;
+                const url = API_ENDPOINTS.EMPLOYEE_DOCUMENTS(formData.employee_id);
                 console.log(`📤 Uploading to: ${url}`);
                 console.log(`📄 Document type: ${upload.type}, File:`, upload.file.name);
 
@@ -316,13 +318,13 @@ const EditEmployee = () => {
         }
 
         try {
-            await axios.delete(`http://localhost:5000/api/employees/${formData.employee_id}/documents/${doc.type}`);
+            await axios.delete(API_ENDPOINTS.EMPLOYEE_DOCUMENT_DELETE(formData.employee_id, doc.type));
             alert('Document deleted successfully!');
             // Refresh documents list
             fetchEmployeeDocuments(formData.employee_id);
         } catch (error) {
             console.error('Error deleting document:', error);
-            alert('Failed to delete document');
+            alert(error.response?.data?.message || 'Failed to delete document');
         }
     };
 
@@ -341,7 +343,7 @@ const EditEmployee = () => {
         setSuccess('');
 
         try {
-            await axios.put(`http://localhost:5000/api/employees/${id}`, formData);
+            await axios.put(API_ENDPOINTS.EMPLOYEE_BY_ID(id), formData);
             setSuccess('Employee updated successfully!');
 
             // Redirect after 2 seconds
@@ -351,7 +353,7 @@ const EditEmployee = () => {
 
         } catch (error) {
             console.error('Error updating employee:', error);
-            setError('Failed to update employee');
+            setError(error.response?.data?.message || 'Failed to update employee');
         } finally {
             setSaving(false);
         }

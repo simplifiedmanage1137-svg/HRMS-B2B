@@ -1,6 +1,6 @@
 // src/components/Layout/Sidebar.jsx
 import React, { useState, useEffect } from 'react';
-import { NavLink, useLocation } from 'react-router-dom'; // Add useLocation
+import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { 
   FaTachometerAlt, 
@@ -15,17 +15,25 @@ import {
   FaChevronLeft,
   FaChevronRight,
   FaBell,
-  FaPaperPlane
+  FaPaperPlane,
+  FaFileAlt,
+  FaChartBar,
+  FaEdit,
+  FaCheckCircle,
+  FaHourglassHalf
 } from 'react-icons/fa';
-import axios from 'axios';
+import axios from '../../config/axios';
+import API_ENDPOINTS from '../../config/api';
+import { Badge, Spinner } from 'react-bootstrap';
 
 const Sidebar = () => {
   const { user, logout } = useAuth();
-  const location = useLocation(); // Add useLocation to track current route
+  const location = useLocation();
   const [employeeName, setEmployeeName] = useState('');
   const [isOpen, setIsOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
+  const [loading, setLoading] = useState(false);
 
   // Sidebar widths
   const SIDEBAR_WIDTH_OPEN = '200px';
@@ -40,17 +48,13 @@ const Sidebar = () => {
     }
   }, [user]);
 
-  // Check if current route is update approvals page and clear notification
   useEffect(() => {
     if (location.pathname === '/admin/update-approvals') {
-      // Clear the notification count when on update approvals page
       setPendingCount(0);
-      // Also call API to mark notifications as read
       markNotificationsAsRead();
     }
   }, [location.pathname]);
 
-  // Check window size for mobile detection
   useEffect(() => {
     const handleResize = () => {
       const mobile = window.innerWidth < 768;
@@ -67,7 +71,6 @@ const Sidebar = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Update main content margin when sidebar state changes
   useEffect(() => {
     const mainContentWrapper = document.getElementById('main-content-wrapper');
     if (mainContentWrapper) {
@@ -87,7 +90,7 @@ const Sidebar = () => {
         return;
       }
       
-      const response = await axios.get(`http://localhost:5000/api/employees/profile/${user?.employeeId}`);
+      const response = await axios.get(API_ENDPOINTS.EMPLOYEE_PROFILE(user?.employeeId));
       if (response.data) {
         const fullName = `${response.data.first_name || ''} ${response.data.last_name || ''}`.trim();
         setEmployeeName(fullName || 'Employee');
@@ -100,17 +103,19 @@ const Sidebar = () => {
 
   const fetchPendingCount = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/admin-updates/pending-count');
+      setLoading(true);
+      const response = await axios.get(API_ENDPOINTS.ADMIN_UPDATES_PENDING_COUNT);
       setPendingCount(response.data.count || 0);
     } catch (error) {
       console.error('Error fetching pending count:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
   const markNotificationsAsRead = async () => {
     try {
-      // Call API to mark all update request notifications as read
-      await axios.post('http://localhost:5000/api/admin-updates/mark-notifications-read');
+      await axios.post(API_ENDPOINTS.ADMIN_UPDATES_MARK_READ);
     } catch (error) {
       console.error('Error marking notifications as read:', error);
     }
@@ -132,6 +137,68 @@ const Sidebar = () => {
     }
     return isOpen ? SIDEBAR_WIDTH_OPEN : SIDEBAR_WIDTH_CLOSED;
   };
+
+  const NavItem = ({ to, icon, label, badge, onClick, end = false }) => (
+    <NavLink 
+      to={to} 
+      end={end}
+      onClick={onClick}
+      style={({ isActive }) => ({
+        color: 'white',
+        padding: isOpen ? '12px 15px' : '12px 0',
+        borderRadius: '8px',
+        marginBottom: '5px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: isOpen ? 'flex-start' : 'center',
+        gap: isOpen ? '10px' : '0',
+        textDecoration: 'none',
+        backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
+        width: '100%',
+        boxSizing: 'border-box',
+        position: 'relative',
+        transition: 'all 0.2s ease',
+        ':hover': {
+          backgroundColor: 'rgba(255,255,255,0.1)'
+        }
+      })}
+      title={!isOpen ? label : ''}
+    >
+      {icon}
+      {isOpen && (
+        <>
+          <span style={{ flex: 1 }}>{label}</span>
+          {badge && badge > 0 && (
+            <Badge 
+              bg="danger" 
+              pill
+              style={{
+                fontSize: '10px',
+                padding: '2px 6px'
+              }}
+            >
+              {badge}
+            </Badge>
+          )}
+        </>
+      )}
+      {!isOpen && badge && badge > 0 && (
+        <Badge 
+          bg="danger" 
+          pill
+          style={{
+            position: 'absolute',
+            top: '2px',
+            right: '2px',
+            fontSize: '8px',
+            padding: '2px 4px'
+          }}
+        >
+          {badge}
+        </Badge>
+      )}
+    </NavLink>
+  );
 
   return (
     <>
@@ -159,6 +226,35 @@ const Sidebar = () => {
           }}
         >
           <FaBars size={20} />
+        </button>
+      )}
+
+      {/* Desktop Toggle Button - Positioned outside sidebar */}
+      {!isMobile && (
+        <button
+          onClick={toggleSidebar}
+          style={{
+            position: 'fixed',
+            top: '30px',
+            left: isOpen ? '150px' : '60px', // Position based on sidebar state
+            zIndex: 1001,
+            width: '24px',
+            height: '24px',
+            borderRadius: '50%',
+            background: '#d53f8c',
+            border: '2px solid white',
+            color: 'white',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
+            padding: 0,
+            transition: 'left 0.3s ease',
+            transform: 'translateX(-50%)' // Center the button on the edge
+          }}
+        >
+          {isOpen ? <FaChevronLeft size={12} /> : <FaChevronRight size={12} />}
         </button>
       )}
 
@@ -198,33 +294,6 @@ const Sidebar = () => {
           left: isMobile && !isOpen ? '-280px' : '0'
         }}
       >
-        {/* Toggle Button - Desktop */}
-        {!isMobile && (
-          <button
-            onClick={toggleSidebar}
-            style={{
-              position: 'absolute',
-              top: '30px',
-              right: '4px',
-              width: '24px',
-              height: '24px',
-              borderRadius: '50%',
-              background: '#d53f8c',
-              border: '2px solid white',
-              color: 'white',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              zIndex: 1001,
-              boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
-              padding: 0
-            }}
-          >
-            {isOpen ? <FaChevronLeft size={12} /> : <FaChevronRight size={12} />}
-          </button>
-        )}
-
         {/* Sidebar Content */}
         <div style={{
           padding: isOpen ? '20px 10px' : '20px 5px',
@@ -256,285 +325,121 @@ const Sidebar = () => {
           {/* Navigation */}
           <nav style={{ flex: 1, width: '100%' }}>
             {/* Dashboard - Common for all */}
-            <NavLink 
+            <NavItem 
               to="/" 
-              end
+              end={true}
+              icon={<FaTachometerAlt size={18} />}
+              label="Dashboard"
               onClick={closeSidebar}
-              style={({ isActive }) => ({
-                color: 'white',
-                padding: isOpen ? '12px 15px' : '12px 0',
-                borderRadius: '8px',
-                marginBottom: '5px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: isOpen ? 'flex-start' : 'center',
-                gap: isOpen ? '10px' : '0',
-                textDecoration: 'none',
-                backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
-                width: '100%',
-                boxSizing: 'border-box'
-              })}
-              title={!isOpen ? 'Dashboard' : ''}
-            >
-              <FaTachometerAlt size={18} />
-              {isOpen && <span>Dashboard</span>}
-            </NavLink>
+            />
 
             {user?.role === 'admin' ? (
               // ✅ ADMIN MENU ITEMS
               <>
-                <NavLink 
+                <NavItem 
                   to="/admin/employees" 
+                  icon={<FaUsers size={18} />}
+                  label="Employees"
                   onClick={closeSidebar}
-                  style={({ isActive }) => ({
-                    color: 'white',
-                    padding: isOpen ? '12px 15px' : '12px 0',
-                    borderRadius: '8px',
-                    marginBottom: '5px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: isOpen ? 'flex-start' : 'center',
-                    gap: isOpen ? '10px' : '0',
-                    textDecoration: 'none',
-                    backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
-                    width: '100%',
-                    boxSizing: 'border-box'
-                  })}
-                  title={!isOpen ? 'Employees' : ''}
-                >
-                  <FaUsers size={18} />
-                  {isOpen && <span>Employees</span>}
-                </NavLink>
+                />
                 
-                <NavLink 
+                <NavItem 
                   to="/admin/leave-requests" 
+                  icon={<FaCalendarAlt size={18} />}
+                  label="Leave Requests"
                   onClick={closeSidebar}
-                  style={({ isActive }) => ({
-                    color: 'white',
-                    padding: isOpen ? '12px 15px' : '12px 0',
-                    borderRadius: '8px',
-                    marginBottom: '5px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: isOpen ? 'flex-start' : 'center',
-                    gap: isOpen ? '10px' : '0',
-                    textDecoration: 'none',
-                    backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
-                    width: '100%',
-                    boxSizing: 'border-box'
-                  })}
-                  title={!isOpen ? 'Leave Requests' : ''}
-                >
-                  <FaCalendarAlt size={18} />
-                  {isOpen && <span>Leave Requests</span>}
-                </NavLink>
+                />
 
-                <NavLink 
+                <NavItem 
                   to="/admin/attendance/reports" 
+                  icon={<FaClock size={18} />}
+                  label="Attendance"
                   onClick={closeSidebar}
-                  style={({ isActive }) => ({
-                    color: 'white',
-                    padding: isOpen ? '12px 15px' : '12px 0',
-                    borderRadius: '8px',
-                    marginBottom: '5px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: isOpen ? 'flex-start' : 'center',
-                    gap: isOpen ? '10px' : '0',
-                    textDecoration: 'none',
-                    backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
-                    width: '100%',
-                    boxSizing: 'border-box'
-                  })}
-                  title={!isOpen ? 'Attendance' : ''}
-                >
-                  <FaClock size={18} />
-                  {isOpen && <span>Attendance</span>}
-                </NavLink>
+                />
 
-                {/* ✅ SEND UPDATE REQUEST LINK */}
-                <NavLink 
+                {/* SEND UPDATE REQUEST LINK */}
+                <NavItem 
                   to="/admin/send-update-request" 
+                  icon={<FaPaperPlane size={18} />}
+                  label="Send Update Request"
                   onClick={closeSidebar}
-                  style={({ isActive }) => ({
-                    color: 'white',
-                    padding: isOpen ? '12px 15px' : '12px 0',
-                    borderRadius: '8px',
-                    marginBottom: '5px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: isOpen ? 'flex-start' : 'center',
-                    gap: isOpen ? '10px' : '0',
-                    textDecoration: 'none',
-                    backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
-                    width: '100%',
-                    boxSizing: 'border-box'
-                  })}
-                  title={!isOpen ? 'Send Update' : ''}
-                >
-                  <FaPaperPlane size={18} />
-                  {isOpen && <span>Send Update Request</span>}
-                </NavLink>
+                />
 
-                {/* ✅ UPDATE APPROVALS LINK */}
-                <NavLink 
+                {/* UPDATE APPROVALS LINK WITH BADGE */}
+                <NavItem 
                   to="/admin/update-approvals" 
+                  icon={<FaBell size={18} />}
+                  label="Update Approvals"
+                  badge={pendingCount}
                   onClick={() => {
                     closeSidebar();
-                    setPendingCount(0); // Clear count when clicked
-                    markNotificationsAsRead(); // Mark as read
+                    setPendingCount(0);
+                    markNotificationsAsRead();
                   }}
-                  style={({ isActive }) => ({
-                    color: 'white',
-                    padding: isOpen ? '12px 15px' : '12px 0',
-                    borderRadius: '8px',
-                    marginBottom: '5px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: isOpen ? 'flex-start' : 'center',
-                    gap: isOpen ? '10px' : '0',
-                    textDecoration: 'none',
-                    backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    position: 'relative'
-                  })}
-                  title={!isOpen ? 'Update Approvals' : ''}
-                >
-                  <FaBell size={18} />
-                  {isOpen && <span>Update Approvals</span>}
-                  {isOpen && pendingCount > 0 && (
-                    <span style={{
-                      backgroundColor: '#ff4444',
-                      color: 'white',
-                      borderRadius: '50%',
-                      padding: '2px 6px',
-                      fontSize: '10px',
-                      marginLeft: 'auto'
-                    }}>
-                      {pendingCount}
-                    </span>
-                  )}
-                </NavLink>
+                />
+
+                {/* GEOFENCE SETTINGS LINK */}
+                <NavItem 
+                  to="/admin/geofence-settings" 
+                  icon={<FaFileAlt size={18} />}
+                  label="Geofence Settings"
+                  onClick={closeSidebar}
+                />
+
+                {/* LEAVE REPORTS LINK */}
+                <NavItem 
+                  to="/admin/leave-reports" 
+                  icon={<FaChartBar size={18} />}
+                  label="Leave Reports"
+                  onClick={closeSidebar}
+                />
               </>
             ) : (
               // ✅ EMPLOYEE MENU ITEMS
               <>
-                <NavLink 
+                <NavItem 
                   to="/profile" 
+                  icon={<FaUserCircle size={18} />}
+                  label="My Profile"
                   onClick={closeSidebar}
-                  style={({ isActive }) => ({
-                    color: 'white',
-                    padding: isOpen ? '12px 15px' : '12px 0',
-                    borderRadius: '8px',
-                    marginBottom: '5px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: isOpen ? 'flex-start' : 'center',
-                    gap: isOpen ? '10px' : '0',
-                    textDecoration: 'none',
-                    backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
-                    width: '100%',
-                    boxSizing: 'border-box'
-                  })}
-                  title={!isOpen ? 'Profile' : ''}
-                >
-                  <FaUserCircle size={18} />
-                  {isOpen && <span>My Profile</span>}
-                </NavLink>
+                />
                 
-                <NavLink 
+                <NavItem 
                   to="/attendance" 
+                  icon={<FaFingerprint size={18} />}
+                  label="Daily Attendance"
                   onClick={closeSidebar}
-                  style={({ isActive }) => ({
-                    color: 'white',
-                    padding: isOpen ? '12px 15px' : '12px 0',
-                    borderRadius: '8px',
-                    marginBottom: '5px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: isOpen ? 'flex-start' : 'center',
-                    gap: isOpen ? '10px' : '0',
-                    textDecoration: 'none',
-                    backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
-                    width: '100%',
-                    boxSizing: 'border-box'
-                  })}
-                  title={!isOpen ? 'Attendance' : ''}
-                >
-                  <FaFingerprint size={18} />
-                  {isOpen && <span>Daily Attendance</span>}
-                </NavLink>
+                />
                 
-                <NavLink 
+                <NavItem 
                   to="/apply-leave" 
+                  icon={<FaCalendarAlt size={18} />}
+                  label="Apply Leave"
                   onClick={closeSidebar}
-                  style={({ isActive }) => ({
-                    color: 'white',
-                    padding: isOpen ? '12px 15px' : '12px 0',
-                    borderRadius: '8px',
-                    marginBottom: '5px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: isOpen ? 'flex-start' : 'center',
-                    gap: isOpen ? '10px' : '0',
-                    textDecoration: 'none',
-                    backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
-                    width: '100%',
-                    boxSizing: 'border-box'
-                  })}
-                  title={!isOpen ? 'Apply Leave' : ''}
-                >
-                  <FaCalendarAlt size={18} />
-                  {isOpen && <span>Apply Leave</span>}
-                </NavLink>
+                />
                 
-                <NavLink 
+                <NavItem 
                   to="/salary-slip" 
+                  icon={<FaMoneyBill size={18} />}
+                  label="Salary Slip"
                   onClick={closeSidebar}
-                  style={({ isActive }) => ({
-                    color: 'white',
-                    padding: isOpen ? '12px 15px' : '12px 0',
-                    borderRadius: '8px',
-                    marginBottom: '5px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: isOpen ? 'flex-start' : 'center',
-                    gap: isOpen ? '10px' : '0',
-                    textDecoration: 'none',
-                    backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
-                    width: '100%',
-                    boxSizing: 'border-box'
-                  })}
-                  title={!isOpen ? 'Salary' : ''}
-                >
-                  <FaMoneyBill size={18} />
-                  {isOpen && <span>Salary Slip</span>}
-                </NavLink>
+                />
 
-                {/* ✅ EMPLOYEE UPDATE REQUESTS LINK */}
-                <NavLink 
+                {/* EMPLOYEE UPDATE REQUESTS LINK */}
+                <NavItem 
                   to="/employee/update-requests" 
+                  icon={<FaEdit size={18} />}
+                  label="Update Requests"
                   onClick={closeSidebar}
-                  style={({ isActive }) => ({
-                    color: 'white',
-                    padding: isOpen ? '12px 15px' : '12px 0',
-                    borderRadius: '8px',
-                    marginBottom: '5px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: isOpen ? 'flex-start' : 'center',
-                    gap: isOpen ? '10px' : '0',
-                    textDecoration: 'none',
-                    backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
-                    width: '100%',
-                    boxSizing: 'border-box'
-                  })}
-                  title={!isOpen ? 'Update Requests' : ''}
-                >
-                  <FaBell size={18} />
-                  {isOpen && <span>Update Requests</span>}
-                </NavLink>
+                />
+
+                {/* HOLIDAY CALENDAR LINK */}
+                <NavItem 
+                  to="/holiday-calendar" 
+                  icon={<FaCalendarAlt size={18} />}
+                  label="Holidays"
+                  onClick={closeSidebar}
+                />
               </>
             )}
           </nav>
@@ -597,7 +502,11 @@ const Sidebar = () => {
                     gap: '8px',
                     cursor: 'pointer',
                     fontSize: '13px',
-                    boxSizing: 'border-box'
+                    boxSizing: 'border-box',
+                    transition: 'all 0.2s ease',
+                    ':hover': {
+                      background: 'rgba(255,255,255,0.2)'
+                    }
                   }}
                 >
                   <FaSignOutAlt size={14} />
@@ -626,7 +535,11 @@ const Sidebar = () => {
                     alignItems: 'center',
                     justifyContent: 'center',
                     cursor: 'pointer',
-                    boxSizing: 'border-box'
+                    boxSizing: 'border-box',
+                    transition: 'all 0.2s ease',
+                    ':hover': {
+                      background: 'rgba(255,255,255,0.2)'
+                    }
                   }}
                   title="Logout"
                 >

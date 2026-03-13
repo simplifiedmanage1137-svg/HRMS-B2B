@@ -1,4 +1,4 @@
-// components/Employee/Dashboard.jsx
+// src/components/Employee/Dashboard.jsx
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Card, Table, Badge, Spinner, Alert, Button, ProgressBar } from 'react-bootstrap';
 import { 
@@ -25,7 +25,8 @@ import {
 } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
-import axios from 'axios';
+import axios from '../../config/axios';
+import API_ENDPOINTS from '../../config/api';
 import { useNavigate } from 'react-router-dom';
 import { Bar, Doughnut } from 'react-chartjs-2';
 import { holidays, getHolidaysByRegion } from '../../data/holidays';
@@ -224,11 +225,11 @@ const EmployeeDashboard = () => {
 
   const fetchEmployeeData = async () => {
     try {
-      const response = await axios.get(`http://localhost:5000/api/employees/profile/${user.employeeId}`);
+      const response = await axios.get(API_ENDPOINTS.EMPLOYEE_PROFILE(user.employeeId));
       setEmployee(response.data);
     } catch (error) {
       console.error('Error fetching employee:', error);
-      showNotification('Failed to load profile data', 'danger');
+      showNotification(error.response?.data?.message || 'Failed to load profile data', 'danger');
     }
   };
 
@@ -236,7 +237,7 @@ const EmployeeDashboard = () => {
     try {
       console.log('Fetching leave balance for:', user.employeeId);
       
-      const response = await axios.get(`http://localhost:5000/api/leaves/balance/${user.employeeId}`);
+      const response = await axios.get(API_ENDPOINTS.LEAVE_BALANCE(user.employeeId));
       console.log('Leave balance response:', response.data);
       
       // Ensure we have valid numbers
@@ -266,7 +267,7 @@ const EmployeeDashboard = () => {
 
   const fetchLeaveRequests = async () => {
     try {
-      const response = await axios.get(`http://localhost:5000/api/leaves?employee_id=${user.employeeId}`);
+      const response = await axios.get(API_ENDPOINTS.LEAVE_BY_EMPLOYEE(user.employeeId));
       const leaves = response.data || [];
       setLeaveRequests(leaves.slice(0, 5)); // Show only 5 most recent
       
@@ -287,7 +288,7 @@ const EmployeeDashboard = () => {
     try {
       const today = new Date().toISOString().split('T')[0];
       const response = await axios.get(
-        `http://localhost:500/api/attendance/report?start=${today}&end=${today}&employee_id=${user.employeeId}`
+        `${API_ENDPOINTS.ATTENDANCE_REPORT}?start=${today}&end=${today}&employee_id=${user.employeeId}`
       );
       
       if (response.data.attendance && response.data.attendance.length > 0) {
@@ -308,7 +309,7 @@ const EmployeeDashboard = () => {
       const endDateStr = endDate.toISOString().split('T')[0];
       
       const response = await axios.get(
-        `http://localhost:5000/api/attendance/report?start=${startDateStr}&end=${endDateStr}&employee_id=${user.employeeId}`
+        `${API_ENDPOINTS.ATTENDANCE_REPORT}?start=${startDateStr}&end=${endDateStr}&employee_id=${user.employeeId}`
       );
       
       const attendance = response.data.attendance || [];

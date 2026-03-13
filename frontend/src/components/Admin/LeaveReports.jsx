@@ -1,3 +1,4 @@
+// src/components/Admin/LeaveReports.jsx
 import React, { useState, useEffect } from 'react';
 import {
   Card, Table, Badge, Form, Row, Col, Button,
@@ -9,7 +10,8 @@ import {
   FaTimes, FaCheck, FaExclamationTriangle,
   FaSortNumericDown
 } from 'react-icons/fa';
-import axios from 'axios';
+import axios from '../../config/axios';
+import API_ENDPOINTS from '../../config/api';
 import * as XLSX from 'xlsx';
 
 const LeaveReports = () => {
@@ -40,7 +42,7 @@ const LeaveReports = () => {
       console.log('Fetching employees data...');
 
       // Fetch employees
-      const employeesRes = await axios.get('http://localhost:5000/api/employees');
+      const employeesRes = await axios.get(API_ENDPOINTS.EMPLOYEES);
       const employees = employeesRes.data;
 
       console.log(`Fetched ${employees.length} employees`);
@@ -48,7 +50,7 @@ const LeaveReports = () => {
       // Fetch leave balances for all employees
       const balancesPromises = employees.map(async (emp) => {
         try {
-          const balanceRes = await axios.get(`http://localhost:5000/api/leaves/balance/${emp.employee_id}`);
+          const balanceRes = await axios.get(API_ENDPOINTS.LEAVE_BALANCE(emp.employee_id));
           return {
             ...emp,
             leaveBalance: balanceRes.data
@@ -77,7 +79,7 @@ const LeaveReports = () => {
       console.error('Error fetching data:', error);
       setMessage({
         type: 'danger',
-        text: 'Failed to load employee data. Please try again.'
+        text: error.response?.data?.message || 'Failed to load employee data. Please try again.'
       });
     } finally {
       setLoading(false);
@@ -96,12 +98,12 @@ const LeaveReports = () => {
         const fullName = `${emp.first_name || ''} ${emp.last_name || ''}`.toLowerCase();
         const employeeId = (emp.employee_id || '').toLowerCase();
         const department = (emp.department || '').toLowerCase();
-        const position = (emp.position || '').toLowerCase();
+        const designation = (emp.designation || '').toLowerCase();
 
         return fullName.includes(term) ||
           employeeId.includes(term) ||
           department.includes(term) ||
-          position.includes(term);
+          designation.includes(term);
       });
       console.log(`Search filter applied: ${filtered.length} results`);
     }
@@ -146,7 +148,7 @@ const LeaveReports = () => {
         'Employee ID': emp.employee_id,
         'Name': `${emp.first_name || ''} ${emp.last_name || ''}`.trim(),
         'Department': emp.department || 'N/A',
-        'Position': emp.position || 'N/A',
+        'Designation': emp.designation || 'N/A',
         'Total Accrued': emp.leaveBalance?.total_accrued || '0',
         'Used': emp.leaveBalance?.used || '0',
         'Pending': emp.leaveBalance?.pending || '0',
@@ -237,7 +239,7 @@ const LeaveReports = () => {
                 </InputGroup.Text>
                 <Form.Control
                   type="text"
-                  placeholder="Search by name, ID, department, position..."
+                  placeholder="Search by name, ID, department, designation..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="border-0 bg-light"
@@ -321,7 +323,7 @@ const LeaveReports = () => {
           </div>
         </Card.Header>
         <Card.Body className="p-0">
-          {/* Table with Vertical Scroll - maxHeight 400px */}
+          {/* Table with Vertical Scroll - maxHeight 200px */}
           <div
             className="table-responsive"
             style={{ maxHeight: "200px", overflowY: "auto" }}
@@ -399,7 +401,7 @@ const LeaveReports = () => {
                           </span>
                         </td>
 
-                        {/* Position - Left aligned with extra width */}
+                        {/* Designation - Left aligned with extra width */}
                         <td className="text-start small">
                           <span className="text-truncate d-inline-block" 
                                 style={{ maxWidth: '190px' }}
@@ -425,16 +427,16 @@ const LeaveReports = () => {
 
                         {/* Available - Left aligned */}
                         <td className="text-start small">
-                          <div bg={getBalanceColor(available)} pill>
+                          <Badge bg={getBalanceColor(available)} pill>
                             {emp.leaveBalance?.available || "0"}
-                          </div>
+                          </Badge>
                         </td>
 
                         {/* Action - Left aligned */}
                         <td className="text-start small">
                           <FaEye
                             size={16}
-                            className="text-dark action-icon"
+                            className="text-primary"
                             style={{ cursor: "pointer" }}
                             title="View Details"
                             onClick={() => {
@@ -477,27 +479,27 @@ const LeaveReports = () => {
             <div className="p-3 bg-light border-top">
               <Row className="text-center">
                 <Col md={3}>
-                  <span className="text-muted">Total Employees:</span>
-                  <strong className="ms-2">{filteredEmployees.length}</strong>
+                  <span className="text-muted small">Total Employees:</span>
+                  <strong className="ms-2 small">{filteredEmployees.length}</strong>
                 </Col>
 
                 <Col md={3}>
-                  <span className="text-muted">Avg. Balance:</span>
-                  <strong className="ms-2">{avgLeaves}</strong>
+                  <span className="text-muted small">Avg. Balance:</span>
+                  <strong className="ms-2 small">{avgLeaves}</strong>
                 </Col>
 
                 <Col md={3}>
-                  <span className="text-muted">
+                  <span className="text-muted small">
                     Low Balance (&lt;3):
                   </span>
-                  <strong className="ms-2 text-warning">
+                  <strong className="ms-2 small text-warning">
                     {lowBalance}
                   </strong>
                 </Col>
 
                 <Col md={3}>
-                  <span className="text-muted">Zero Balance:</span>
-                  <strong className="ms-2 text-danger">
+                  <span className="text-muted small">Zero Balance:</span>
+                  <strong className="ms-2 small text-danger">
                     {zeroBalance}
                   </strong>
                 </Col>
@@ -526,7 +528,7 @@ const LeaveReports = () => {
                       <p className="mb-2"><strong>Name:</strong> {selectedEmployee.first_name} {selectedEmployee.last_name}</p>
                       <p className="mb-2"><strong>Employee ID:</strong> {selectedEmployee.employee_id}</p>
                       <p className="mb-2"><strong>Department:</strong> {selectedEmployee.department}</p>
-                      <p className="mb-0"><strong>Designatio:</strong> {selectedEmployee.designation}</p>
+                      <p className="mb-0"><strong>Designation:</strong> {selectedEmployee.designation}</p>
                     </Card.Body>
                   </Card>
                 </Col>
@@ -539,9 +541,9 @@ const LeaveReports = () => {
                       <p className="mb-2"><strong>Pending:</strong> <span className="text-warning">{selectedEmployee.leaveBalance?.pending}</span></p>
                       <p className="mb-0">
                         <strong>Available:</strong>{' '}
-                        <normal bg={getBalanceColor(selectedEmployee.leaveBalance?.available)} pill>
+                        <Badge bg={getBalanceColor(selectedEmployee.leaveBalance?.available)} pill>
                           {selectedEmployee.leaveBalance?.available}
-                        </normal>
+                        </Badge>
                       </p>
                     </Card.Body>
                   </Card>
@@ -553,11 +555,11 @@ const LeaveReports = () => {
                   <h6 className="text-primary mb-3 small fw-semibold">Additional Information</h6>
                   <Row>
                     <Col md={6}>
-                      <p className="mb-2"><strong>Joining Date:</strong> {new Date(selectedEmployee.joining_date).toLocaleDateString()}</p>
-                      <p className="mb-2"><strong>Employment Type:</strong> {selectedEmployee.employment_type}</p>
+                      <p className="mb-2"><strong>Joining Date:</strong> {selectedEmployee.joining_date ? new Date(selectedEmployee.joining_date).toLocaleDateString() : 'N/A'}</p>
+                      <p className="mb-2"><strong>Employment Type:</strong> {selectedEmployee.employment_type || 'N/A'}</p>
                     </Col>
                     <Col md={6}>
-                      <p className="mb-2"><strong>Shift Timing:</strong> {selectedEmployee.shift_timing}</p>
+                      <p className="mb-2"><strong>Shift Timing:</strong> {selectedEmployee.shift_timing || 'N/A'}</p>
                       <p className="mb-0"><strong>Reporting Manager:</strong> {selectedEmployee.reporting_manager || 'N/A'}</p>
                     </Col>
                   </Row>

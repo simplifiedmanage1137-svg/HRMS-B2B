@@ -18,7 +18,8 @@ import {
   FaArrowLeft,
   FaCheckCircle
 } from 'react-icons/fa';
-import axios from 'axios';
+import axios from '../../config/axios'; // Import the configured axios instance
+import API_ENDPOINTS from '../../config/api'; // Import API endpoints
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 
@@ -331,127 +332,124 @@ const AddEmployee = () => {
   };
 
   // Generate employee ID on final submit
-// AddEmployee.jsx - Fixed generateEmployeeId function
-
-const generateEmployeeId = async () => {
-  if (!tempPersonalData.joining_date) return null;
-  
-  const date = new Date(tempPersonalData.joining_date);
-  const year = date.getFullYear().toString().slice(-2);
-  const month = (date.getMonth() + 1).toString().padStart(2, '0');
-  
-  try {
-    // Get all employees to check existing IDs
-    const response = await axios.get('http://localhost:5000/api/employees');
-    const employees = response.data;
+  const generateEmployeeId = async () => {
+    if (!tempPersonalData.joining_date) return null;
     
-    console.log('Total employees:', employees.length);
+    const date = new Date(tempPersonalData.joining_date);
+    const year = date.getFullYear().toString().slice(-2);
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
     
-    // Filter employees with the same year and month prefix
-    const prefix = `B2B${year}${month}`;
-    const sameMonthEmployees = employees.filter(emp => {
-      return emp.employee_id && emp.employee_id.startsWith(prefix);
-    });
-    
-    console.log(`Found ${sameMonthEmployees.length} employees with prefix ${prefix}`);
-    
-    // Find the highest sequence number
-    let maxSeq = 0;
-    sameMonthEmployees.forEach(emp => {
-      const id = emp.employee_id;
-      if (id && id.length === 10) { // B2BYYMMSS format (B2B + YY + MM + SS = 10 chars)
-        const seqStr = id.slice(-2); // Last 2 characters
-        const seq = parseInt(seqStr, 10);
-        if (!isNaN(seq) && seq > maxSeq) {
-          maxSeq = seq;
-        }
-      }
-    });
-    
-    console.log('Current max sequence:', maxSeq);
-    
-    // Generate new sequence
-    const newSeq = (maxSeq + 1).toString().padStart(2, '0');
-    const newEmployeeId = `${prefix}${newSeq}`;
-    
-    console.log('Generated new employee ID:', newEmployeeId);
-    return newEmployeeId;
-    
-  } catch (error) {
-    console.error('Error generating employee ID:', error);
-    
-    // Fallback: Use timestamp to ensure uniqueness
-    const timestamp = Date.now().toString().slice(-4);
-    const randomSeq = Math.floor(1 + Math.random() * 99).toString().padStart(2, '0');
-    return `B2B${year}${month}${randomSeq}`;
-  }
-};
-
-// AddEmployee.jsx - Fix the uploadDocuments function
-
-const uploadDocuments = async (empId) => {
-  const validUploads = selectedFiles.reduce((acc, file, index) => {
-    if (file && selectedDocTypes[index]) {
-      acc.push({
-        file,
-        type: selectedDocTypes[index]
-      });
-    }
-    return acc;
-  }, []);
-
-  if (validUploads.length === 0) return;
-
-  setUploading(true);
-  let successCount = 0;
-  let failCount = 0;
-
-  for (let i = 0; i < validUploads.length; i++) {
-    const upload = validUploads[i];
-    const formData = new FormData();
-    formData.append(upload.type, upload.file);
-
     try {
-      setUploadProgress(Math.round(((i + 1) / validUploads.length) * 100));
+      // Get all employees to check existing IDs
+      const response = await axios.get(API_ENDPOINTS.EMPLOYEES);
+      const employees = response.data;
       
-      // FIXED: Use the correct URL format - upload as multipart/form-data with field name
-      const url = `http://localhost:5000/api/employees/${empId}/documents`;
-      console.log(`📤 Uploading to: ${url}`);
-      console.log(`📄 Document type: ${upload.type}, File:`, upload.file.name);
+      console.log('Total employees:', employees.length);
       
-      const response = await axios.post(url, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
+      // Filter employees with the same year and month prefix
+      const prefix = `B2B${year}${month}`;
+      const sameMonthEmployees = employees.filter(emp => {
+        return emp.employee_id && emp.employee_id.startsWith(prefix);
+      });
+      
+      console.log(`Found ${sameMonthEmployees.length} employees with prefix ${prefix}`);
+      
+      // Find the highest sequence number
+      let maxSeq = 0;
+      sameMonthEmployees.forEach(emp => {
+        const id = emp.employee_id;
+        if (id && id.length === 10) { // B2BYYMMSS format (B2B + YY + MM + SS = 10 chars)
+          const seqStr = id.slice(-2); // Last 2 characters
+          const seq = parseInt(seqStr, 10);
+          if (!isNaN(seq) && seq > maxSeq) {
+            maxSeq = seq;
+          }
         }
       });
       
-      console.log('✅ Upload response:', response.data);
-      successCount++;
+      console.log('Current max sequence:', maxSeq);
+      
+      // Generate new sequence
+      const newSeq = (maxSeq + 1).toString().padStart(2, '0');
+      const newEmployeeId = `${prefix}${newSeq}`;
+      
+      console.log('Generated new employee ID:', newEmployeeId);
+      return newEmployeeId;
+      
     } catch (error) {
-      console.error(`❌ Error uploading ${upload.type}:`, error);
-      console.error('Error response:', error.response?.data);
-      console.error('Error status:', error.response?.status);
-      failCount++;
+      console.error('Error generating employee ID:', error);
+      
+      // Fallback: Use timestamp to ensure uniqueness
+      const timestamp = Date.now().toString().slice(-4);
+      const randomSeq = Math.floor(1 + Math.random() * 99).toString().padStart(2, '0');
+      return `B2B${year}${month}${randomSeq}`;
     }
-  }
+  };
 
-  if (successCount > 0) {
-    showNotification(`${successCount} document(s) uploaded successfully!`, 'success');
-  }
-  if (failCount > 0) {
-    showNotification(`${failCount} document(s) failed to upload`, 'warning');
-  }
+  // Upload documents function
+  const uploadDocuments = async (empId) => {
+    const validUploads = selectedFiles.reduce((acc, file, index) => {
+      if (file && selectedDocTypes[index]) {
+        acc.push({
+          file,
+          type: selectedDocTypes[index]
+        });
+      }
+      return acc;
+    }, []);
 
-  setUploading(false);
-  setSelectedFiles([]);
-  setSelectedDocTypes([]);
-  setUploadProgress(0);
-};
+    if (validUploads.length === 0) return;
+
+    setUploading(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < validUploads.length; i++) {
+      const upload = validUploads[i];
+      const formData = new FormData();
+      formData.append(upload.type, upload.file);
+
+      try {
+        setUploadProgress(Math.round(((i + 1) / validUploads.length) * 100));
+        
+        // Use the API endpoint from config
+        const url = API_ENDPOINTS.EMPLOYEE_DOCUMENTS(empId);
+        console.log(`📤 Uploading to: ${url}`);
+        console.log(`📄 Document type: ${upload.type}, File:`, upload.file.name);
+        
+        const response = await axios.post(url, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          }
+        });
+        
+        console.log('✅ Upload response:', response.data);
+        successCount++;
+      } catch (error) {
+        console.error(`❌ Error uploading ${upload.type}:`, error);
+        console.error('Error response:', error.response?.data);
+        console.error('Error status:', error.response?.status);
+        failCount++;
+      }
+    }
+
+    if (successCount > 0) {
+      showNotification(`${successCount} document(s) uploaded successfully!`, 'success');
+    }
+    if (failCount > 0) {
+      showNotification(`${failCount} document(s) failed to upload`, 'warning');
+    }
+
+    setUploading(false);
+    setSelectedFiles([]);
+    setSelectedDocTypes([]);
+    setUploadProgress(0);
+  };
 
   // Test API connection
   const testApiConnection = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/test');
+      const response = await axios.get(API_ENDPOINTS.TEST);
       console.log('API Test:', response.data);
       return true;
     } catch (error) {
@@ -461,137 +459,130 @@ const uploadDocuments = async (empId) => {
   };
 
   // Final submit handler
-// AddEmployee.jsx - Update handleFinalSubmit with retry logic
+  const handleFinalSubmit = async (e) => {
+    e.preventDefault();
+    
+    // Save current tab first
+    const saved = saveCurrentTab();
+    if (!saved) return;
 
-// Final submit handler
-const handleFinalSubmit = async (e) => {
-  e.preventDefault();
-  
-  // Save current tab first
-  const saved = saveCurrentTab();
-  if (!saved) return;
-
-  // Validate all tabs completed
-  if (!isAllTabsCompleted()) {
-    const errorMsg = "Please complete all required tabs before submitting";
-    setError(errorMsg);
-    showNotification(errorMsg, 'danger');
-    return;
-  }
-
-  setSaving(true);
-  setError('');
-
-  try {
-    // Test API connection first
-    const apiWorks = await testApiConnection();
-    if (!apiWorks) {
-      throw new Error("Cannot connect to server. Please check if backend is running.");
+    // Validate all tabs completed
+    if (!isAllTabsCompleted()) {
+      const errorMsg = "Please complete all required tabs before submitting";
+      setError(errorMsg);
+      showNotification(errorMsg, 'danger');
+      return;
     }
 
-    // Generate employee ID with retry logic
-    let empId = null;
-    let retryCount = 0;
-    const maxRetries = 3;
-    
-    while (!empId && retryCount < maxRetries) {
-      empId = await generateEmployeeId();
+    setSaving(true);
+    setError('');
+
+    try {
+      // Test API connection first
+      const apiWorks = await testApiConnection();
+      if (!apiWorks) {
+        throw new Error("Cannot connect to server. Please check if backend is running.");
+      }
+
+      // Generate employee ID with retry logic
+      let empId = null;
+      let retryCount = 0;
+      const maxRetries = 3;
+      
+      while (!empId && retryCount < maxRetries) {
+        empId = await generateEmployeeId();
+        if (!empId) {
+          retryCount++;
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+      
       if (!empId) {
-        retryCount++;
-        await new Promise(resolve => setTimeout(resolve, 500));
+        throw new Error("Could not generate unique employee ID after multiple attempts");
       }
-    }
-    
-    if (!empId) {
-      throw new Error("Could not generate unique employee ID after multiple attempts");
-    }
-    
-    setEmployeeId(empId);
-    console.log('Final Employee ID:', empId);
+      
+      setEmployeeId(empId);
+      console.log('Final Employee ID:', empId);
 
-    // Prepare data for API
-    const employeeData = {
-      first_name: tempPersonalData.first_name,
-      middle_name: tempPersonalData.middle_name || null,
-      last_name: tempPersonalData.last_name,
-      employee_id: empId,
-      email: tempPersonalData.email,
-      joining_date: tempPersonalData.joining_date,
-      designation: tempPersonalData.designation,
-      department: tempPersonalData.department,
-      reporting_manager: tempPersonalData.reporting_manager || null,
-      employment_type: tempPersonalData.employment_type || 'Full Time',
-      shift_timing: tempPersonalData.shift_timing || '9:00 AM - 6:00 PM',
-      in_hand_salary: parseFloat(tempSalaryData.in_hand_salary) || 0,
-      gross_salary: parseFloat(tempSalaryData.gross_salary) || 0,
-      bank_account_name: tempBankData.bank_account_name,
-      account_number: tempBankData.account_number,
-      ifsc_code: tempBankData.ifsc_code,
-      branch_name: tempBankData.branch_name,
-      pan_number: tempPersonalData.pan_number,
-      aadhar_number: tempPersonalData.aadhar_number,
-      dob: tempPersonalData.dob,
-      address: tempPersonalData.address,
-      blood_group: tempPersonalData.blood_group || null,
-      emergency_contact: tempPersonalData.emergency_contact,
-      contract_policy: tempPolicyData.contract_policy || null
-    };
+      // Prepare data for API
+      const employeeData = {
+        first_name: tempPersonalData.first_name,
+        middle_name: tempPersonalData.middle_name || null,
+        last_name: tempPersonalData.last_name,
+        employee_id: empId,
+        email: tempPersonalData.email,
+        joining_date: tempPersonalData.joining_date,
+        designation: tempPersonalData.designation,
+        department: tempPersonalData.department,
+        reporting_manager: tempPersonalData.reporting_manager || null,
+        employment_type: tempPersonalData.employment_type || 'Full Time',
+        shift_timing: tempPersonalData.shift_timing || '9:00 AM - 6:00 PM',
+        in_hand_salary: parseFloat(tempSalaryData.in_hand_salary) || 0,
+        gross_salary: parseFloat(tempSalaryData.gross_salary) || 0,
+        bank_account_name: tempBankData.bank_account_name,
+        account_number: tempBankData.account_number,
+        ifsc_code: tempBankData.ifsc_code,
+        branch_name: tempBankData.branch_name,
+        pan_number: tempPersonalData.pan_number,
+        aadhar_number: tempPersonalData.aadhar_number,
+        dob: tempPersonalData.dob,
+        address: tempPersonalData.address,
+        blood_group: tempPersonalData.blood_group || null,
+        emergency_contact: tempPersonalData.emergency_contact,
+        contract_policy: tempPolicyData.contract_policy || null
+      };
 
-    console.log('Submitting employee data:', JSON.stringify(employeeData, null, 2));
-    setDebugInfo(employeeData);
+      console.log('Submitting employee data:', JSON.stringify(employeeData, null, 2));
+      setDebugInfo(employeeData);
 
-    // Create employee
-    const response = await axios.post('http://localhost:5000/api/employees', employeeData, {
-      headers: {
-        'Content-Type': 'application/json'
+      // Create employee using API endpoint from config
+      const response = await axios.post(API_ENDPOINTS.EMPLOYEES, employeeData);
+
+      console.log('Employee created:', response.data);
+
+      setSuccess('Employee added successfully!');
+      showNotification('Employee added successfully!', 'success');
+
+      // Upload documents if any
+      if (selectedFiles.length > 0) {
+        await uploadDocuments(empId);
       }
-    });
 
-    console.log('Employee created:', response.data);
+      // Navigate back after delay
+      setTimeout(() => {
+        navigate('/admin/employees');
+      }, 2000);
 
-    setSuccess('Employee added successfully!');
-    showNotification('Employee added successfully!', 'success');
-
-    // Upload documents if any - NOW USING THE CORRECT empId
-    if (selectedFiles.length > 0) {
-      await uploadDocuments(empId);
-    }
-
-    // Navigate back after delay
-    setTimeout(() => {
-      navigate('/admin/employees');
-    }, 2000);
-
-  } catch (error) {
-    console.error('Error adding employee:', error);
-    console.error('Error response:', error.response?.data);
-    console.error('Error status:', error.response?.status);
-    
-    let errorMsg = 'Failed to add employee';
-    
-    if (error.response) {
-      // Handle duplicate ID error specifically
-      if (error.response.status === 400 && error.response.data?.error?.includes('Duplicate')) {
-        errorMsg = 'Employee ID already exists. Please try again - a new ID will be generated.';
-        // Clear the cached ID so a new one will be generated
-        setEmployeeId('');
+    } catch (error) {
+      console.error('Error adding employee:', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      
+      let errorMsg = 'Failed to add employee';
+      
+      if (error.response) {
+        // Handle duplicate ID error specifically
+        if (error.response.status === 400 && error.response.data?.error?.includes('Duplicate')) {
+          errorMsg = 'Employee ID already exists. Please try again - a new ID will be generated.';
+          // Clear the cached ID so a new one will be generated
+          setEmployeeId('');
+        } else {
+          errorMsg = error.response.data?.message || 
+                     error.response.data?.error || 
+                     `Server error: ${error.response.status}`;
+        }
+      } else if (error.request) {
+        errorMsg = 'No response from server. Please check if backend is running.';
       } else {
-        errorMsg = error.response.data?.message || 
-                   error.response.data?.error || 
-                   `Server error: ${error.response.status}`;
+        errorMsg = error.message;
       }
-    } else if (error.request) {
-      errorMsg = 'No response from server. Please check if backend is running.';
-    } else {
-      errorMsg = error.message;
+      
+      setError(errorMsg);
+      showNotification(errorMsg, 'danger');
+    } finally {
+      setSaving(false);
     }
-    
-    setError(errorMsg);
-    showNotification(errorMsg, 'danger');
-  } finally {
-    setSaving(false);
-  }
-};
+  };
 
   // Add upload row
   const addUploadRow = () => {
