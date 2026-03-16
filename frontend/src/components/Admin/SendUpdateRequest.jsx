@@ -1,10 +1,10 @@
 // src/components/Admin/SendUpdateRequest.jsx
 import React, { useState, useEffect } from 'react';
-import { 
-  Card, Form, Button, Alert, Spinner, Badge, 
-  Row, Col, InputGroup 
+import {
+  Card, Form, Button, Alert, Spinner, Badge,
+  Row, Col, InputGroup
 } from 'react-bootstrap';
-import { 
+import {
   FaPaperPlane, FaUser, FaInfoCircle, FaCheckCircle,
   FaTimesCircle, FaSearch, FaFilter, FaBriefcase,
   FaEnvelope, FaPhone, FaMapMarkerAlt, FaUniversity,
@@ -26,53 +26,53 @@ const SendUpdateRequest = () => {
   const [departmentFilter, setDepartmentFilter] = useState('all');
 
   const fieldOptions = [
-    { 
-      value: 'personal', 
-      label: 'Personal Information', 
+    {
+      value: 'personal',
+      label: 'Personal Information',
       icon: <FaUser className="text-primary" />,
-      fields: ['first_name', 'last_name', 'dob', 'blood_group'] 
+      fields: ['first_name', 'last_name', 'dob', 'blood_group']
     },
-    { 
-      value: 'contact', 
-      label: 'Contact Details', 
+    {
+      value: 'contact',
+      label: 'Contact Details',
       icon: <FaEnvelope className="text-info" />,
-      fields: ['email', 'phone'] 
+      fields: ['email', 'phone']
     },
-    { 
-      value: 'address', 
-      label: 'Address', 
+    {
+      value: 'address',
+      label: 'Address',
       icon: <FaMapMarkerAlt className="text-danger" />,
-      fields: ['address', 'city', 'state', 'pincode'] 
+      fields: ['address', 'city', 'state', 'pincode']
     },
-    { 
-      value: 'bank', 
-      label: 'Bank Details', 
+    {
+      value: 'bank',
+      label: 'Bank Details',
       icon: <FaUniversity className="text-warning" />,
-      fields: ['bank_account_name', 'account_number', 'ifsc_code', 'branch_name', 'pan_number'] 
+      fields: ['bank_account_name', 'account_number', 'ifsc_code', 'branch_name', 'pan_number']
     },
-    { 
-      value: 'employment', 
-      label: 'Employment Details', 
+    {
+      value: 'employment',
+      label: 'Employment Details',
       icon: <FaBriefcase className="text-secondary" />,
-      fields: ['designation', 'department', 'employment_type', 'shift_timing', 'reporting_manager'] 
+      fields: ['designation', 'department', 'employment_type', 'shift_timing', 'reporting_manager']
     },
-    { 
-      value: 'emergency', 
-      label: 'Emergency Contact', 
+    {
+      value: 'emergency',
+      label: 'Emergency Contact',
       icon: <FaHeartbeat className="text-danger" />,
-      fields: ['emergency_contact'] 
+      fields: ['emergency_contact']
     },
-    { 
-      value: 'documents', 
-      label: 'Documents', 
+    {
+      value: 'documents',
+      label: 'Documents',
       icon: <FaFileAlt className="text-success" />,
-      fields: ['aadhar_number', 'pan_number'] 
+      fields: ['aadhar_number', 'pan_number']
     },
-    { 
-      value: 'salary', 
-      label: 'Salary Information', 
+    {
+      value: 'salary',
+      label: 'Salary Information',
       icon: <FaCreditCard className="text-success" />,
-      fields: ['gross_salary', 'in_hand_salary'] 
+      fields: ['gross_salary', 'in_hand_salary']
     }
   ];
 
@@ -85,17 +85,39 @@ const SendUpdateRequest = () => {
     applyFilters();
   }, [searchTerm, departmentFilter, employees]);
 
+  // src/components/Admin/SendUpdateRequest.jsx
+
   const fetchEmployees = async () => {
     try {
       setFetching(true);
+      console.log('📡 Fetching employees from:', API_ENDPOINTS.ADMIN_UPDATES_EMPLOYEES);
+
       const response = await axios.get(API_ENDPOINTS.ADMIN_UPDATES_EMPLOYEES);
+
+      console.log('✅ API Response:', response);
+      console.log('📦 Response data:', response.data);
+      console.log('📦 Data type:', typeof response.data);
+      console.log('📦 Is array?', Array.isArray(response.data));
+
       if (Array.isArray(response.data)) {
         setEmployees(response.data);
         setFilteredEmployees(response.data);
+        console.log(`✅ Loaded ${response.data.length} employees`);
+      } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+        setEmployees(response.data.data);
+        setFilteredEmployees(response.data.data);
+      } else {
+        console.warn('Unexpected response format:', response.data);
+        setEmployees([]);
+        setFilteredEmployees([]);
       }
+
       setMessage({ type: '', text: '' });
     } catch (error) {
-      console.error('Error fetching employees:', error);
+      console.error('❌ Error fetching employees:', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+
       setMessage({
         type: 'danger',
         text: error.response?.data?.message || 'Failed to load employees'
@@ -152,7 +174,7 @@ const SendUpdateRequest = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!selectedEmployee) {
       setMessage({
         type: 'danger',
@@ -239,9 +261,9 @@ const SendUpdateRequest = () => {
 
       {/* Message Alert */}
       {message.text && (
-        <Alert 
-          variant={message.type} 
-          onClose={() => setMessage({ type: '', text: '' })} 
+        <Alert
+          variant={message.type}
+          onClose={() => setMessage({ type: '', text: '' })}
           dismissible
           className="mb-4"
         >
@@ -263,7 +285,7 @@ const SendUpdateRequest = () => {
                 <FaUser className="me-2 text-primary" size={14} />
                 Select Employee
               </Form.Label>
-              
+
               {/* Search and Filter */}
               <Row className="mb-3 g-2">
                 <Col md={8}>
@@ -404,9 +426,9 @@ const SendUpdateRequest = () => {
                   {selectedFields.map(field => {
                     const fieldObj = fieldOptions.find(f => f.value === field);
                     return (
-                      <Badge 
-                        key={field} 
-                        bg="info" 
+                      <Badge
+                        key={field}
+                        bg="info"
                         className="px-3 py-2 d-flex align-items-center"
                       >
                         {fieldObj?.icon}

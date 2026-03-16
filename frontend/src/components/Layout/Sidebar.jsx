@@ -2,11 +2,11 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { 
-  FaTachometerAlt, 
-  FaUsers, 
-  FaCalendarAlt, 
-  FaMoneyBill, 
+import {
+  FaTachometerAlt,
+  FaUsers,
+  FaCalendarAlt,
+  FaMoneyBill,
   FaUserCircle,
   FaSignOutAlt,
   FaFingerprint,
@@ -45,6 +45,22 @@ const Sidebar = () => {
       if (user?.role === 'admin') {
         fetchPendingCount();
       }
+    }
+  }, [user]);
+
+  // 👇 Add event listener for approval/rejection updates
+  useEffect(() => {
+    if (user?.role === 'admin') {
+      const handleUpdateApprovals = () => {
+        console.log('📢 Update approvals changed, refreshing count...');
+        fetchPendingCount();
+      };
+      
+      window.addEventListener('updateApprovalsChanged', handleUpdateApprovals);
+      
+      return () => {
+        window.removeEventListener('updateApprovalsChanged', handleUpdateApprovals);
+      };
     }
   }, [user]);
 
@@ -89,7 +105,7 @@ const Sidebar = () => {
         setEmployeeName('Administrator');
         return;
       }
-      
+
       const response = await axios.get(API_ENDPOINTS.EMPLOYEE_PROFILE(user?.employeeId));
       if (response.data) {
         const fullName = `${response.data.first_name || ''} ${response.data.last_name || ''}`.trim();
@@ -105,7 +121,9 @@ const Sidebar = () => {
     try {
       setLoading(true);
       const response = await axios.get(API_ENDPOINTS.ADMIN_UPDATES_PENDING_COUNT);
-      setPendingCount(response.data.count || 0);
+      const count = response.data.count || 0;
+      setPendingCount(count);
+      console.log('📊 Updated pending count:', count);
     } catch (error) {
       console.error('Error fetching pending count:', error);
     } finally {
@@ -139,8 +157,8 @@ const Sidebar = () => {
   };
 
   const NavItem = ({ to, icon, label, badge, onClick, end = false }) => (
-    <NavLink 
-      to={to} 
+    <NavLink
+      to={to}
       end={end}
       onClick={onClick}
       style={({ isActive }) => ({
@@ -168,9 +186,9 @@ const Sidebar = () => {
       {isOpen && (
         <>
           <span style={{ flex: 1 }}>{label}</span>
-          {badge && badge > 0 && (
-            <Badge 
-              bg="danger" 
+          {badge > 0 && (
+            <Badge
+              bg="danger"
               pill
               style={{
                 fontSize: '10px',
@@ -182,9 +200,9 @@ const Sidebar = () => {
           )}
         </>
       )}
-      {!isOpen && badge && badge > 0 && (
-        <Badge 
-          bg="danger" 
+      {!isOpen && badge > 0 && (
+        <Badge
+          bg="danger"
           pill
           style={{
             position: 'absolute',
@@ -229,14 +247,14 @@ const Sidebar = () => {
         </button>
       )}
 
-      {/* Desktop Toggle Button - Positioned outside sidebar */}
+      {/* Desktop Toggle Button */}
       {!isMobile && (
         <button
           onClick={toggleSidebar}
           style={{
             position: 'fixed',
             top: '30px',
-            left: isOpen ? '150px' : '60px', // Position based on sidebar state
+            left: isOpen ? '150px' : '60px',
             zIndex: 1001,
             width: '24px',
             height: '24px',
@@ -251,7 +269,7 @@ const Sidebar = () => {
             boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
             padding: 0,
             transition: 'left 0.3s ease',
-            transform: 'translateX(-50%)' // Center the button on the edge
+            transform: 'translateX(-50%)'
           }}
         >
           {isOpen ? <FaChevronLeft size={12} /> : <FaChevronRight size={12} />}
@@ -305,7 +323,7 @@ const Sidebar = () => {
           width: '100%'
         }}>
           {/* Header */}
-          <div style={{ 
+          <div style={{
             marginBottom: '30px',
             textAlign: isOpen ? 'left' : 'center',
             marginTop: '10px'
@@ -325,8 +343,8 @@ const Sidebar = () => {
           {/* Navigation */}
           <nav style={{ flex: 1, width: '100%' }}>
             {/* Dashboard - Common for all */}
-            <NavItem 
-              to="/" 
+            <NavItem
+              to="/"
               end={true}
               icon={<FaTachometerAlt size={18} />}
               label="Dashboard"
@@ -336,38 +354,38 @@ const Sidebar = () => {
             {user?.role === 'admin' ? (
               // ✅ ADMIN MENU ITEMS
               <>
-                <NavItem 
-                  to="/admin/employees" 
+                <NavItem
+                  to="/admin/employees"
                   icon={<FaUsers size={18} />}
                   label="Employees"
                   onClick={closeSidebar}
                 />
-                
-                <NavItem 
-                  to="/admin/leave-requests" 
+
+                <NavItem
+                  to="/admin/leave-requests"
                   icon={<FaCalendarAlt size={18} />}
                   label="Leave Requests"
                   onClick={closeSidebar}
                 />
 
-                <NavItem 
-                  to="/admin/attendance/reports" 
+                <NavItem
+                  to="/admin/attendance/reports"
                   icon={<FaClock size={18} />}
                   label="Attendance"
                   onClick={closeSidebar}
                 />
 
                 {/* SEND UPDATE REQUEST LINK */}
-                <NavItem 
-                  to="/admin/send-update-request" 
+                <NavItem
+                  to="/admin/send-update-request"
                   icon={<FaPaperPlane size={18} />}
                   label="Send Update Request"
                   onClick={closeSidebar}
                 />
 
                 {/* UPDATE APPROVALS LINK WITH BADGE */}
-                <NavItem 
-                  to="/admin/update-approvals" 
+                <NavItem
+                  to="/admin/update-approvals"
                   icon={<FaBell size={18} />}
                   label="Update Approvals"
                   badge={pendingCount}
@@ -377,65 +395,49 @@ const Sidebar = () => {
                     markNotificationsAsRead();
                   }}
                 />
-
-                {/* GEOFENCE SETTINGS LINK */}
-                <NavItem 
-                  to="/admin/geofence-settings" 
-                  icon={<FaFileAlt size={18} />}
-                  label="Geofence Settings"
-                  onClick={closeSidebar}
-                />
-
-                {/* LEAVE REPORTS LINK */}
-                <NavItem 
-                  to="/admin/leave-reports" 
-                  icon={<FaChartBar size={18} />}
-                  label="Leave Reports"
-                  onClick={closeSidebar}
-                />
               </>
             ) : (
               // ✅ EMPLOYEE MENU ITEMS
               <>
-                <NavItem 
-                  to="/profile" 
+                <NavItem
+                  to="/profile"
                   icon={<FaUserCircle size={18} />}
                   label="My Profile"
                   onClick={closeSidebar}
                 />
-                
-                <NavItem 
-                  to="/attendance" 
+
+                <NavItem
+                  to="/attendance"
                   icon={<FaFingerprint size={18} />}
                   label="Daily Attendance"
                   onClick={closeSidebar}
                 />
-                
-                <NavItem 
-                  to="/apply-leave" 
+
+                <NavItem
+                  to="/apply-leave"
                   icon={<FaCalendarAlt size={18} />}
                   label="Apply Leave"
                   onClick={closeSidebar}
                 />
-                
-                <NavItem 
-                  to="/salary-slip" 
+
+                <NavItem
+                  to="/salary-slip"
                   icon={<FaMoneyBill size={18} />}
                   label="Salary Slip"
                   onClick={closeSidebar}
                 />
 
                 {/* EMPLOYEE UPDATE REQUESTS LINK */}
-                <NavItem 
-                  to="/employee/update-requests" 
+                <NavItem
+                  to="/employee/update-requests"
                   icon={<FaEdit size={18} />}
                   label="Update Requests"
                   onClick={closeSidebar}
                 />
 
                 {/* HOLIDAY CALENDAR LINK */}
-                <NavItem 
-                  to="/holiday-calendar" 
+                <NavItem
+                  to="/holiday-calendar"
                   icon={<FaCalendarAlt size={18} />}
                   label="Holidays"
                   onClick={closeSidebar}
@@ -445,8 +447,8 @@ const Sidebar = () => {
           </nav>
 
           {/* User Info */}
-          <div style={{ 
-            marginTop: 'auto', 
+          <div style={{
+            marginTop: 'auto',
             padding: isOpen ? '20px 0' : '20px 0',
             borderTop: '1px solid rgba(255,255,255,0.2)',
             textAlign: isOpen ? 'left' : 'center',
@@ -455,28 +457,28 @@ const Sidebar = () => {
           }}>
             {isOpen ? (
               <>
-                <div style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
                   marginBottom: '10px',
                   width: '100%',
                   overflow: 'hidden'
                 }}>
                   <FaUserCircle size={20} style={{ marginRight: '8px', flexShrink: 0 }} />
-                  <div style={{ 
+                  <div style={{
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap'
                   }}>
-                    <div style={{ 
-                      fontWeight: 'bold', 
+                    <div style={{
+                      fontWeight: 'bold',
                       fontSize: '13px',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap'
                     }}>{employeeName}</div>
-                    <small style={{ 
-                      fontSize: '10px', 
+                    <small style={{
+                      fontSize: '10px',
                       opacity: 0.7,
                       display: 'block',
                       overflow: 'hidden',
@@ -487,8 +489,8 @@ const Sidebar = () => {
                     </small>
                   </div>
                 </div>
-                <button 
-                  onClick={logout} 
+                <button
+                  onClick={logout}
                   style={{
                     width: '100%',
                     padding: '8px',
@@ -514,15 +516,15 @@ const Sidebar = () => {
                 </button>
               </>
             ) : (
-              <div style={{ 
-                display: 'flex', 
-                flexDirection: 'column', 
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
                 alignItems: 'center',
                 width: '100%'
               }}>
                 <FaUserCircle size={24} style={{ marginBottom: '8px' }} />
-                <button 
-                  onClick={logout} 
+                <button
+                  onClick={logout}
                   style={{
                     width: '32px',
                     height: '32px',

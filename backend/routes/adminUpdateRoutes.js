@@ -7,39 +7,11 @@ const { verifyToken, isAdmin } = require('../middleware/auth');
 router.get('/employees', verifyToken, isAdmin, async (req, res) => {
     try {
         console.log('📋 Fetching employees for admin...');
-        
-        // Check if employees table exists and get columns
-        const { data: columns, error: columnsError } = await supabase
-            .from('information_schema.columns')
-            .select('column_name')
-            .eq('table_name', 'employees')
-            .eq('table_schema', 'public');
 
-        if (columnsError) {
-            console.error('❌ Error checking columns:', columnsError);
-            return res.json([]);
-        }
-
-        const columnNames = columns.map(col => col.column_name);
-        
-        // Build select fields based on existing columns
-        let selectFields = ['id', 'employee_id', 'first_name', 'last_name', 'email'];
-        
-        if (columnNames.includes('designation')) selectFields.push('designation');
-        if (columnNames.includes('department')) selectFields.push('department');
-        if (columnNames.includes('phone')) selectFields.push('phone');
-
-        let query = supabase
+        const { data: employees, error } = await supabase
             .from('employees')
-            .select(selectFields.join(','))
+            .select('id, employee_id, first_name, last_name, email, designation, department, phone')
             .order('first_name', { ascending: true });
-
-        // Add is_active filter if column exists
-        if (columnNames.includes('is_active')) {
-            query = query.or('is_active.eq.true,is_active.is.null');
-        }
-
-        const { data: employees, error } = await query;
 
         if (error) throw error;
 
@@ -48,9 +20,6 @@ router.get('/employees', verifyToken, isAdmin, async (req, res) => {
 
     } catch (error) {
         console.error('❌ Error fetching employees:', error);
-        console.error('Error details:', error.message);
-        
-        // Return empty array instead of error to prevent frontend crash
         res.json([]);
     }
 });
@@ -58,21 +27,10 @@ router.get('/employees', verifyToken, isAdmin, async (req, res) => {
 // Get pending requests count
 router.get('/pending-count', verifyToken, isAdmin, async (req, res) => {
     try {
-        // Check if table exists
-        const { data: tables, error: tableError } = await supabase
-            .from('information_schema.tables')
-            .select('table_name')
-            .eq('table_name', 'update_requests')
-            .eq('table_schema', 'public');
-
-        if (tableError || !tables || tables.length === 0) {
-            return res.json({ count: 0 });
-        }
-
         const { count, error } = await supabase
             .from('update_requests')
             .select('*', { count: 'exact', head: true })
-            .eq('status', 'completed');
+            .eq('status', 'completed'); // ✅ Completed by employee, waiting for admin
 
         if (error) throw error;
 
@@ -84,22 +42,10 @@ router.get('/pending-count', verifyToken, isAdmin, async (req, res) => {
     }
 });
 
+
 // Get all pending requests
 router.get('/pending-requests', verifyToken, isAdmin, async (req, res) => {
     try {
-        console.log('📋 Fetching pending update requests...');
-
-        // Check if table exists
-        const { data: tables, error: tableError } = await supabase
-            .from('information_schema.tables')
-            .select('table_name')
-            .eq('table_name', 'update_requests')
-            .eq('table_schema', 'public');
-
-        if (tableError || !tables || tables.length === 0) {
-            return res.json([]);
-        }
-
         const { data: requests, error } = await supabase
             .from('update_requests')
             .select(`
@@ -111,7 +57,6 @@ router.get('/pending-requests', verifyToken, isAdmin, async (req, res) => {
 
         if (error) throw error;
 
-        // Format requests
         const formattedRequests = (requests || []).map(req => ({
             ...req,
             requested_fields: req.requested_fields || [],
@@ -135,17 +80,13 @@ router.get('/pending-requests', verifyToken, isAdmin, async (req, res) => {
 // Send update request to employee
 router.post('/send-request', verifyToken, isAdmin, async (req, res) => {
     try {
-        const { employee_id, requested_fields, requested_field_names, notes } = req.body;
-        
-        console.log('📝 Sending update request:', { employee_id, requested_fields });
-        
-        // Check if requested_field_names column exists
-        const { data: columns, error: columnsError } = await supabase
-            .from('information_schema.columns')
-            .select('column_name')
-            .eq('table_name', 'update_requests')
-            .eq('column_name', 'requested_field_names')
-            .eq('table_schema', 'public');
+        const { employee_id, requested_fields, notes } = req.body;
+
+        console.log('='.repeat(50));
+        console.log('📝 SENDING UPDATE REQUEST');
+        console.log('Employee ID:', employee_id);
+        console.log('Requested fields:', requested_fields);
+        console.log('='.repeat(50));
 
         const insertData = {
             employee_id,
@@ -157,11 +98,6 @@ router.post('/send-request', verifyToken, isAdmin, async (req, res) => {
             updated_at: new Date().toISOString()
         };
 
-        // Add requested_field_names if column exists
-        if (columns && columns.length > 0) {
-            insertData.requested_field_names = requested_field_names || [];
-        }
-
         const { data, error } = await supabase
             .from('update_requests')
             .insert([insertData])
@@ -169,287 +105,296 @@ router.post('/send-request', verifyToken, isAdmin, async (req, res) => {
 
         if (error) throw error;
 
-        res.status(201).json({ 
+        // Create notification for employee
+        await supabase
+            .from('notifications')
+            .insert([{
+                employee_id: employee_id,
+                title: 'Information Update Request',
+                message: `Admin has requested you to update your ${requested_fields.join(', ')} information.`,
+                type: 'update_request',
+                reference_id: data[0].id,
+                is_read: false,
+                created_at: new Date().toISOString()
+            }]);
+
+        res.status(201).json({
             success: true,
             message: 'Update request sent successfully',
             request_id: data[0].id
         });
-        
+
     } catch (error) {
         console.error('❌ Error sending update request:', error);
-        
-        res.status(500).json({ 
-            success: false, 
-            message: 'Database error: ' + error.message
+        res.status(500).json({
+            success: false,
+            message: 'Error sending request',
+            error: error.message
         });
     }
 });
 
-// Get completed requests
+// routes/adminUpdateRoutes.js - Fixed completed-requests endpoint
+
 router.get('/completed-requests', verifyToken, isAdmin, async (req, res) => {
     try {
-        console.log('📋 Fetching completed update requests...');
+        console.log('='.repeat(50));
+        console.log('📋 FETCHING COMPLETED REQUESTS');
+        console.log('Admin ID:', req.userId);
+        console.log('='.repeat(50));
 
-        // Check if update_requests table exists
-        const { data: tables, error: tableError } = await supabase
-            .from('information_schema.tables')
-            .select('table_name')
-            .eq('table_name', 'update_requests')
-            .eq('table_schema', 'public');
-
-        if (tableError || !tables || tables.length === 0) {
-            console.log('ℹ️ update_requests table does not exist');
-            return res.json([]);
-        }
-
-        // Get requests with employee details
+        // First, get all completed requests without join to avoid errors
         const { data: requests, error } = await supabase
             .from('update_requests')
-            .select(`
-                *,
-                employees!left(first_name, last_name, email, designation, department, phone)
-            `)
+            .select('*')
             .eq('status', 'completed')
             .order('updated_at', { ascending: false });
 
-        if (error) throw error;
+        if (error) {
+            console.error('❌ Supabase error:', error);
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Database error',
+                error: error.message 
+            });
+        }
 
         console.log(`✅ Found ${requests?.length || 0} completed requests`);
 
-        // Format requests
-        const formattedRequests = (requests || []).map(req => ({
-            ...req,
-            requested_fields: req.requested_fields || [],
-            employee_data: req.employee_data || {},
-            employeeDetails: {
-                first_name: req.employees?.first_name,
-                last_name: req.employees?.last_name,
-                email: req.employees?.email,
-                designation: req.employees?.designation,
-                department: req.employees?.department,
-                phone: req.employees?.phone
-            },
-            employees: undefined
-        }));
+        if (!requests || requests.length === 0) {
+            return res.json([]);
+        }
 
+        // Now get employee details for each request
+        const formattedRequests = [];
+
+        for (const req of requests) {
+            try {
+                // Fetch employee details
+                const { data: employee, error: empError } = await supabase
+                    .from('employees')
+                    .select('first_name, last_name, email, department, designation')
+                    .eq('employee_id', req.employee_id)
+                    .single();
+
+                if (empError) {
+                    console.warn(`⚠️ Could not fetch employee for ${req.employee_id}:`, empError);
+                }
+
+                formattedRequests.push({
+                    id: req.id,
+                    employee_id: req.employee_id,
+                    status: req.status,
+                    requested_fields: req.requested_fields || [],
+                    employee_data: req.employee_data || {},
+                    notes: req.notes,
+                    created_at: req.created_at,
+                    updated_at: req.updated_at,
+                    employee_name: employee ? `${employee.first_name || ''} ${employee.last_name || ''}`.trim() : 'Unknown',
+                    employee_email: employee?.email,
+                    employee_department: employee?.department,
+                    employee_designation: employee?.designation
+                });
+
+            } catch (empErr) {
+                console.error(`❌ Error processing request ${req.id}:`, empErr);
+                // Still add the request without employee details
+                formattedRequests.push({
+                    id: req.id,
+                    employee_id: req.employee_id,
+                    status: req.status,
+                    requested_fields: req.requested_fields || [],
+                    employee_data: req.employee_data || {},
+                    notes: req.notes,
+                    created_at: req.created_at,
+                    updated_at: req.updated_at,
+                    employee_name: 'Unknown',
+                    employee_email: null,
+                    employee_department: null,
+                    employee_designation: null
+                });
+            }
+        }
+
+        console.log(`✅ Sending ${formattedRequests.length} formatted requests`);
         res.json(formattedRequests);
 
     } catch (error) {
         console.error('❌ Error fetching completed requests:', error);
-        
-        // Return empty array instead of 500 error
-        res.json([]);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Error fetching requests',
+            error: error.message 
+        });
     }
 });
 
-// Handle request (approve/reject)
+// routes/adminUpdateRoutes.js - Ultra simplified version
+
+// routes/adminUpdateRoutes.js - Updated handle-request without admin_comments
+
 router.post('/handle-request', verifyToken, isAdmin, async (req, res) => {
     try {
-        const { request_id, action } = req.body;
-        
-        console.log(`📝 ${action}ing update request: ${request_id}`);
+        const { request_id, action } = req.body; // Remove comments from destructuring
 
-        // Check if update_requests table exists
-        const { data: tables, error: tableError } = await supabase
-            .from('information_schema.tables')
-            .select('table_name')
-            .eq('table_name', 'update_requests')
-            .eq('table_schema', 'public');
+        console.log('='.repeat(50));
+        console.log('📝 HANDLE REQUEST');
+        console.log('Request ID:', request_id);
+        console.log('Action:', action);
+        console.log('='.repeat(50));
 
-        if (tableError || !tables || tables.length === 0) {
-            return res.status(404).json({ 
-                success: false, 
-                message: 'Update requests table not found' 
+        // Validate input
+        if (!request_id) {
+            return res.status(400).json({
+                success: false,
+                message: 'Request ID is required'
+            });
+        }
+
+        if (!['approve', 'reject'].includes(action)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Action must be approve or reject'
             });
         }
 
         // Get request details
-        const { data: requests, error: fetchError } = await supabase
+        const { data: request, error: fetchError } = await supabase
             .from('update_requests')
             .select('*')
+            .eq('id', request_id)
+            .single();
+
+        if (fetchError || !request) {
+            return res.status(404).json({
+                success: false,
+                message: 'Request not found'
+            });
+        }
+
+        console.log('✅ Found request:', request);
+
+        // Check if request is in completed status
+        if (request.status !== 'completed') {
+            return res.status(400).json({
+                success: false,
+                message: `Request is not in completed state. Current status: ${request.status}`
+            });
+        }
+
+        const newStatus = action === 'approve' ? 'approved' : 'rejected';
+
+        // If approved, update employee data
+        if (action === 'approve' && request.employee_data) {
+            try {
+                console.log('📝 Updating employee data for:', request.employee_id);
+                console.log('Employee data:', request.employee_data);
+
+                const { error: empUpdateError } = await supabase
+                    .from('employees')
+                    .update(request.employee_data)
+                    .eq('employee_id', request.employee_id);
+
+                if (empUpdateError) {
+                    console.error('❌ Error updating employee:', empUpdateError);
+                    throw empUpdateError;
+                }
+                console.log('✅ Employee data updated successfully');
+            } catch (empError) {
+                console.error('❌ Employee update failed:', empError);
+                return res.status(500).json({
+                    success: false,
+                    message: 'Failed to update employee data',
+                    error: empError.message
+                });
+            }
+        }
+
+        // Update request status WITHOUT admin_comments
+        const { error: updateError } = await supabase
+            .from('update_requests')
+            .update({
+                status: newStatus,
+                updated_at: new Date().toISOString()
+                // ❌ Remove admin_comments from here
+            })
             .eq('id', request_id);
 
-        if (fetchError) throw fetchError;
-
-        if (!requests || requests.length === 0) {
-            return res.status(404).json({ 
-                success: false, 
-                message: 'Request not found' 
-            });
+        if (updateError) {
+            console.error('❌ Error updating request:', updateError);
+            throw updateError;
         }
 
-        const request = requests[0];
+        console.log(`✅ Request ${action}ed successfully`);
 
-        // Check notifications table columns
-        const { data: notifColumns, error: notifColError } = await supabase
-            .from('information_schema.columns')
-            .select('column_name')
-            .eq('table_name', 'notifications')
-            .eq('table_schema', 'public');
-
-        const notifColumnNames = notifColumns?.map(col => col.column_name) || [];
-        console.log('📊 Notifications columns:', notifColumnNames);
-
-        if (action === 'approve') {
-            // Parse employee data
-            let employeeData = request.employee_data || {};
-            
-            if (Object.keys(employeeData).length > 0) {
-                // Get employees table columns
-                const { data: empColumns, error: empColError } = await supabase
-                    .from('information_schema.columns')
-                    .select('column_name')
-                    .eq('table_name', 'employees')
-                    .eq('table_schema', 'public');
-
-                const columnNames = empColumns?.map(col => col.column_name) || [];
-                
-                // Build update object dynamically
-                const updateData = {};
-                const fieldMapping = {
-                    'first_name': 'first_name',
-                    'last_name': 'last_name',
-                    'email': 'email',
-                    'phone': 'phone',
-                    'address': 'address',
-                    'city': 'city',
-                    'state': 'state',
-                    'pincode': 'pincode',
-                    'bank_name': 'bank_name',
-                    'account_number': 'account_number',
-                    'ifsc_code': 'ifsc_code',
-                    'pan_number': 'pan_number',
-                    'emergency_contact': 'emergency_contact',
-                    'designation': 'designation',
-                    'department': 'department',
-                    'employment_type': 'employment_type',
-                    'shift_timing': 'shift_timing',
-                    'reporting_manager': 'reporting_manager',
-                    'dob': 'dob',
-                    'blood_group': 'blood_group',
-                    'gross_salary': 'gross_salary',
-                    'in_hand_salary': 'in_hand_salary',
-                    'aadhar_number': 'aadhar_number'
-                };
-                
-                Object.keys(employeeData).forEach(key => {
-                    const columnName = fieldMapping[key] || key;
-                    
-                    if (columnNames.includes(columnName) && 
-                        employeeData[key] !== null && 
-                        employeeData[key] !== undefined) {
-                        updateData[columnName] = employeeData[key];
-                    }
-                });
-
-                if (Object.keys(updateData).length > 0) {
-                    const { error: updateError } = await supabase
-                        .from('employees')
-                        .update(updateData)
-                        .eq('employee_id', request.employee_id);
-
-                    if (updateError) throw updateError;
-                    console.log('✅ Employee data updated successfully');
-                }
-            }
-
-            // Update request status
-            const { error: updateReqError } = await supabase
-                .from('update_requests')
-                .update({
-                    status: 'approved',
-                    updated_at: new Date().toISOString()
-                })
-                .eq('id', request_id);
-
-            if (updateReqError) throw updateReqError;
-
-            // Create notification based on available columns
-            const notificationData = {
-                employee_id: request.employee_id,
-                message: 'Your information update request has been approved by admin.',
-                type: 'update_approved',
-                created_at: new Date().toISOString()
-            };
-
-            if (notifColumnNames.includes('title')) {
-                notificationData.title = 'Update Request Approved';
-            }
-            if (notifColumnNames.includes('reference_id')) {
-                notificationData.reference_id = request_id;
-            }
+        // Create notification for employee
+        try {
+            const notificationMessage = action === 'approve'
+                ? 'Your information update request has been approved by admin.'
+                : `Your information update request has been rejected by admin.`;
 
             const { error: notifError } = await supabase
                 .from('notifications')
-                .insert([notificationData]);
+                .insert([{
+                    employee_id: request.employee_id,
+                    title: `Update Request ${action === 'approve' ? 'Approved' : 'Rejected'}`,
+                    message: notificationMessage,
+                    type: `update_${action === 'approve' ? 'approved' : 'rejected'}`,
+                    reference_id: request_id,
+                    created_at: new Date().toISOString()
+                }]);
 
             if (notifError) {
-                console.log('⚠️ Could not create notification:', notifError.message);
+                console.error('⚠️ Error creating notification:', notifError);
+            } else {
+                console.log('✅ Notification created for employee');
             }
-
-            console.log(`✅ Request approved successfully`);
-
-            res.json({ 
-                success: true,
-                message: 'Request approved successfully'
-            });
-
-        } else if (action === 'reject') {
-            // Update request status
-            const { error: updateReqError } = await supabase
-                .from('update_requests')
-                .update({
-                    status: 'rejected',
-                    updated_at: new Date().toISOString()
-                })
-                .eq('id', request_id);
-
-            if (updateReqError) throw updateReqError;
-
-            // Create notification based on available columns
-            const notificationData = {
-                employee_id: request.employee_id,
-                message: 'Your information update request has been rejected by admin.',
-                type: 'update_rejected',
-                created_at: new Date().toISOString()
-            };
-
-            if (notifColumnNames.includes('title')) {
-                notificationData.title = 'Update Request Rejected';
-            }
-            if (notifColumnNames.includes('reference_id')) {
-                notificationData.reference_id = request_id;
-            }
-
-            const { error: notifError } = await supabase
-                .from('notifications')
-                .insert([notificationData]);
-
-            if (notifError) {
-                console.log('⚠️ Could not create notification:', notifError.message);
-            }
-
-            console.log(`✅ Request rejected successfully`);
-
-            res.json({ 
-                success: true,
-                message: 'Request rejected successfully'
-            });
-
-        } else {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Invalid action. Use "approve" or "reject"' 
-            });
+        } catch (notifError) {
+            console.error('⚠️ Notification error:', notifError);
         }
+
+        res.json({
+            success: true,
+            message: `Request ${action === 'approve' ? 'approved' : 'rejected'} successfully`
+        });
 
     } catch (error) {
-        console.error(`❌ Error handling request:`, error);
+        console.error('❌ Error handling request:', error);
+        console.error('Error stack:', error.stack);
         
-        res.status(500).json({ 
-            success: false, 
+        res.status(500).json({
+            success: false,
             message: 'Error processing request',
-            error: error.message 
+            error: error.message
+        });
+    }
+});
+
+// ✅ NEW: Mark all notifications as read for admin
+router.post('/mark-notifications-read', verifyToken, isAdmin, async (req, res) => {
+    try {
+        console.log('📋 Marking all notifications as read for admin:', req.userId);
+
+        // Update all admin notifications for this admin
+        const { error } = await supabase
+            .from('admin_notifications')
+            .update({ is_read: true })
+            .eq('admin_id', req.userId)
+            .eq('is_read', false);
+
+        if (error) throw error;
+
+        res.json({
+            success: true,
+            message: 'All notifications marked as read'
+        });
+
+    } catch (error) {
+        console.error('❌ Error marking notifications as read:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error marking notifications as read',
+            error: error.message
         });
     }
 });

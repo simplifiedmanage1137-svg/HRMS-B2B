@@ -305,14 +305,8 @@ const Navbar = () => {
       height: '60px'
     }}>
       <div className="d-flex align-items-center">
-        <h5 style={{ margin: 0, fontSize: '16px', fontWeight: 'normal' }}>
-          Welcome, <span style={{ color: '#d53f8c', fontWeight: 'bold' }}>{employeeName}</span>
-        </h5>
-        {user?.role === 'admin' && (
-          <Badge bg="dark" className="ms-2 px-2 py-1" style={{ fontSize: '10px' }}>
-            Admin
-          </Badge>
-        )}
+       
+        
       </div>
       
       <div style={{ display: 'flex', alignItems: 'center' }}>

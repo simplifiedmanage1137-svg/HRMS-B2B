@@ -54,7 +54,7 @@ export const API_ENDPOINTS = {
     ADMIN_UPDATES: `${API_BASE_URL}/api/admin-updates`,
     ADMIN_UPDATES_EMPLOYEES: `${API_BASE_URL}/api/admin-updates/employees`,
     ADMIN_UPDATES_SEND_REQUEST: `${API_BASE_URL}/api/admin-updates/send-request`,
-    ADMIN_UPDATES_COMPLETED: `${API_BASE_URL}/api/admin-updates/completed-requests`,
+    ADMIN_UPDATES_COMPLETED: `${API_BASE_URL}/api/admin-updates/completed-requests`, // ✅ FIXED: API_BTA_URL → API_BASE_URL
     ADMIN_UPDATES_HANDLE: `${API_BASE_URL}/api/admin-updates/handle-request`,
     ADMIN_UPDATES_PENDING_COUNT: `${API_BASE_URL}/api/admin-updates/pending-count`,
     ADMIN_UPDATES_MARK_READ: `${API_BASE_URL}/api/admin-updates/mark-notifications-read`,
@@ -65,7 +65,10 @@ export const API_ENDPOINTS = {
     EMPLOYEE_UPDATES: `${API_BASE_URL}/api/employee-updates`,
     EMPLOYEE_UPDATES_PENDING: `${API_BASE_URL}/api/employee-updates/pending-requests`,
     EMPLOYEE_UPDATES_ACCEPT: (requestId) => `${API_BASE_URL}/api/employee-updates/accept-request/${requestId}`,
+    EMPLOYEE_UPDATES_CURRENT_DATA: `${API_BASE_URL}/api/employee-updates/current-data`,
     EMPLOYEE_UPDATES_SUBMIT: `${API_BASE_URL}/api/employee-updates/submit-update`,
+    EMPLOYEE_UPDATES_COMPLETED: `${API_BASE_URL}/api/employee-updates/completed-requests`,
+    EMPLOYEE_UPDATES_REQUEST: (requestId) => `${API_BASE_URL}/api/employee-updates/request/${requestId}`,
 
     // Update response endpoints
     UPDATE_RESPONSES: `${API_BASE_URL}/api/update-responses`,

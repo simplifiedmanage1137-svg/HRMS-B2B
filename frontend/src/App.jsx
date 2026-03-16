@@ -32,6 +32,7 @@ import ApplyLeave from './components/Employee/ApplyLeave';
 import SalarySlip from './components/Employee/SalarySlip';
 import Attendance from './components/Employee/Attendance';
 import EmployeeUpdateRequests from './components/Employee/EmployeeUpdateRequests';
+import EmployeeUpdateForm from './components/Employee/EmployeeUpdateForm';
 
 // Context
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -43,7 +44,7 @@ import { Spinner } from 'react-bootstrap';
 const PrivateRoute = ({ children, allowedRoles }) => {
   const { user, loading } = useAuth();
   const location = useLocation();
-  
+
   if (loading) {
     return (
       <div style={{
@@ -62,15 +63,15 @@ const PrivateRoute = ({ children, allowedRoles }) => {
       </div>
     );
   }
-  
+
   if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
-  
+
   if (allowedRoles && !allowedRoles.includes(user.role)) {
     return <Navigate to="/" replace />;
   }
-  
+
   return children;
 };
 
@@ -79,7 +80,7 @@ function AppContent() {
   const { user, loading } = useAuth();
   const location = useLocation();
   const isLoginPage = location.pathname === '/login';
-  
+
   if (loading) {
     return (
       <div style={{
@@ -98,30 +99,30 @@ function AppContent() {
       </div>
     );
   }
-  
+
   // If on login page, render only login
   if (isLoginPage) {
     return <Login />;
   }
-  
+
   // For all other pages, render with sidebar and navbar
   return (
-    <div style={{ 
-      display: 'flex', 
-      height: '100vh', 
+    <div style={{
+      display: 'flex',
+      height: '100vh',
       overflow: 'hidden',
       position: 'relative'
     }}>
       {/* Sidebar */}
       {user && <Sidebar />}
-      
+
       {/* Main Content Area */}
-      <div 
+      <div
         id="main-content-wrapper"
-        style={{ 
-          flex: 1, 
-          display: 'flex', 
-          flexDirection: 'column', 
+        style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
           overflow: 'hidden',
           backgroundColor: '#f8f9fa',
           transition: 'margin-left 0.3s ease'
@@ -129,10 +130,10 @@ function AppContent() {
       >
         {/* Navbar */}
         {user && <Navbar />}
-        
+
         {/* Page Content */}
-        <div style={{ 
-          flex: 1, 
+        <div style={{
+          flex: 1,
           overflowY: 'auto',
           padding: '20px',
           backgroundColor: '#f8f9fa'
@@ -144,127 +145,132 @@ function AppContent() {
                 {user?.role === 'admin' ? <AdminDashboard /> : <EmployeeDashboard />}
               </PrivateRoute>
             } />
-            
+
             {/* Admin Routes */}
             <Route path="/admin/dashboard" element={
               <PrivateRoute allowedRoles={['admin']}>
                 <AdminDashboard />
               </PrivateRoute>
             } />
-            
+
             <Route path="/admin/employees" element={
               <PrivateRoute allowedRoles={['admin']}>
                 <EmployeeList />
               </PrivateRoute>
             } />
-            
+
             <Route path="/admin/add-employee" element={
               <PrivateRoute allowedRoles={['admin']}>
                 <AddEmployee />
               </PrivateRoute>
             } />
-            
+
             <Route path="/admin/edit-employee/:id" element={
               <PrivateRoute allowedRoles={['admin']}>
                 <EditEmployee />
               </PrivateRoute>
             } />
-            
+
             <Route path="/admin/employees/:id" element={
               <PrivateRoute allowedRoles={['admin']}>
                 <EmployeeProfileView />
               </PrivateRoute>
             } />
-            
+
             <Route path="/admin/leave-requests" element={
               <PrivateRoute allowedRoles={['admin']}>
                 <LeaveRequests />
               </PrivateRoute>
             } />
-            
+
             <Route path="/admin/leave-reports" element={
               <PrivateRoute allowedRoles={['admin']}>
                 <LeaveReports />
               </PrivateRoute>
             } />
-            
+
             {/* Admin Attendance Routes */}
             <Route path="/admin/attendance/dashboard" element={
               <PrivateRoute allowedRoles={['admin']}>
                 <AttendanceDashboard />
               </PrivateRoute>
             } />
-            
+            <Route path="/employee/update-info/:requestId" element={
+              <PrivateRoute allowedRoles={['employee']}>
+                <EmployeeUpdateForm />
+              </PrivateRoute>
+            } />
+
             <Route path="/admin/attendance/reports" element={
               <PrivateRoute allowedRoles={['admin']}>
                 <AttendanceReports />
               </PrivateRoute>
             } />
-            
+
             {/* ✅ SEND UPDATE REQUEST ROUTE */}
             <Route path="/admin/send-update-request" element={
               <PrivateRoute allowedRoles={['admin']}>
                 <SendUpdateRequest />
               </PrivateRoute>
             } />
-            
+
             {/* ✅ UPDATE APPROVALS ROUTE - YAHI PE CLICK KARNA HAI */}
             <Route path="/admin/update-approvals" element={
               <PrivateRoute allowedRoles={['admin']}>
                 <UpdateApprovals />
               </PrivateRoute>
             } />
-            
+
             {/* Employee Routes */}
             <Route path="/employee/dashboard" element={
               <PrivateRoute allowedRoles={['employee']}>
                 <EmployeeDashboard />
               </PrivateRoute>
             } />
-            
+
             <Route path="/profile" element={
               <PrivateRoute allowedRoles={['admin', 'employee']}>
                 <Profile />
               </PrivateRoute>
             } />
-            
+
             <Route path="/profile/edit" element={
               <PrivateRoute allowedRoles={['employee']}>
                 <ProfileEdit />
               </PrivateRoute>
             } />
-            
+
             {/* ✅ EMPLOYEE UPDATE REQUESTS ROUTE */}
             <Route path="/employee/update-requests" element={
               <PrivateRoute allowedRoles={['employee']}>
                 <EmployeeUpdateRequests />
               </PrivateRoute>
             } />
-            
+
             <Route path="/apply-leave" element={
               <PrivateRoute allowedRoles={['employee']}>
                 <ApplyLeave />
               </PrivateRoute>
             } />
-            
+
             <Route path="/salary-slip" element={
               <PrivateRoute allowedRoles={['employee']}>
                 <SalarySlip />
               </PrivateRoute>
             } />
-            
+
             <Route path="/attendance" element={
               <PrivateRoute allowedRoles={['employee']}>
                 <Attendance />
               </PrivateRoute>
             } />
-            
+
             {/* Redirect for any unknown routes */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
       </div>
-      
+
       {/* Global Notification */}
       <GlobalNotification />
     </div>
