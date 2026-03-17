@@ -12,10 +12,16 @@ const app = express();
 dotenv.config();
 
 // ============== MIDDLEWARE ==============
+// app.use(cors({
+//     origin: 'http://localhost:5173',
+//     credentials: true
+// }));
+
 app.use(cors({
-    origin: 'http://localhost:5173',
+    origin: ['http://localhost:5173', 'https://employee-management-system-24rs0uvjz-b2bindemand-hubs-projects.vercel.app'],
     credentials: true
 }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
