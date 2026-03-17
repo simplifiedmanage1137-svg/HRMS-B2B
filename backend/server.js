@@ -17,13 +17,26 @@ dotenv.config();
 //     credentials: true
 // }));
 
+// app.use(cors({
+//     origin: ['http://localhost:5173', 'https://employee-management-system-24rs0uvjz-b2bindemand-hubs-projects.vercel.app'],
+//     credentials: true
+// }));
+
 app.use(cors({
-    origin: ['http://localhost:5173', 'https://employee-management-system-24rs0uvjz-b2bindemand-hubs-projects.vercel.app'],
-    credentials: true
+    origin: [
+        'http://localhost:5173',
+        'http://localhost:3000',
+        'https://employee-management-system-phi-five.vercel.app',  // Ye add karo
+        'https://employee-management-system-24rs0uvjz-b2bindemand-hubs-projects.vercel.app'
+    ],
+    optionsSuccessStatus: 200,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
 
 // Serve uploaded files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
