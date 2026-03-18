@@ -73,6 +73,23 @@ const AttendanceReports = () => {
   const OTHER_DEDUCTIONS = 0;
   const OVERTIME_RATE = 150; // ₹150 per hour
 
+  // ============== UTILITY FUNCTIONS ==============
+
+  // Format decimal hours to "Xh Ym" format
+  const formatHours = (decimalHours) => {
+    if (!decimalHours || decimalHours <= 0) return '-';
+    
+    const totalMinutes = Math.round(decimalHours * 60);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    
+    if (minutes === 0) {
+      return `${hours}h`;
+    }
+    return `${hours}h ${minutes}m`;
+  };
+
+  // Format late minutes to "Xh Ym Zs" format
   const formatLateDisplay = (lateMinutes) => {
     if (!lateMinutes || lateMinutes <= 0) return null;
     
@@ -401,7 +418,7 @@ const AttendanceReports = () => {
               statusIcon = '✗';
             }
 
-            tooltip = `In: ${formatShortTime(clockIn)} | Out: ${formatShortTime(clockOut)} | Hrs: ${totalHours.toFixed(1)}`;
+            tooltip = `In: ${formatShortTime(clockIn)} | Out: ${formatShortTime(clockOut)} | Hrs: ${formatHours(totalHours)}`;
             if (lateMinutes > 0) {
               tooltip += ` | Late: ${formatLateDisplay(lateMinutes)}`;
             }
@@ -617,7 +634,7 @@ const AttendanceReports = () => {
           'Shift': record.shift_time_used || 'Not set',
           'Clock In': record.clock_in ? formatShortTime(record.clock_in) : '-',
           'Clock Out': record.clock_out ? formatShortTime(record.clock_out) : '-',
-          'Total Hours': record.total_hours || '0.0',
+          'Total Hours': record.total_hours ? formatHours(parseFloat(record.total_hours)) : '-',
           'Late Duration': record.late_display || '0',
           'Overtime Hours': record.overtime_hours || '0',
           'Overtime Amount': record.overtime_amount || '0',
@@ -636,7 +653,7 @@ const AttendanceReports = () => {
         const ws = XLSX.utils.json_to_sheet(exportData);
         const colWidths = [
           { wch: 8 }, { wch: 12 }, { wch: 15 }, { wch: 25 }, { wch: 15 },
-          { wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 12 },
+          { wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 15 }, { wch: 12 },
           { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 20 }, { wch: 12 },
           { wch: 10 }, { wch: 12 }
         ];
@@ -736,6 +753,7 @@ const AttendanceReports = () => {
           row['Total Comp-Off Days'] = empStats.total_comp_off_days.toFixed(1) || '0';
           row['Overtime Hours'] = empStats.overtime_hours || 0;
           row['Overtime Amount'] = empStats.overtime_amount || 0;
+          row['Total Hours'] = formatHours(empStats.total_hours) || '0';
           row['Amount'] = salary.actualSalary;
           row['Gross Salary'] = salary.grossSalary;
           row['Net Salary'] = salary.inHandSalary;
@@ -764,7 +782,7 @@ const AttendanceReports = () => {
         colWidths.push(
           { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 10 }, { wch: 10 },
           { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 15 }, { wch: 15 },
-          { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 12 }, { wch: 12 },
+          { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
           { wch: 12 }, { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 15 },
           { wch: 18 }, { wch: 20 }, { wch: 15 }, { wch: 20 }
         );
@@ -1034,9 +1052,14 @@ const AttendanceReports = () => {
                             </span>
                           </td>
                           <td className="small">
-                            <span className="text-nowrap" title={`${record.total_hours || '0.0'} hrs`}>
-                              {record.total_hours || '0.0'}
-                            </span>
+                            {record.total_hours ? (
+                              <span 
+                                className="text-nowrap fw-bold" 
+                                title={`${record.total_hours} hours`}
+                              >
+                                {formatHours(parseFloat(record.total_hours))}
+                              </span>
+                            ) : '-'}
                           </td>
                           <td className="small">
                             {record.overtime_hours > 0 ? (
@@ -1167,7 +1190,7 @@ const AttendanceReports = () => {
                       <th className="text-center fw-normal small bg-light" style={{ minWidth: '60px', top: 0, zIndex: 10 }}>OT</th>
                       <th className="text-center fw-normal small bg-light" style={{ minWidth: '60px', top: 0, zIndex: 10 }}>OT Amt</th>
                       <th className="text-center fw-normal small bg-light" style={{ minWidth: '60px', top: 0, zIndex: 10 }}>Comp-Off</th>
-                      <th className="text-center fw-normal small bg-light" style={{ minWidth: '50px', top: 0, zIndex: 10 }}>Hours</th>
+                      <th className="text-center fw-normal small bg-light" style={{ minWidth: '60px', top: 0, zIndex: 10 }}>Hours</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1294,7 +1317,9 @@ const AttendanceReports = () => {
                                 <Badge bg="secondary" pill className="text-nowrap">0</Badge>
                               )}
                             </td>
-                            <td className="text-center"><strong>{empStats.total_hours.toFixed(1)}</strong></td>
+                            <td className="text-center">
+                              <strong>{formatHours(empStats.total_hours)}</strong>
+                            </td>
                           </tr>
                         );
                       })
