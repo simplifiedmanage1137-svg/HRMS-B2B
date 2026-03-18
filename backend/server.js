@@ -1,66 +1,149 @@
+// server.js
 const express = require('express');
 const cors = require('cors');
-const jwt = require('jsonwebtoken');
+const dotenv = require('dotenv');
 const path = require('path');
 const fs = require('fs');
-const dotenv = require('dotenv');
+const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
-const supabase = require('./config/supabase');
 
-const app = express();
+// Load environment variables
 dotenv.config();
 
-// ============== MIDDLEWARE ==============
-app.use(cors({
-    origin: 'http://localhost:5173',
-    credentials: true
-}));
+// Import Supabase configuration
+const supabase = require('./config/supabase');
 
-// app.use(cors({
-//     origin: ['http://localhost:5173', 'https://employee-management-system-24rs0uvjz-b2bindemand-hubs-projects.vercel.app'],
-//     credentials: true
-// }));
+// Import routes
+const authRoutes = require('./routes/authRoutes');
+const employeeRoutes = require('./routes/employeeRoutes');
+const leaveRoutes = require('./routes/leaveRoutes');
+const attendanceRoutes = require('./routes/attendanceRoutes')(supabase);
+const salaryRoutes = require('./routes/salaryRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
+const adminUpdateRoutes = require('./routes/adminUpdateRoutes');
+const employeeUpdateRoutes = require('./routes/employeeUpdateRoutes');
+const updateResponseRoutes = require('./routes/updateResponseRoutes');
 
-app.get('/', (req, res) => {
-    res.send('🚀 API is running on Render');
-});
+// Initialize Express app
+const app = express();
 
-app.use(cors({
-     origin: [
+// ============== DETERMINE ENVIRONMENT ==============
+const isProduction = process.env.NODE_ENV === 'production';
+const PORT = process.env.PORT || 5000;
+
+console.log('='.repeat(70));
+console.log('🚀 SERVER INITIALIZING');
+console.log(`Environment: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
+console.log(`Port: ${PORT}`);
+console.log('='.repeat(70));
+
+// ============== CORS CONFIGURATION ==============
+// Get allowed origins from environment or use defaults
+const getCorsOrigins = () => {
+    // In production, use environment variable or specific domains
+    if (isProduction) {
+        const origins = [
+            'https://employee-management-system-zeta-lac.vercel.app',
+            'https://employee-management-system-phi-five.vercel.app',
+            'https://employee-management-system-24rs0uvjz-b2bindemand-hubs-projects.vercel.app',
+            'https://employee-management-system-96lz.onrender.com',
+            // Add your frontend URLs here
+        ];
+        
+        // Add any additional origins from environment variable
+        if (process.env.CORS_ORIGINS) {
+            const additionalOrigins = process.env.CORS_ORIGINS.split(',');
+            origins.push(...additionalOrigins);
+        }
+        
+        return origins;
+    }
+    
+    // In development, allow localhost
+    return [
         'http://localhost:5173',
         'http://localhost:3000',
-        'https://employee-management-system-zeta-lac.vercel.app', // ✅ ADD THIS
-        'https://employee-management-system-phi-five.vercel.app',
-        'https://employee-management-system-24rs0uvjz-b2bindemand-hubs-projects.vercel.app'
-    ],
+        'http://localhost:5000',
+        'http://127.0.0.1:5173',
+        'http://127.0.0.1:3000'
+    ];
+};
+
+// Configure CORS with proper options
+const corsOptions = {
+    origin: function (origin, callback) {
+        const allowedOrigins = getCorsOrigins();
+        
+        // Allow requests with no origin (like mobile apps, curl, etc.)
+        if (!origin || isProduction === false) {
+            return callback(null, true);
+        }
+        
+        if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes('*')) {
+            callback(null, true);
+        } else {
+            console.log('❌ CORS blocked for origin:', origin);
+            callback(new Error('CORS not allowed for this origin'));
+        }
+    },
+    credentials: true,
     optionsSuccessStatus: 200,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-}));
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'X-Requested-With',
+        'Accept',
+        'Origin',
+        'Access-Control-Allow-Headers',
+        'Access-Control-Allow-Origin',
+        'Access-Control-Allow-Credentials'
+    ],
+    exposedHeaders: ['Content-Range', 'X-Content-Range']
+};
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Apply CORS middleware
+app.use(cors(corsOptions));
 
+// Handle preflight requests
+app.options('*', cors(corsOptions));
 
-// Serve uploaded files
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// ============== OTHER MIDDLEWARE ==============
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Create upload directories if they don't exist
-const uploadsDir = path.join(__dirname, 'uploads');
-const profilesDir = path.join(uploadsDir, 'profiles');
-const documentsDir = path.join(uploadsDir, 'documents');
-
-[uploadsDir, profilesDir, documentsDir].forEach(dir => {
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-        console.log(`✅ Created directory: ${dir}`);
-    }
+// Request logging middleware
+app.use((req, res, next) => {
+    console.log(`📥 ${req.method} ${req.url} - ${new Date().toISOString()}`);
+    next();
 });
 
-// ============== MULTER CONFIGURATION FOR DOCUMENT UPLOADS ==============
+// ============== CREATE UPLOAD DIRECTORIES ==============
+const createUploadDirectories = () => {
+    const uploadsDir = path.join(__dirname, 'uploads');
+    const profilesDir = path.join(uploadsDir, 'profiles');
+    const documentsDir = path.join(uploadsDir, 'documents');
+    
+    [uploadsDir, profilesDir, documentsDir].forEach(dir => {
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+            console.log(`✅ Created directory: ${dir}`);
+        }
+    });
+    
+    return { uploadsDir, profilesDir, documentsDir };
+};
+
+const { uploadsDir } = createUploadDirectories();
+
+// Serve static files
+app.use('/uploads', express.static(uploadsDir));
+
+// ============== MULTER CONFIGURATION ==============
 const documentStorage = multer.diskStorage({
     destination: function (req, file, cb) {
+        const documentsDir = path.join(__dirname, 'uploads', 'documents');
         cb(null, documentsDir);
     },
     filename: function (req, file, cb) {
@@ -87,40 +170,79 @@ const uploadDocuments = multer({
     }
 });
 
-// ============== HELPER FUNCTIONS ==============
-const generateSessionId = () => {
-    return uuidv4();
-};
+// ============== HEALTH CHECK ENDPOINTS ==============
+app.get('/api/health', (req, res) => {
+    res.json({
+        success: true,
+        message: 'Server is healthy',
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development',
+        port: PORT
+    });
+});
 
-const parseShiftStart = (shiftTiming) => {
-    if (!shiftTiming) return null;
+app.get('/api/test', (req, res) => {
+    res.json({
+        success: true,
+        message: 'Backend is working!',
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development',
+        cors: {
+            origins: getCorsOrigins(),
+            requestOrigin: req.headers.origin || 'No origin'
+        }
+    });
+});
 
-    const parts = shiftTiming.split('-');
-    if (parts.length === 0) return null;
-
-    const part = parts[0].trim();
-    const ampmMatch = part.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-    if (ampmMatch) {
-        let hour = parseInt(ampmMatch[1], 10);
-        const minute = parseInt(ampmMatch[2], 10);
-        const ampm = ampmMatch[3].toUpperCase();
-        if (ampm === 'PM' && hour !== 12) hour += 12;
-        if (ampm === 'AM' && hour === 12) hour = 0;
-        return { hour, minute };
+app.get('/api/test-db', async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('employees')
+            .select('count', { count: 'exact', head: true });
+        
+        if (error) throw error;
+        
+        res.json({
+            success: true,
+            message: 'Supabase connected successfully!',
+            database: 'Supabase',
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error('Database connection error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Supabase connection failed',
+            error: error.message
+        });
     }
+});
 
-    const militaryMatch = part.match(/(\d{1,2}):(\d{2})/);
-    if (militaryMatch) {
-        return {
-            hour: parseInt(militaryMatch[1], 10),
-            minute: parseInt(militaryMatch[2], 10)
-        };
-    }
+// ============== ROOT ENDPOINT ==============
+app.get('/', (req, res) => {
+    res.json({
+        name: 'Employee Management System API',
+        version: '1.0.0',
+        status: 'running',
+        timestamp: new Date().toISOString(),
+        endpoints: {
+            health: '/api/health',
+            test: '/api/test',
+            testDb: '/api/test-db',
+            auth: '/api/auth/*',
+            employees: '/api/employees/*',
+            leaves: '/api/leaves/*',
+            attendance: '/api/attendance/*',
+            salary: '/api/salary/*',
+            notifications: '/api/notifications/*',
+            adminUpdates: '/api/admin-updates/*',
+            employeeUpdates: '/api/employee-updates/*',
+            updateResponses: '/api/update-responses/*'
+        }
+    });
+});
 
-    return null;
-};
-
-// ============== MIDDLEWARE FUNCTIONS ==============
+// ============== AUTHENTICATION MIDDLEWARE ==============
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -163,185 +285,67 @@ const requireAdmin = (req, res, next) => {
     next();
 };
 
-// ============== TEST ROUTES ==============
-app.get('/api/test', (req, res) => {
-    res.json({
-        success: true,
-        message: 'Backend is working!',
-        timestamp: new Date().toISOString()
+// ============== ROUTES ==============
+app.use('/api/auth', authRoutes);
+app.use('/api/employees', authenticateToken, employeeRoutes);
+app.use('/api/leaves', authenticateToken, leaveRoutes);
+app.use('/api/attendance', authenticateToken, attendanceRoutes);
+app.use('/api/salary', authenticateToken, salaryRoutes);
+app.use('/api/notifications', authenticateToken, notificationRoutes);
+app.use('/api/admin-updates', authenticateToken, adminUpdateRoutes);
+app.use('/api/employee-updates', authenticateToken, employeeUpdateRoutes);
+app.use('/api/update-responses', authenticateToken, updateResponseRoutes);
+
+// ============== IP WHITELIST MIDDLEWARE (Optional) ==============
+// const { checkAttendanceEligibility } = require('./middleware/ipWhitelist');
+// app.use('/api/attendance', checkAttendanceEligibility);
+
+// ============== ERROR HANDLING MIDDLEWARE ==============
+// 404 handler
+app.use((req, res) => {
+    res.status(404).json({
+        success: false,
+        message: `Route ${req.method} ${req.url} not found`,
+        availableEndpoints: [
+            '/api/health',
+            '/api/test',
+            '/api/test-db',
+            '/api/auth/*',
+            '/api/employees/*',
+            '/api/leaves/*',
+            '/api/attendance/*',
+            '/api/salary/*',
+            '/api/notifications/*',
+            '/api/admin-updates/*',
+            '/api/employee-updates/*',
+            '/api/update-responses/*'
+        ]
     });
 });
 
-app.get('/api/test-db', async (req, res) => {
-    try {
-        const { data, error } = await supabase
-            .from('employees')
-            .select('count', { count: 'exact', head: true });
-        
-        if (error) throw error;
-        
-        res.json({
-            success: true,
-            message: 'Supabase connected successfully!',
-            database: 'Supabase'
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: 'Supabase connection failed',
-            error: error.message
-        });
-    }
-});
-
-// ============== AUTH ROUTES ==============
-const authRoutes = require('./routes/authRoutes');
-app.use('/api/auth', authRoutes);
-
-// ============== TODAY'S EVENTS ROUTE ==============
-app.get('/api/employees/today-events', async (req, res) => {
-    try {
-        console.log('📅 Fetching today events...');
-
-        const today = new Date();
-        const todayMonth = today.getMonth() + 1;
-        const todayDay = today.getDate();
-
-        // Get all employees
-        const { data: employees, error } = await supabase
-            .from('employees')
-            .select('*');
-
-        if (error) throw error;
-
-        const birthdays = [];
-        const anniversaries = [];
-
-        employees.forEach(emp => {
-            // Check birthday
-            if (emp.dob) {
-                const dob = new Date(emp.dob);
-                const dobMonth = dob.getMonth() + 1;
-                const dobDay = dob.getDate();
-
-                if (dobMonth === todayMonth && dobDay === todayDay) {
-                    birthdays.push({
-                        id: emp.id,
-                        employee_id: emp.employee_id,
-                        first_name: emp.first_name,
-                        last_name: emp.last_name,
-                        department: emp.department,
-                        position: emp.designation || emp.position,
-                        profile_image: emp.profile_image
-                    });
-                }
-            }
-
-            // Check work anniversary
-            if (emp.joining_date) {
-                const joiningDate = new Date(emp.joining_date);
-                const joiningMonth = joiningDate.getMonth() + 1;
-                const joiningDay = joiningDate.getDate();
-
-                if (joiningMonth === todayMonth && joiningDay === todayDay) {
-                    const years = today.getFullYear() - joiningDate.getFullYear();
-                    if (years > 0) {
-                        anniversaries.push({
-                            id: emp.id,
-                            employee_id: emp.employee_id,
-                            first_name: emp.first_name,
-                            last_name: emp.last_name,
-                            department: emp.department,
-                            position: emp.designation || emp.position,
-                            profile_image: emp.profile_image,
-                            joining_date: emp.joining_date,
-                            years: years
-                        });
-                    }
-                }
-            }
-        });
-
-        console.log(`✅ Found ${birthdays.length} birthdays and ${anniversaries.length} anniversaries today`);
-
-        res.json({
-            success: true,
-            date: today.toISOString().split('T')[0],
-            birthdays,
-            anniversaries,
-            total: birthdays.length + anniversaries.length
-        });
-
-    } catch (error) {
-        console.error('❌ Error fetching today events:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to fetch events',
-            error: error.message
-        });
-    }
-});
-
-// ============== EMPLOYEE ROUTES ==============
-const employeeRoutes = require('./routes/employeeRoutes');
-app.use('/api/employees', authenticateToken, employeeRoutes);
-
-// ============== LEAVE ROUTES ==============
-const leaveRoutes = require('./routes/leaveRoutes');
-app.use('/api/leaves', authenticateToken, leaveRoutes);
-
-// ============== ATTENDANCE ROUTES ==============
-const attendanceRoutes = require('./routes/attendanceRoutes')(supabase);
-app.use('/api/attendance', authenticateToken, attendanceRoutes);
-
-// ============== NOTIFICATION ROUTES ==============
-const notificationRoutes = require('./routes/notificationRoutes');
-app.use('/api/notifications', authenticateToken, notificationRoutes);
-
-// ============== SHIFTS ROUTES ==============
-app.get('/api/shifts', authenticateToken, async (req, res) => {
-    try {
-        const { data, error } = await supabase
-            .from('shifts')
-            .select('*')
-            .order('id');
-
-        if (error) throw error;
-        res.json(data || []);
-    } catch (error) {
-        console.error('❌ Error fetching shifts:', error);
-        res.status(500).json({ 
-            success: false,
-            error: error.message 
-        });
-    }
-});
-
-// ============== SALARY ROUTES ==============
-const salaryRoutes = require('./routes/salaryRoutes');
-app.use('/api/salary', authenticateToken, salaryRoutes);
-
-// ============== ADMIN UPDATE ROUTES ==============
-const adminUpdateRoutes = require('./routes/adminUpdateRoutes');
-app.use('/api/admin-updates', authenticateToken, adminUpdateRoutes);
-
-// ============== EMPLOYEE UPDATE ROUTES ==============
-const employeeUpdateRoutes = require('./routes/employeeUpdateRoutes');
-app.use('/api/employee-updates', authenticateToken, employeeUpdateRoutes);
-
-// ============== UPDATE RESPONSE ROUTES ==============
-const updateResponseRoutes = require('./routes/updateResponseRoutes');
-app.use('/api/update-responses', authenticateToken, updateResponseRoutes);
-
-// ============== IP WHITELIST MIDDLEWARE ==============
-const { checkAttendanceEligibility } = require('./middleware/ipWhitelist');
-
-// Apply IP check to attendance routes
-app.use('/api/attendance', checkAttendanceEligibility);
-
-// ============== ERROR HANDLING ==============
+// Global error handler
 app.use((err, req, res, next) => {
     console.error('❌ Server error:', err.stack);
+    
+    // Handle CORS errors
+    if (err.message === 'CORS not allowed for this origin') {
+        return res.status(403).json({
+            success: false,
+            message: 'CORS error: Origin not allowed',
+            error: err.message,
+            origin: req.headers.origin
+        });
+    }
+    
+    // Handle multer errors
+    if (err instanceof multer.MulterError) {
+        return res.status(400).json({
+            success: false,
+            message: 'File upload error',
+            error: err.message
+        });
+    }
+    
     res.status(500).json({
         success: false,
         message: 'Internal server error',
@@ -349,26 +353,18 @@ app.use((err, req, res, next) => {
     });
 });
 
-// 404 handler
-app.use((req, res) => {
-    res.status(404).json({
-        success: false,
-        message: `Route ${req.method} ${req.url} not found`
-    });
-});
-
 // ============== START SERVER ==============
-const PORT = process.env.PORT || 5000;
-
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
     console.log('\n' + '='.repeat(70));
     console.log(`🚀 SERVER STARTED SUCCESSFULLY`);
     console.log('='.repeat(70));
     console.log(`📡 Server running on: http://localhost:${PORT}`);
-    // console.log(`Server running on port ${PORT}`);
-    console.log(`📦 Database: Supabase`);
+    console.log(`🌍 Environment: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
+    console.log(`🔗 Public URL: ${process.env.RENDER_EXTERNAL_URL || 'Not set'}`);
     console.log('='.repeat(70));
-    console.log(`📝 TEST ROUTES:`);
+    console.log(`📝 TEST ENDPOINTS:`);
+    console.log(`   - GET  /`);
+    console.log(`   - GET  /api/health`);
     console.log(`   - GET  /api/test`);
     console.log(`   - GET  /api/test-db`);
     console.log('='.repeat(70));
@@ -408,4 +404,23 @@ app.listen(PORT, () => {
     console.log('='.repeat(70));
     console.log(`📁 Uploads directory: ${path.join(__dirname, 'uploads')}`);
     console.log('='.repeat(70));
+    console.log(`🔧 CORS Configuration:`);
+    console.log(`   Allowed Origins:`);
+    getCorsOrigins().forEach(origin => {
+        console.log(`   - ${origin}`);
+    });
+    console.log('='.repeat(70));
 });
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+    console.error('❌ Uncaught Exception:', error);
+    process.exit(1);
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+module.exports = app;
