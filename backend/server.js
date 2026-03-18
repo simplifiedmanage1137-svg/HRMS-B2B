@@ -29,7 +29,6 @@ const updateResponseRoutes = require('./routes/updateResponseRoutes');
 const app = express();
 
 // ============== DETERMINE ENVIRONMENT ==============
-// On Render, NODE_ENV might not be set, so check for RENDER_EXTERNAL_URL
 const isProduction = process.env.NODE_ENV === 'production' || !!process.env.RENDER_EXTERNAL_URL;
 const PORT = process.env.PORT || 5000;
 
@@ -39,114 +38,74 @@ console.log(`Environment: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
 console.log(`Port: ${PORT}`);
 console.log('='.repeat(70));
 
-// ============== CORS CONFIGURATION ==============
-// Get allowed origins from environment or use defaults
-const getCorsOrigins = () => {
-    // In production, use environment variable or specific domains
-    if (isProduction) {
-        const origins = [
-            'https://employee-management-system-zeta-lac.vercel.app',
-            'https://employee-management-system-phi-five.vercel.app',
-            'https://employee-management-system-24rs0uvjz-b2bindemand-hubs-projects.vercel.app',
-            'https://employee-management-system-96lz.onrender.com',
-            // Add your frontend URLs here
-        ];
-        
-        // Add any additional origins from environment variable
-        if (process.env.CORS_ORIGINS) {
-            const additionalOrigins = process.env.CORS_ORIGINS.split(',');
-            origins.push(...additionalOrigins);
-        }
-        
-        return origins;
-    }
-    
-    // In development, allow localhost
-    return [
-        'http://localhost:5173',
-        'http://localhost:3000',
-        'http://localhost:5000',
-        'http://127.0.0.1:5173',
-        'http://127.0.0.1:3000'
-    ];
-};
+// ============== SIMPLIFIED CORS CONFIGURATION ==============
+// Allowed origins
+const allowedOrigins = [
+    'https://employee-management-system-zeta-lac.vercel.app',
+    'https://employee-management-system-phi-five.vercel.app',
+    'https://employee-management-system-24rs0uvjz-b2bindemand-hubs-projects.vercel.app',
+    'https://employee-management-system-96lz.onrender.com',
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:3000'
+];
 
-// Configure CORS with proper options
-const corsOptions = {
-    origin: function (origin, callback) {
-        const allowedOrigins = getCorsOrigins();
-        
-        // Allow requests with no origin (like mobile apps, curl, etc.)
-        if (!origin) {
-            return callback(null, true);
-        }
-        
-        // In development, allow all origins
-        if (!isProduction) {
-            return callback(null, true);
-        }
-        
-        // In production, check against whitelist
-        if (allowedOrigins.indexOf(origin) !== -1) {
-            callback(null, true);
-        } else {
-            console.log('❌ CORS blocked for origin:', origin);
-            callback(new Error('CORS not allowed for this origin'));
-        }
-    },
-    credentials: true,
-    optionsSuccessStatus: 200,
-    methods: ['GET', 
-        'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: [
-        'Content-Type',
-        'Authorization',
-        'X-Requested-With',
-        'Accept',
-        'Origin',
-        'Access-Control-Allow-Headers',
-        'Access-Control-Allow-Origin',
-        'Access-Control-Allow-Credentials'
-    ],
-    exposedHeaders: ['Content-Range', 'X-Content-Range']
-};
-
-// Custom CORS middleware - explicitly set headers
+// CORS middleware - MUST BE FIRST
 app.use((req, res, next) => {
     const origin = req.headers.origin;
-    const allowedOrigins = getCorsOrigins();
     
-    console.log(`📍 Request: ${req.method} ${req.url} from origin: ${origin || 'no-origin'}`);
+    // Log all requests for debugging
+    console.log(`📍 ${req.method} ${req.url} - Origin: ${origin || 'no origin'}`);
     
-    // Allow if no origin (Postman, curl, etc) OR in development OR origin is whitelisted
-    if (!origin || !isProduction || allowedOrigins.includes(origin)) {
-        res.header('Access-Control-Allow-Origin', origin || '*');
-        res.header('Access-Control-Allow-Credentials', 'true');
-        res.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
-        res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin');
-        res.header('Access-Control-Expose-Headers', 'Content-Range,X-Content-Range');
+    // Set CORS headers for all responses
+    if (origin && allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    } else if (!origin) {
+        // Allow requests with no origin (like mobile apps, curl, etc)
+        res.setHeader('Access-Control-Allow-Origin', '*');
+    } else {
+        console.log(`⚠️ Origin not allowed: ${origin}`);
+        // Still set the header to allow the request but log it
+        res.setHeader('Access-Control-Allow-Origin', origin);
     }
     
-    // Handle preflight OPTIONS requests
+    // Set other CORS headers
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Range, X-Content-Range');
+    
+    // Handle preflight requests
     if (req.method === 'OPTIONS') {
+        console.log('✅ Handling OPTIONS preflight request');
         return res.sendStatus(200);
     }
     
     next();
 });
 
-// Also apply cors middleware for redundancy
-app.use(cors(corsOptions));
+// Also use cors package as backup
+app.use(cors({
+    origin: function(origin, callback) {
+        // Allow requests with no origin (like mobile apps, curl)
+        if (!origin) return callback(null, true);
+        
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            console.log(`❌ CORS blocked for: ${origin}`);
+            // In production, you might want to block, but for debugging allow
+            callback(null, true);
+        }
+    },
+    credentials: true,
+    optionsSuccessStatus: 200
+}));
 
 // ============== OTHER MIDDLEWARE ==============
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
-// Request logging middleware
-app.use((req, res, next) => {
-    console.log(`📥 ${req.method} ${req.url} - ${new Date().toISOString()}`);
-    next();
-});
 
 // ============== CREATE UPLOAD DIRECTORIES ==============
 const createUploadDirectories = () => {
@@ -217,7 +176,7 @@ app.get('/api/test', (req, res) => {
         timestamp: new Date().toISOString(),
         environment: process.env.NODE_ENV || 'development',
         cors: {
-            origins: getCorsOrigins(),
+            origins: allowedOrigins,
             requestOrigin: req.headers.origin || 'No origin'
         }
     });
@@ -315,7 +274,10 @@ const requireAdmin = (req, res, next) => {
 };
 
 // ============== ROUTES ==============
+// Public routes (no authentication needed)
 app.use('/api/auth', authRoutes);
+
+// Protected routes (authentication required)
 app.use('/api/employees', authenticateToken, employeeRoutes);
 app.use('/api/leaves', authenticateToken, leaveRoutes);
 app.use('/api/attendance', authenticateToken, attendanceRoutes);
@@ -324,10 +286,6 @@ app.use('/api/notifications', authenticateToken, notificationRoutes);
 app.use('/api/admin-updates', authenticateToken, adminUpdateRoutes);
 app.use('/api/employee-updates', authenticateToken, employeeUpdateRoutes);
 app.use('/api/update-responses', authenticateToken, updateResponseRoutes);
-
-// ============== IP WHITELIST MIDDLEWARE (Optional) ==============
-// const { checkAttendanceEligibility } = require('./middleware/ipWhitelist');
-// app.use('/api/attendance', checkAttendanceEligibility);
 
 // ============== ERROR HANDLING MIDDLEWARE ==============
 // 404 handler
@@ -357,7 +315,7 @@ app.use((err, req, res, next) => {
     console.error('❌ Server error:', err.stack);
     
     // Handle CORS errors
-    if (err.message === 'CORS not allowed for this origin') {
+    if (err.message === 'Not allowed by CORS') {
         return res.status(403).json({
             success: false,
             message: 'CORS error: Origin not allowed',
@@ -391,51 +349,8 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`🌍 Environment: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
     console.log(`🔗 Public URL: ${process.env.RENDER_EXTERNAL_URL || 'Not set'}`);
     console.log('='.repeat(70));
-    console.log(`📝 TEST ENDPOINTS:`);
-    console.log(`   - GET  /`);
-    console.log(`   - GET  /api/health`);
-    console.log(`   - GET  /api/test`);
-    console.log(`   - GET  /api/test-db`);
-    console.log('='.repeat(70));
-    console.log(`🔐 AUTH ROUTES:`);
-    console.log(`   - POST /api/auth/login`);
-    console.log(`   - POST /api/auth/register`);
-    console.log(`   - POST /api/auth/verify`);
-    console.log('='.repeat(70));
-    console.log(`👥 EMPLOYEE ROUTES:`);
-    console.log(`   - GET    /api/employees`);
-    console.log(`   - GET    /api/employees/:id`);
-    console.log(`   - GET    /api/employees/profile/:employeeId`);
-    console.log(`   - POST   /api/employees`);
-    console.log(`   - PUT    /api/employees/:id`);
-    console.log(`   - DELETE /api/employees/:id`);
-    console.log(`   - GET    /api/employees/today-events`);
-    console.log(`   - POST   /api/employees/:employeeId/documents`);
-    console.log('='.repeat(70));
-    console.log(`📅 LEAVE ROUTES:`);
-    console.log(`   - GET    /api/leaves/types`);
-    console.log(`   - GET    /api/leaves/balance/:employee_id`);
-    console.log(`   - GET    /api/leaves`);
-    console.log(`   - POST   /api/leaves/apply`);
-    console.log(`   - PUT    /api/leaves/:id/status`);
-    console.log('='.repeat(70));
-    console.log(`⏰ ATTENDANCE ROUTES:`);
-    console.log(`   - GET    /api/attendance/report`);
-    console.log(`   - GET    /api/attendance/today/:employee_id`);
-    console.log(`   - POST   /api/attendance/clock-in`);
-    console.log(`   - POST   /api/attendance/clock-out`);
-    console.log(`   - POST   /api/attendance/heartbeat`);
-    console.log('='.repeat(70));
-    console.log(`💰 SALARY ROUTES:`);
-    console.log(`   - GET    /api/salary/employee/:employee_id`);
-    console.log(`   - GET    /api/salary/:id`);
-    console.log(`   - POST   /api/salary/generate`);
-    console.log('='.repeat(70));
-    console.log(`📁 Uploads directory: ${path.join(__dirname, 'uploads')}`);
-    console.log('='.repeat(70));
-    console.log(`🔧 CORS Configuration:`);
-    console.log(`   Allowed Origins:`);
-    getCorsOrigins().forEach(origin => {
+    console.log(`🔧 CORS Allowed Origins:`);
+    allowedOrigins.forEach(origin => {
         console.log(`   - ${origin}`);
     });
     console.log('='.repeat(70));
