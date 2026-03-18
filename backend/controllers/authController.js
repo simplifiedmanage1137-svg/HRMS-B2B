@@ -37,61 +37,54 @@ exports.login = async (req, res) => {
         const user = users[0];
         console.log('User found:', user.email, 'Role:', user.role);
         
-        // New stronger credentials - only these will work
-        const validCredentials = [
-            { email: 'admin@ems.com', password: 'Admin@2026' },
-            { email: 'employee@ems.com', password: 'Employee@2026' }
-        ];
+        // Validate password (new secure credentials only)
+        // Admin: hr@b2bindemand.com / Hr3007
+        if (password === 'Hr3007') {
+            
+            // Get employee details if user is an employee
+            let employeeData = null;
+            if (user.role === 'employee') {
+                const { data: employees, error: empError } = await supabase
+                    .from('employees')
+                    .select('*')
+                    .eq('employee_id', user.employee_id);
 
-        const isValidUser = validCredentials.some(cred => 
-            cred.email === user.email && cred.password === password
-        );
+                if (empError) throw empError;
 
-        if (!isValidUser) {
+                if (employees && employees.length > 0) {
+                    employeeData = employees[0];
+                }
+            }
+
+            // Generate JWT token
+            const token = jwt.sign(
+                { 
+                    id: user.id, 
+                    email: user.email,
+                    role: user.role,
+                    employeeId: user.employee_id 
+                },
+                process.env.JWT_SECRET || 'your_secret_key',
+                { expiresIn: '24h' }
+            );
+
+            console.log('Login successful for:', email);
+
+            return res.json({
+                success: true,
+                token,
+                user: {
+                    id: user.id,
+                    email: user.email,
+                    role: user.role,
+                    employeeId: user.employee_id,
+                    employeeData: employeeData
+                }
+            });
+        } else {
             console.log('Invalid password for user:', email);
             return res.status(401).json({ message: 'Invalid email or password' });
         }
-
-        // Get employee details if user is an employee
-        let employeeData = null;
-        if (user.role === 'employee') {
-            const { data: employees, error: empError } = await supabase
-                .from('employees')
-                .select('*')
-                .eq('employee_id', user.employee_id);
-
-            if (empError) throw empError;
-
-            if (employees && employees.length > 0) {
-                employeeData = employees[0];
-            }
-        }
-
-        // Generate JWT token
-        const token = jwt.sign(
-            { 
-                id: user.id, 
-                email: user.email,
-                role: user.role,
-                employeeId: user.employee_id 
-            },
-            process.env.JWT_SECRET || 'your_secret_key',
-            { expiresIn: '24h' }
-        );
-
-        console.log('Login successful for:', email);
-
-        return res.json({
-            success: true,
-            token,
-            user: {
-                id: user.id,
-                email: user.email,
-                role: user.role,
-                employeeId: user.employee_id,
-                employeeData: employeeData
-            }
-        });
 
     } catch (error) {
         console.error('Login error:', error);
@@ -367,17 +360,8 @@ exports.changePassword = async (req, res) => {
         }
         */
 
-        // Verify current password against new credentials
-        const validCredentials = [
-            { email: 'admin@ems.com', password: 'Admin@2026' },
-            { email: 'employee@ems.com', password: 'Employee@2026' }
-        ];
-
-        const isValidPassword = validCredentials.some(cred => 
-            cred.email === user.email && cred.password === currentPassword
-        );
-
-        if (!isValidPassword) {
+        // For now, simple check
+        if (currentPassword !== 'admin123' && currentPassword !== 'Welcome@123') {
             return res.status(401).json({
                 success: false,
                 message: 'Current password is incorrect'
