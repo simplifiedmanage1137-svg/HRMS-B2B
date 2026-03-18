@@ -41,14 +41,9 @@ console.log('='.repeat(70));
 // ============== SIMPLIFIED CORS CONFIGURATION ==============
 // Allowed origins
 const allowedOrigins = [
-    'https://employee-management-system-zeta-lac.vercel.app',
-    'https://employee-management-system-phi-five.vercel.app',
-    'https://employee-management-system-24rs0uvjz-b2bindemand-hubs-projects.vercel.app',
-    'https://employee-management-system-96lz.onrender.com',
-    'http://localhost:5173',
-    'http://localhost:3000',
-    'http://127.0.0.1:5173',
-    'http://127.0.0.1:3000'
+    'https://employee-management-system-rho-virid.vercel.app', // Aapka naya frontend URL
+    'http://localhost:5173',  // Local development
+    'http://localhost:3000'
 ];
 
 // CORS middleware - MUST BE FIRST
@@ -88,19 +83,20 @@ app.use((req, res, next) => {
 // Also use cors package as backup
 app.use(cors({
     origin: function(origin, callback) {
-        // Allow requests with no origin (like mobile apps, curl)
+        // Allow requests with no origin (like mobile apps, curl, Postman)
         if (!origin) return callback(null, true);
         
         if (allowedOrigins.indexOf(origin) !== -1) {
             callback(null, true);
         } else {
-            console.log(`❌ CORS blocked for: ${origin}`);
-            // In production, you might want to block, but for debugging allow
-            callback(null, true);
+            console.log('Blocked origin:', origin);
+            // Production me aapko true karna hoga varna frontend kaam nahi karega
+            callback(null, true); // Temporarily allow all for testing
         }
     },
     credentials: true,
-    optionsSuccessStatus: 200
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
 // ============== OTHER MIDDLEWARE ==============
