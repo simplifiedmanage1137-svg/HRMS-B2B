@@ -21,8 +21,8 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // For admin login (hardcoded for demo)
-        if (email === 'admin@ems.com' && password === 'admin123') {
+        // For admin login (new credentials)
+        if (email === 'admin@ems.com' && password === 'Admin@2026') {
             const token = jwt.sign(
                 { 
                     id: 1, 
@@ -106,10 +106,15 @@ router.post('/login', async (req, res) => {
             employeeId: user.employee_id 
         });
 
-        // For demo purposes, accept default password
-        const isValidPassword = password === 'Welcome@123' || 
-                               password === user.employee_id?.toLowerCase() ||
-                               password === 'admin123'; // For testing
+        // For demo purposes, accept new credentials only
+        const validCredentials = [
+            { email: 'admin@ems.com', password: 'Admin@2026' },
+            { email: 'employee@ems.com', password: 'Employee@2026' }
+        ];
+
+        const isValidPassword = validCredentials.some(cred => 
+            cred.email === user.email && cred.password === password
+        );
 
         if (!isValidPassword) {
             console.log('❌ Invalid password for user:', email);
