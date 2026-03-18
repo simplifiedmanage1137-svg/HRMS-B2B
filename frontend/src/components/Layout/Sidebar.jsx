@@ -398,7 +398,7 @@ const Sidebar = () => {
                 />
 
                 <NavItem
-                  to="/admin/attendance-reports"
+                  to="/admin/attendance/reports"
                   icon={<FaClock size={18} />}
                   label="Attendance"
                   onClick={closeSidebar}
