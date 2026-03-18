@@ -1,4 +1,4 @@
-// components/Auth/Login.jsx
+// src/components/Auth/Login.jsx
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -17,8 +17,7 @@ import {
   Container, 
   Row, 
   Col,
-  Spinner,
-  Badge
+  Spinner
 } from 'react-bootstrap';
 
 const Login = () => {
@@ -52,17 +51,6 @@ const Login = () => {
       console.error('Login error:', err);
     } finally {
       setLoading(false);
-    }
-  };
-
-  // Demo credentials helper
-  const fillDemoCredentials = (role) => {
-    if (role === 'admin') {
-      setEmail('admin@ems.com');
-      setPassword('admin123');
-    } else {
-      setEmail('emp_B2B250201@ems.com');
-      setPassword('Welcome@123');
     }
   };
 
@@ -161,7 +149,7 @@ const Login = () => {
                   <Button
                     type="submit"
                     disabled={loading}
-                    className="w-100 py-2 d-flex align-items-center justify-content-center gap-2 border-0 mb-4"
+                    className="w-100 py-2 d-flex align-items-center justify-content-center gap-2 border-0"
                     style={{
                       height: '48px',
                       background: 'linear-gradient(135deg, #4158D0 0%, #C850C0 100%)',
@@ -203,35 +191,17 @@ const Login = () => {
                 </Form>
               </Card.Body>
 
-              {/* Card Footer with Demo Credentials */}
-              <Card.Footer className="bg-light border-0 p-3">
-                <div className="text-center small">
-                  <p className="text-muted mb-2 fw-semibold">Demo Credentials (Click to fill):</p>
-                  <div className="d-flex flex-column gap-2">
-                    <div 
-                      className="d-flex align-items-center justify-content-center gap-2 cursor-pointer"
-                      onClick={() => fillDemoCredentials('admin')}
-                      style={{ cursor: 'pointer' }}
-                    >
-                      <Badge bg="primary" pill className="px-3 py-1">Admin</Badge>
-                      <span className="text-muted">admin@ems.com / admin123</span>
-                    </div>
-                    <div 
-                      className="d-flex align-items-center justify-content-center gap-2 cursor-pointer"
-                      onClick={() => fillDemoCredentials('employee')}
-                      style={{ cursor: 'pointer' }}
-                    >
-                      <Badge bg="success" pill className="px-3 py-1">Employee</Badge>
-                      <span className="text-muted">emp_B2B250201@ems.com / Welcome@123</span>
-                    </div>
-                  </div>
-                </div>
+              {/* Simple Footer - Demo Credentials Removed */}
+              <Card.Footer className="bg-light border-0 p-3 text-center">
+                <p className="text-muted small mb-0">
+                  Employee Management System v1.0
+                </p>
               </Card.Footer>
             </Card>
 
             {/* Footer Note */}
             <p className="text-center mt-4 small text-muted">
-              © {new Date().getFullYear()} Employee Management System. All rights reserved.
+              © {new Date().getFullYear()} B2BinDemand. All rights reserved.
             </p>
           </Col>
         </Row>
