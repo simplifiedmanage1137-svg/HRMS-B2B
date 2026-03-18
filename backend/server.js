@@ -43,7 +43,8 @@ console.log('='.repeat(70));
 const allowedOrigins = [
     'https://employee-management-system-rho-virid.vercel.app', // Aapka naya frontend URL
     'http://localhost:5173',  // Local development
-    'http://localhost:3000'
+    'http://localhost:3000',
+    'https://employee-management-system-brvo.onrender.com' // Backend URL (optional)
 ];
 
 // CORS middleware - MUST BE FIRST
