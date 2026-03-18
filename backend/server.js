@@ -29,7 +29,8 @@ const updateResponseRoutes = require('./routes/updateResponseRoutes');
 const app = express();
 
 // ============== DETERMINE ENVIRONMENT ==============
-const isProduction = process.env.NODE_ENV === 'production';
+// On Render, NODE_ENV might not be set, so check for RENDER_EXTERNAL_URL
+const isProduction = process.env.NODE_ENV === 'production' || !!process.env.RENDER_EXTERNAL_URL;
 const PORT = process.env.PORT || 5000;
 
 console.log('='.repeat(70));
@@ -76,11 +77,17 @@ const corsOptions = {
         const allowedOrigins = getCorsOrigins();
         
         // Allow requests with no origin (like mobile apps, curl, etc.)
-        if (!origin || isProduction === false) {
+        if (!origin) {
             return callback(null, true);
         }
         
-        if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes('*')) {
+        // In development, allow all origins
+        if (!isProduction) {
+            return callback(null, true);
+        }
+        
+        // In production, check against whitelist
+        if (allowedOrigins.indexOf(origin) !== -1) {
             callback(null, true);
         } else {
             console.log('❌ CORS blocked for origin:', origin);
@@ -105,6 +112,15 @@ const corsOptions = {
 
 // Apply CORS middleware
 app.use(cors(corsOptions));
+
+// Log CORS requests in development
+if (!isProduction) {
+    app.use((req, res, next) => {
+        const origin = req.headers.origin;
+        console.log(`🔐 CORS Request from: ${origin || 'no-origin'}`);
+        next();
+    });
+}
 
 // Handle preflight requests
 app.options('*', cors(corsOptions));
