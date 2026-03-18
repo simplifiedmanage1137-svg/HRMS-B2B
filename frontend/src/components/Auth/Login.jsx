@@ -1,4 +1,4 @@
-// components/Auth/Login.jsx
+// Updated Login.jsx (components/Auth/Login.jsx)
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -149,7 +149,7 @@ const Login = () => {
                   <Button
                     type="submit"
                     disabled={loading}
-                    className="w-100 py-2 d-flex align-items-center justify-content-center gap-2 border-0 mb-4"
+                    className="w-100 py-2 d-flex align-items-center justify-content-center gap-2 border-0 mb-3"
                     style={{
                       height: '48px',
                       background: 'linear-gradient(135deg, #4158D0 0%, #C850C0 100%)',
@@ -191,18 +191,13 @@ const Login = () => {
                 </Form>
               </Card.Body>
 
-              {/* Footer Note */}
-              <Card.Footer className="bg-light border-0 p-3 text-center">
+              {/* Simple Footer with Copyright */}
+              <Card.Footer className="bg-white border-0 p-3 text-center">
                 <p className="small text-muted mb-0">
-                  Employee Management System v2.0
+                  © {new Date().getFullYear()} B2B in Demand. All rights reserved.
                 </p>
               </Card.Footer>
             </Card>
-
-            {/* Footer Note */}
-            <p className="text-center mt-4 small text-muted">
-              © {new Date().getFullYear()} B2B in Demand. All rights reserved.
-            </p>
           </Col>
         </Row>
       </Container>

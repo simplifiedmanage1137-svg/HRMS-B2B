@@ -37,9 +37,8 @@ exports.login = async (req, res) => {
         const user = users[0];
         console.log('User found:', user.email, 'Role:', user.role);
         
-        // Validate password (new secure credentials only)
-        // Admin: hr@b2bindemand.com / Hr3007
-        if (password === 'Hr3007') {
+        // Simple password check for testing
+        if (password === 'admin123' || password === 'Welcome@123') {
             
             // Get employee details if user is an employee
             let employeeData = null;
@@ -349,8 +348,19 @@ exports.changePassword = async (req, res) => {
 
         // Verify current password (if using hashed passwords)
         // Note: Your current setup uses plain text for testing
-        // Only accept the current password: Hr3007
-        if (currentPassword !== 'Hr3007') {
+        // If you switch to hashed passwords, uncomment this:
+        /*
+        const isValid = await bcrypt.compare(currentPassword, user.password);
+        if (!isValid) {
+            return res.status(401).json({
+                success: false,
+                message: 'Current password is incorrect'
+            });
+        }
+        */
+
+        // For now, simple check
+        if (currentPassword !== 'admin123' && currentPassword !== 'Welcome@123') {
             return res.status(401).json({
                 success: false,
                 message: 'Current password is incorrect'

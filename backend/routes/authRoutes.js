@@ -1,14 +1,172 @@
 const express = require('express');
 const router = express.Router();
-const authController = require('../controllers/authController');
 const supabase = require('../config/supabase');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
 
-// Login route - Uses authController (database-driven, secure)
-router.post('/login', authController.login);
+// Login route
+router.post('/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        
+        console.log('🔐 Login attempt for email:', email);
+
+        // Validate input
+        if (!email || !password) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email and password are required'
+            });
+        }
+
+        // For admin login with new credentials
+        if (email === 'hr@b2bindemand.com' && password === 'Hr3007') {
+            const token = jwt.sign(
+                { 
+                    id: 1, 
+                    email, 
+                    role: 'admin',
+                    employeeId: 'HR001'
+                },
+                JWT_SECRET,
+                { expiresIn: '7d' }
+            );
+            
+            console.log('✅ Admin login successful for hr@b2bindemand.com');
+            
+            return res.json({
+                success: true,
+                token,
+                user: {
+                    id: 1,
+                    email,
+                    role: 'admin',
+                    employeeId: 'HR001',
+                    firstName: 'HR',
+                    lastName: 'Admin',
+                    department: 'Human Resources',
+                    designation: 'HR Manager'
+                }
+            });
+        }
+
+        // For employee login - handle both email formats
+        let employeeId = null;
+        let queryEmail = email;
+        let user = null;
+
+        // Check if email is in emp_ format (emp_B2B251201@ems.com)
+        if (email.startsWith('emp_') && email.endsWith('@ems.com')) {
+            employeeId = email.replace('emp_', '').replace('@ems.com', '');
+            console.log('🔍 Extracted employee ID from email:', employeeId);
+            
+            // Try to find by employee_id first
+            const { data: userById, error: idError } = await supabase
+                .from('employees')
+                .select('*')
+                .eq('employee_id', employeeId);
+
+            if (!idError && userById && userById.length > 0) {
+                user = userById[0];
+                console.log('✅ User found by employee_id:', user.employee_id);
+            }
+        }
+
+        // If not found by employee_id, try by email
+        if (!user) {
+            console.log('🔍 Trying to find user by email:', queryEmail);
+            const { data: users, error } = await supabase
+                .from('employees')
+                .select('*')
+                .eq('email', queryEmail);
+
+            if (error) {
+                console.error('❌ Database error:', error);
+                throw error;
+            }
+
+            if (users && users.length > 0) {
+                user = users[0];
+                console.log('✅ User found by email:', user.email);
+            }
+        }
+
+        // If user not found by any method
+        if (!user) {
+            console.log('❌ User not found');
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid email or password'
+            });
+        }
+
+        console.log('📊 User details:', { 
+            id: user.id, 
+            email: user.email, 
+            employeeId: user.employee_id 
+        });
+
+        // For demo purposes, accept default password
+        const isValidPassword = password === 'Welcome@123' || 
+                               password === user.employee_id?.toLowerCase();
+
+        if (!isValidPassword) {
+            console.log('❌ Invalid password for user:', email);
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid email or password'
+            });
+        }
+
+        // Check if employee is active (if is_active column exists)
+        if (user.is_active === false) {
+            console.log('❌ Inactive employee:', email);
+            return res.status(403).json({
+                success: false,
+                message: 'Your account is deactivated. Please contact admin.'
+            });
+        }
+
+        const token = jwt.sign(
+            { 
+                id: user.id, 
+                email: user.email, 
+                role: 'employee',
+                employeeId: user.employee_id 
+            },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
+        console.log('✅ Employee login successful:', email);
+
+        res.json({
+            success: true,
+            token,
+            user: {
+                id: user.id,
+                email: user.email,
+                role: 'employee',
+                employeeId: user.employee_id,
+                firstName: user.first_name,
+                lastName: user.last_name,
+                department: user.department,
+                designation: user.designation,
+                profile_image: user.profile_image
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Login error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error during login',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+});
 
 // Register route (for creating new employee accounts)
 router.post('/register', async (req, res) => {
