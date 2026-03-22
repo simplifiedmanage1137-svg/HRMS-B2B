@@ -38,21 +38,18 @@ console.log(`Environment: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
 console.log(`Port: ${PORT}`);
 console.log('='.repeat(70));
 
-// ============== SIMPLIFIED CORS CONFIGURATION ==============
-// Allowed origins
+// ============== CORS CONFIGURATION ==============
+// Define allowed origins
 const allowedOrigins = [
-    'https://employee-management-system-taupe-xi.vercel.app/', // Naya frontend URL
-    'http://localhost:5173',  // Local development
-    'http://localhost:3000',
+    'http://localhost:5173',  // Local development (Vite default)
+    'http://localhost:3000',   // Local development (React default)
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:3000',
+    'https://employee-management-system-taupe-xi.vercel.app', // Your Vercel frontend
     'https://employee-management-system-brvo.onrender.com' // Backend URL (optional)
 ];
 
-// app.use(cors({
-//     origin: 'http://localhost:5173',
-//     credentials: true
-// }));
-
-// CORS middleware - MUST BE FIRST
+// Custom CORS middleware - with employee-id header allowed
 app.use((req, res, next) => {
     const origin = req.headers.origin;
     
@@ -67,14 +64,24 @@ app.use((req, res, next) => {
         res.setHeader('Access-Control-Allow-Origin', '*');
     } else {
         console.log(`⚠️ Origin not allowed: ${origin}`);
-        // Still set the header to allow the request but log it
-        res.setHeader('Access-Control-Allow-Origin', origin);
+        // For development, still allow but log it
+        if (!isProduction) {
+            res.setHeader('Access-Control-Allow-Origin', origin);
+        } else {
+            // In production, block it
+            return res.status(403).json({
+                success: false,
+                message: 'CORS error: Origin not allowed'
+            });
+        }
     }
     
-    // Set other CORS headers
+    // Set other CORS headers - IMPORTANT: employee-id is now allowed
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 
+        'Origin, X-Requested-With, Content-Type, Accept, Authorization, employee-id, X-Employee-Id'
+    );
     res.setHeader('Access-Control-Expose-Headers', 'Content-Range, X-Content-Range');
     
     // Handle preflight requests
@@ -86,23 +93,30 @@ app.use((req, res, next) => {
     next();
 });
 
-// Also use cors package as backup
+// Also use cors package for additional security
 app.use(cors({
     origin: function(origin, callback) {
         // Allow requests with no origin (like mobile apps, curl, Postman)
         if (!origin) return callback(null, true);
         
-        if (allowedOrigins.indexOf(origin) !== -1) {
+        if (allowedOrigins.indexOf(origin) !== -1 || !isProduction) {
             callback(null, true);
         } else {
-            console.log('Blocked origin:', origin);
-            // Production me aapko true karna hoga varna frontend kaam nahi karega
-            callback(null, true); // Temporarily allow all for testing
+            console.log('❌ Blocked origin:', origin);
+            callback(new Error('Not allowed by CORS'));
         }
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+    allowedHeaders: [
+        'Content-Type', 
+        'Authorization', 
+        'X-Requested-With', 
+        'Accept', 
+        'Origin', 
+        'employee-id',
+        'X-Employee-Id'
+    ]
 }));
 
 // ============== OTHER MIDDLEWARE ==============
@@ -179,7 +193,8 @@ app.get('/api/test', (req, res) => {
         environment: process.env.NODE_ENV || 'development',
         cors: {
             origins: allowedOrigins,
-            requestOrigin: req.headers.origin || 'No origin'
+            requestOrigin: req.headers.origin || 'No origin',
+            allowedHeaders: 'Content-Type, Authorization, X-Requested-With, Accept, Origin, employee-id, X-Employee-Id'
         }
     });
 });
@@ -355,6 +370,14 @@ app.listen(PORT, '0.0.0.0', () => {
     allowedOrigins.forEach(origin => {
         console.log(`   - ${origin}`);
     });
+    console.log(`🔧 CORS Allowed Headers:`);
+    console.log(`   - Content-Type`);
+    console.log(`   - Authorization`);
+    console.log(`   - X-Requested-With`);
+    console.log(`   - Accept`);
+    console.log(`   - Origin`);
+    console.log(`   - employee-id`);
+    console.log(`   - X-Employee-Id`);
     console.log('='.repeat(70));
 });
 

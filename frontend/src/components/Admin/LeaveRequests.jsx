@@ -137,16 +137,13 @@ const LeaveRequests = () => {
     setProcessing(true);
 
     try {
+      // Only send status and comments - no extra fields
       const response = await axios.put(API_ENDPOINTS.LEAVE_STATUS(id), {
         status,
-        comments
+        comments: comments || null
       });
 
       console.log('Update response:', response.data);
-
-      if (response.data.stats) {
-        setStats(response.data.stats);
-      }
 
       await fetchLeaveRequests();
 
@@ -161,10 +158,6 @@ const LeaveRequests = () => {
       setTimeout(() => {
         setMessage({ type: '', text: '' });
       }, 3000);
-
-      if (response.data.employee_id) {
-        localStorage.setItem(`refresh_employee_${response.data.employee_id}`, 'true');
-      }
 
     } catch (error) {
       console.error('Error updating leave status:', error);
@@ -674,15 +667,15 @@ const LeaveRequests = () => {
                     >
                       1
                     </Pagination.Item>
-                    
+
                     {/* Show ellipsis if currentPage > 3 */}
                     {currentPage > 3 && <Pagination.Ellipsis className="d-none d-sm-inline" />}
-                    
+
                     {/* Show pages around current page */}
                     {[...Array(totalPages)].map((_, i) => {
                       const pageNum = i + 1;
-                      if (pageNum !== 1 && pageNum !== totalPages && 
-                          pageNum >= currentPage - 1 && pageNum <= currentPage + 1) {
+                      if (pageNum !== 1 && pageNum !== totalPages &&
+                        pageNum >= currentPage - 1 && pageNum <= currentPage + 1) {
                         return (
                           <Pagination.Item
                             key={pageNum}
@@ -696,10 +689,10 @@ const LeaveRequests = () => {
                       }
                       return null;
                     })}
-                    
+
                     {/* Show ellipsis if currentPage < totalPages - 2 */}
                     {currentPage < totalPages - 2 && <Pagination.Ellipsis className="d-none d-sm-inline" />}
-                    
+
                     {/* Show last page */}
                     {totalPages > 1 && (
                       <Pagination.Item
@@ -715,7 +708,7 @@ const LeaveRequests = () => {
                 )}
 
                 <Pagination.Ellipsis className="d-inline d-sm-none" />
-                
+
                 <Pagination.Next
                   onClick={() => paginate(currentPage + 1)}
                   disabled={currentPage === totalPages}
@@ -732,10 +725,10 @@ const LeaveRequests = () => {
       </Card>
 
       {/* View Details Modal - Responsive */}
-      <Modal 
-        show={showModal} 
-        onHide={() => setShowModal(false)} 
-        size="lg" 
+      <Modal
+        show={showModal}
+        onHide={() => setShowModal(false)}
+        size="lg"
         centered
         dialogClassName="mx-2 mx-md-auto"
       >
@@ -863,9 +856,9 @@ const LeaveRequests = () => {
       </Modal>
 
       {/* Action Modal (Approve/Reject) - Responsive */}
-      <Modal 
-        show={showActionModal} 
-        onHide={() => setShowActionModal(false)} 
+      <Modal
+        show={showActionModal}
+        onHide={() => setShowActionModal(false)}
         centered
         dialogClassName="mx-2 mx-md-auto"
       >

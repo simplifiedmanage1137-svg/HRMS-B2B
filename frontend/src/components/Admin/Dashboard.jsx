@@ -23,7 +23,9 @@ import {
   FaUserGraduate,
   FaUserTie,
   FaUmbrellaBeach,
-  FaSyncAlt
+  FaSyncAlt,
+  FaGift,
+  FaStar
 } from 'react-icons/fa';
 import { Line, Doughnut, Bar } from 'react-chartjs-2';
 import {
@@ -84,6 +86,12 @@ const AdminDashboard = () => {
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [totalEmployees, setTotalEmployees] = useState(0);
+  
+  // New states for upcoming events - ALL upcoming events
+  const [allUpcomingBirthdays, setAllUpcomingBirthdays] = useState([]);
+  const [allUpcomingAnniversaries, setAllUpcomingAnniversaries] = useState([]);
+  const [displayBirthdays, setDisplayBirthdays] = useState([]);
+  const [displayAnniversaries, setDisplayAnniversaries] = useState([]);
 
   useEffect(() => {
     fetchDashboardData();
@@ -94,8 +102,9 @@ const AdminDashboard = () => {
         refreshAttendanceData();
         refreshLeaveRequests();
         fetchTodayEvents();
+        fetchUpcomingEvents();
       }
-    }, 30000); // Increased to 30 seconds for better performance
+    }, 30000);
 
     return () => clearInterval(timer);
   }, [autoRefresh]);
@@ -116,7 +125,6 @@ const AdminDashboard = () => {
         } else if (employeesRes.data.employees && Array.isArray(employeesRes.data.employees)) {
           employees = employeesRes.data.employees;
         } else {
-          // Try to convert object to array if it's not empty
           const possibleArray = Object.values(employeesRes.data).filter(v => typeof v === 'object');
           if (possibleArray.length > 0 && possibleArray[0]?.id) {
             employees = possibleArray;
@@ -131,6 +139,9 @@ const AdminDashboard = () => {
         ...prevStats,
         total: employees.length
       }));
+
+      // Fetch all upcoming birthdays and anniversaries
+      fetchUpcomingEvents(employees);
 
       // Fetch leave balances for each employee
       const balancesPromises = employees.map(async (emp) => {
@@ -172,6 +183,106 @@ const AdminDashboard = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchUpcomingEvents = (employees = null) => {
+    try {
+      // Use provided employees or get from state
+      const empList = employees || employeeLeaveBalances;
+      const today = new Date();
+      const currentYear = today.getFullYear();
+      const currentMonth = today.getMonth() + 1;
+      const currentDay = today.getDate();
+
+      // Process ALL birthdays - sort by upcoming dates (not just next 30 days)
+      const birthdays = empList.filter(emp => {
+        if (!emp.dob) return false;
+        const dob = new Date(emp.dob);
+        return true; // Include all employees with DOB
+      }).map(emp => {
+        const dob = new Date(emp.dob);
+        const dobMonth = dob.getMonth() + 1;
+        const dobDay = dob.getDate();
+        
+        // Create date for this year's birthday
+        let birthdayThisYear = new Date(currentYear, dobMonth - 1, dobDay);
+        
+        // Calculate days difference
+        let diffDays = Math.ceil((birthdayThisYear - today) / (1000 * 60 * 60 * 24));
+        
+        // If birthday has passed this year, use next year's birthday
+        if (diffDays < 0) {
+          birthdayThisYear = new Date(currentYear + 1, dobMonth - 1, dobDay);
+          diffDays = Math.ceil((birthdayThisYear - today) / (1000 * 60 * 60 * 24));
+        }
+        
+        return {
+          ...emp,
+          daysLeft: diffDays,
+          birthdayDate: `${dob.getDate().toString().padStart(2, '0')}/${dobMonth.toString().padStart(2, '0')}`,
+          birthdayFull: dob
+        };
+      }).sort((a, b) => a.daysLeft - b.daysLeft); // Sort by days left (closest first)
+
+      // Process ALL anniversaries - sort by upcoming dates
+      const anniversaries = empList.filter(emp => {
+        if (!emp.joining_date) return false;
+        const joiningDate = new Date(emp.joining_date);
+        return true; // Include all employees with joining date
+      }).map(emp => {
+        const joiningDate = new Date(emp.joining_date);
+        const joiningMonth = joiningDate.getMonth() + 1;
+        const joiningDay = joiningDate.getDate();
+        
+        // Create date for this year's anniversary
+        let anniversaryThisYear = new Date(currentYear, joiningMonth - 1, joiningDay);
+        
+        // Calculate days difference
+        let diffDays = Math.ceil((anniversaryThisYear - today) / (1000 * 60 * 60 * 24));
+        
+        // If anniversary has passed this year, use next year's anniversary
+        if (diffDays < 0) {
+          anniversaryThisYear = new Date(currentYear + 1, joiningMonth - 1, joiningDay);
+          diffDays = Math.ceil((anniversaryThisYear - today) / (1000 * 60 * 60 * 24));
+        }
+        
+        // Calculate years completed (for next anniversary)
+        let yearsCompleted = currentYear - joiningDate.getFullYear();
+        if (anniversaryThisYear.getFullYear() > currentYear) {
+          yearsCompleted = yearsCompleted + 1;
+        }
+        
+        return {
+          ...emp,
+          daysLeft: diffDays,
+          yearsCompleted: yearsCompleted,
+          anniversaryDate: `${joiningDate.getDate().toString().padStart(2, '0')}/${joiningMonth.toString().padStart(2, '0')}`,
+          joiningFull: joiningDate
+        };
+      }).sort((a, b) => a.daysLeft - b.daysLeft); // Sort by days left (closest first)
+
+      setAllUpcomingBirthdays(birthdays);
+      setAllUpcomingAnniversaries(anniversaries);
+      
+      // Set display items (first 5 for initial view)
+      setDisplayBirthdays(birthdays.slice(0, 5));
+      setDisplayAnniversaries(anniversaries.slice(0, 5));
+
+    } catch (error) {
+      console.error('Error fetching upcoming events:', error);
+    }
+  };
+
+  const loadMoreBirthdays = () => {
+    const currentCount = displayBirthdays.length;
+    const nextCount = Math.min(currentCount + 5, allUpcomingBirthdays.length);
+    setDisplayBirthdays(allUpcomingBirthdays.slice(0, nextCount));
+  };
+
+  const loadMoreAnniversaries = () => {
+    const currentCount = displayAnniversaries.length;
+    const nextCount = Math.min(currentCount + 5, allUpcomingAnniversaries.length);
+    setDisplayAnniversaries(allUpcomingAnniversaries.slice(0, nextCount));
   };
 
   const refreshAttendanceData = async () => {
@@ -322,6 +433,15 @@ const AdminDashboard = () => {
     });
   };
 
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+  };
+
   const getStatusBadge = (record) => {
     if (record.is_on_leave || record.status === 'on_leave') {
       return (
@@ -380,6 +500,7 @@ const AdminDashboard = () => {
                 refreshAttendanceData();
                 refreshLeaveRequests();
                 fetchTodayEvents();
+                fetchUpcomingEvents();
               }}
             >
               <FaSyncAlt size={12} className="text-primary" />
@@ -506,6 +627,174 @@ const AdminDashboard = () => {
         </Card>
       )}
 
+      {/* Upcoming Birthdays Card - ALL Birthdays */}
+      <Row className="mb-4 g-3">
+        <Col xs={12} md={6}>
+          <Card className="border-0 shadow-sm h-100">
+            <Card.Header className="bg-white py-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+              <h6 className="mb-0 d-flex align-items-center">
+                <FaBirthdayCake className="me-2 text-danger" size={18} />
+                All Upcoming Birthdays
+              </h6>
+              <div className="d-flex gap-2">
+                <Badge bg="danger" pill>
+                  Total: {allUpcomingBirthdays.length} Employees
+                </Badge>
+                {displayBirthdays.length < allUpcomingBirthdays.length && (
+                  <Button 
+                    variant="outline-danger" 
+                    size="sm" 
+                    onClick={loadMoreBirthdays}
+                    className="py-0 px-2"
+                  >
+                    Load More
+                  </Button>
+                )}
+              </div>
+            </Card.Header>
+            <Card.Body className="p-0">
+              {displayBirthdays.length > 0 ? (
+                <div className="table-responsive" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                  <Table hover size="sm" className="mb-0">
+                    <thead className="bg-light sticky-top" style={{ top: 0, zIndex: 10 }}>
+                      <tr className="small">
+                        <th className="text-dark fw-normal text-center">Sr No</th>
+                        <th className="text-dark fw-normal">Employee</th>
+                        <th className="text-dark fw-normal d-none d-md-table-cell">Department</th>
+                        <th className="text-dark fw-normal">Birthday</th>
+                        <th className="text-dark fw-normal">Days Left</th>
+                       </tr>
+                    </thead>
+                    <tbody>
+                      {displayBirthdays.map((emp, index) => (
+                        <tr key={emp.id}>
+                          <td className="text-center small">{index + 1}  </td>
+                          <td className="small">
+                            <div className="text-truncate" style={{ maxWidth: '120px' }}>
+                              {emp.first_name} {emp.last_name}
+                            </div>
+                            <small className="text-muted d-block">{emp.employee_id}</small>
+                          </td>
+                          <td className="small d-none d-md-table-cell text-truncate" style={{ maxWidth: '100px' }}>
+                            {emp.department}
+                          </td>
+                          <td className="small">
+                            <Badge bg="danger" pill className="px-2 py-1">
+                              {emp.birthdayDate}
+                            </Badge>
+                          </td>
+                          <td className="small">
+                            <Badge bg={emp.daysLeft <= 7 ? "warning" : emp.daysLeft <= 30 ? "info" : "secondary"} pill>
+                              {emp.daysLeft} {emp.daysLeft === 1 ? 'day' : 'days'}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                </div>
+              ) : (
+                <div className="text-center py-4">
+                  <FaBirthdayCake size={40} className="text-muted mb-3 opacity-50" />
+                  <p className="text-muted small mb-0">No birthday records found</p>
+                </div>
+              )}
+              {displayBirthdays.length < allUpcomingBirthdays.length && displayBirthdays.length > 0 && (
+                <div className="text-center p-2 bg-light border-top">
+                  <small className="text-muted">Showing {displayBirthdays.length} of {allUpcomingBirthdays.length} birthdays</small>
+                </div>
+              )}
+            </Card.Body>
+          </Card>
+        </Col>
+
+        {/* Upcoming Work Anniversaries Card - ALL Anniversaries */}
+        <Col xs={12} md={6}>
+          <Card className="border-0 shadow-sm h-100">
+            <Card.Header className="bg-white py-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+              <h6 className="mb-0 d-flex align-items-center">
+                <FaTrophy className="me-2 text-warning" size={18} />
+                All Upcoming Work Anniversaries
+              </h6>
+              <div className="d-flex gap-2">
+                <Badge bg="warning" pill>
+                  Total: {allUpcomingAnniversaries.length} Employees
+                </Badge>
+                {displayAnniversaries.length < allUpcomingAnniversaries.length && (
+                  <Button 
+                    variant="outline-warning" 
+                    size="sm" 
+                    onClick={loadMoreAnniversaries}
+                    className="py-0 px-2"
+                  >
+                    Load More
+                  </Button>
+                )}
+              </div>
+            </Card.Header>
+            <Card.Body className="p-0">
+              {displayAnniversaries.length > 0 ? (
+                <div className="table-responsive" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                  <Table hover size="sm" className="mb-0">
+                    <thead className="bg-light sticky-top" style={{ top: 0, zIndex: 10 }}>
+                      <tr className="small">
+                        <th className="text-dark fw-normal text-center">Sr No</th>
+                        <th className="text-dark fw-normal">Employee</th>
+                        <th className="text-dark fw-normal d-none d-md-table-cell">Department</th>
+                        <th className="text-dark fw-normal">Anniversary</th>
+                        <th className="text-dark fw-normal">Years</th>
+                        <th className="text-dark fw-normal">Days Left</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayAnniversaries.map((emp, index) => (
+                        <tr key={emp.id}>
+                          <td className="text-center small">{index + 1}  </td>
+                          <td className="small">
+                            <div className="text-truncate" style={{ maxWidth: '120px' }}>
+                              {emp.first_name} {emp.last_name}
+                            </div>
+                            <small className="text-muted d-block">{emp.employee_id}</small>
+                          </td>
+                          <td className="small d-none d-md-table-cell text-truncate" style={{ maxWidth: '100px' }}>
+                            {emp.department}
+                          </td>
+                          <td className="small">
+                            <Badge bg="warning" pill className="px-2 py-1">
+                              {emp.anniversaryDate}
+                            </Badge>
+                          </td>
+                          <td className="small">
+                            <Badge bg="info" pill>
+                              {emp.yearsCompleted} Year{emp.yearsCompleted > 1 ? 's' : ''}
+                            </Badge>
+                          </td>
+                          <td className="small">
+                            <Badge bg={emp.daysLeft <= 7 ? "warning" : emp.daysLeft <= 30 ? "info" : "secondary"} pill>
+                              {emp.daysLeft} {emp.daysLeft === 1 ? 'day' : 'days'}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                </div>
+              ) : (
+                <div className="text-center py-4">
+                  <FaTrophy size={40} className="text-muted mb-3 opacity-50" />
+                  <p className="text-muted small mb-0">No anniversary records found</p>
+                </div>
+              )}
+              {displayAnniversaries.length < allUpcomingAnniversaries.length && displayAnniversaries.length > 0 && (
+                <div className="text-center p-2 bg-light border-top">
+                  <small className="text-muted">Showing {displayAnniversaries.length} of {allUpcomingAnniversaries.length} anniversaries</small>
+                </div>
+              )}
+            </Card.Body>
+          </Card>
+        </Col>
+      </Row>
+
       {/* Quick Stats Cards - Responsive grid */}
       <Row className="mb-4 g-2 g-md-3">
         <Col xs={12} sm={6} lg={3}>
@@ -602,7 +891,7 @@ const AdminDashboard = () => {
 
                     return (
                       <tr key={index} className={isWorking ? 'table-white' : ''}>
-                        <td className="fw-normal text-center">{index + 1}</td>
+                        <td className="fw-normal text-center">{index + 1}  </td>
                         <td>
                           <div className="small text-truncate" style={{ maxWidth: '120px' }}>
                             {att.first_name} {att.last_name}
@@ -662,7 +951,7 @@ const AdminDashboard = () => {
           <div className="table-responsive" style={{ maxHeight: '200px', overflowY: 'auto' }}>
             <Table striped size="sm" className="mb-0">
               <thead className="bg-light sticky-top text-dark">
-                <tr>
+                <tr className="small">
                   <th className="text-dark small fw-normal text-center">Sr No</th>
                   <th className="text-dark small fw-normal">Employee</th>
                   <th className="text-dark small fw-normal d-none d-md-table-cell">Designation</th>
@@ -677,7 +966,7 @@ const AdminDashboard = () => {
                 {leaveRequests.length > 0 ? (
                   leaveRequests.map((leave, index) => (
                     <tr key={leave.id}>
-                      <td className="fw-normal text-center">{index + 1}</td>
+                      <td className="fw-normal text-center">{index + 1} </td>
                       <td>
                         <div className="text-truncate" style={{ maxWidth: '100px' }}>
                           {leave.first_name} {leave.last_name}

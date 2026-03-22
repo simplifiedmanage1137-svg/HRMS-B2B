@@ -16,7 +16,8 @@ import {
   FaCheckSquare,
   FaArrowRight,
   FaArrowLeft,
-  FaCheckCircle
+  FaCheckCircle,
+  FaInfoCircle  // ← ADD THIS MISSING IMPORT
 } from 'react-icons/fa';
 import axios from '../../config/axios';
 import API_ENDPOINTS from '../../config/api';
@@ -188,7 +189,7 @@ const AddEmployee = () => {
     }));
   };
 
-  // Validate personal tab
+  // Validate personal tab - UPDATED with only required fields
   const validatePersonalTab = () => {
     if (!tempPersonalData.first_name) return "First name is required";
     if (!tempPersonalData.last_name) return "Last name is required";
@@ -196,19 +197,15 @@ const AddEmployee = () => {
     if (!tempPersonalData.joining_date) return "Joining date is required";
     if (!tempPersonalData.designation) return "Designation is required";
     if (!tempPersonalData.department) return "Department is required";
-    if (!tempPersonalData.pan_number) return "PAN number is required";
-    if (!tempPersonalData.aadhar_number) return "Aadhar number is required";
-    if (!tempPersonalData.dob) return "Date of birth is required";
-    if (!tempPersonalData.address) return "Address is required";
-    if (!tempPersonalData.emergency_contact) return "Emergency contact is required";
-
-    if (tempPersonalData.pan_number.length !== 10) {
+    
+    // Optional validations - only check format if provided
+    if (tempPersonalData.pan_number && tempPersonalData.pan_number.length !== 10) {
       return "PAN number must be 10 characters";
     }
-    if (!/^\d{12}$/.test(tempPersonalData.aadhar_number)) {
+    if (tempPersonalData.aadhar_number && !/^\d{12}$/.test(tempPersonalData.aadhar_number)) {
       return "Aadhar number must be 12 digits";
     }
-    if (!/^\d{10}$/.test(tempPersonalData.emergency_contact)) {
+    if (tempPersonalData.emergency_contact && !/^\d{10}$/.test(tempPersonalData.emergency_contact)) {
       return "Emergency contact must be 10 digits";
     }
 
@@ -220,15 +217,9 @@ const AddEmployee = () => {
     return null;
   };
 
-  // Validate bank tab
+  // Validate bank tab - MADE OPTIONAL
   const validateBankTab = () => {
-    if (!tempBankData.bank_account_name) return "Bank account name is required";
-    if (!tempBankData.account_number) return "Account number is required";
-    if (!tempBankData.ifsc_code) return "IFSC code is required";
-    if (!tempBankData.branch_name) return "Branch name is required";
-    if (tempBankData.ifsc_code.length !== 11) {
-      return "IFSC code must be 11 characters";
-    }
+    // No validation required - bank details are optional
     return null;
   };
 
@@ -292,26 +283,41 @@ const AddEmployee = () => {
     return true;
   };
 
-  // Handle tab change
+  // Handle tab change - ALLOW moving without completing optional tabs
   const handleTabChange = (tab) => {
     if (activeTab !== tab) {
-      const saved = saveCurrentTab();
-      if (saved) {
+      // For bank tab, we don't require validation to move forward
+      if (activeTab === 'bank') {
+        // Mark bank as completed even if empty
+        setCompletedTabs(prev => ({ ...prev, bank: true }));
         setActiveTab(tab);
         setError('');
+      } else {
+        const saved = saveCurrentTab();
+        if (saved) {
+          setActiveTab(tab);
+          setError('');
+        }
       }
     }
   };
 
-  // Handle next button
+  // Handle next button - ALLOW skipping optional tabs
   const handleNext = () => {
     const tabs = ['personal', 'bank', 'salary', 'policy', 'documents'];
     const currentIndex = tabs.indexOf(activeTab);
     if (currentIndex < tabs.length - 1) {
-      const saved = saveCurrentTab();
-      if (saved) {
+      // For bank tab, allow moving without validation
+      if (activeTab === 'bank') {
+        setCompletedTabs(prev => ({ ...prev, bank: true }));
         setActiveTab(tabs[currentIndex + 1]);
         setError('');
+      } else {
+        const saved = saveCurrentTab();
+        if (saved) {
+          setActiveTab(tabs[currentIndex + 1]);
+          setError('');
+        }
       }
     }
   };
@@ -325,10 +331,10 @@ const AddEmployee = () => {
     }
   };
 
-  // Check if all tabs are completed
+  // Check if all required tabs are completed
   const isAllTabsCompleted = () => {
-    return completedTabs.personal && completedTabs.bank &&
-      completedTabs.salary && completedTabs.policy;
+    // Bank is optional, so not required for completion
+    return completedTabs.personal && completedTabs.salary && completedTabs.policy;
   };
 
 // Generate employee ID based on joining date - 2-digit sequence
@@ -474,7 +480,7 @@ const generateEmployeeId = async () => {
     }
   };
 
-  // Final submit handler - UPDATED WITH BETTER ERROR HANDLING
+  // Final submit handler - UPDATED to handle optional fields
   const handleFinalSubmit = async (e) => {
     e.preventDefault();
 
@@ -482,9 +488,9 @@ const generateEmployeeId = async () => {
     const saved = saveCurrentTab();
     if (!saved) return;
 
-    // Validate all tabs completed
+    // Validate all required tabs completed
     if (!isAllTabsCompleted()) {
-      const errorMsg = "Please complete all required tabs before submitting";
+      const errorMsg = "Please complete all required tabs (Personal, Salary, Policy) before submitting";
       setError(errorMsg);
       showNotification(errorMsg, 'danger');
       return;
@@ -525,7 +531,7 @@ const generateEmployeeId = async () => {
       setEmployeeId(empId);
       console.log('✅ Final Employee ID:', empId);
 
-      // Prepare data for API
+      // Prepare data for API - Only include non-empty optional fields
       const employeeData = {
         first_name: tempPersonalData.first_name?.trim(),
         middle_name: tempPersonalData.middle_name?.trim() || null,
@@ -540,16 +546,18 @@ const generateEmployeeId = async () => {
         shift_timing: tempPersonalData.shift_timing?.trim() || '9:00 AM - 6:00 PM',
         in_hand_salary: parseFloat(tempSalaryData.in_hand_salary) || 0,
         gross_salary: parseFloat(tempSalaryData.gross_salary) || 0,
-        bank_account_name: tempBankData.bank_account_name?.trim() || null,
-        account_number: tempBankData.account_number?.trim() || null,
-        ifsc_code: tempBankData.ifsc_code?.trim().toUpperCase() || null,
-        branch_name: tempBankData.branch_name?.trim() || null,
-        pan_number: tempPersonalData.pan_number?.trim().toUpperCase() || null,
-        aadhar_number: tempPersonalData.aadhar_number?.trim() || null,
-        dob: tempPersonalData.dob || null,
-        address: tempPersonalData.address?.trim() || null,
-        blood_group: tempPersonalData.blood_group || null,
-        emergency_contact: tempPersonalData.emergency_contact?.trim() || null,
+        // Bank details - only include if provided
+        ...(tempBankData.bank_account_name?.trim() && { bank_account_name: tempBankData.bank_account_name.trim() }),
+        ...(tempBankData.account_number?.trim() && { account_number: tempBankData.account_number.trim() }),
+        ...(tempBankData.ifsc_code?.trim() && { ifsc_code: tempBankData.ifsc_code.trim().toUpperCase() }),
+        ...(tempBankData.branch_name?.trim() && { branch_name: tempBankData.branch_name.trim() }),
+        // Optional personal details - only include if provided
+        ...(tempPersonalData.pan_number?.trim() && { pan_number: tempPersonalData.pan_number.trim().toUpperCase() }),
+        ...(tempPersonalData.aadhar_number?.trim() && { aadhar_number: tempPersonalData.aadhar_number.trim() }),
+        ...(tempPersonalData.dob && { dob: tempPersonalData.dob }),
+        ...(tempPersonalData.address?.trim() && { address: tempPersonalData.address.trim() }),
+        ...(tempPersonalData.blood_group && { blood_group: tempPersonalData.blood_group }),
+        ...(tempPersonalData.emergency_contact?.trim() && { emergency_contact: tempPersonalData.emergency_contact.trim() }),
         contract_policy: tempPolicyData.contract_policy || null
       };
 
@@ -676,7 +684,7 @@ const generateEmployeeId = async () => {
             <div className={`p-1 p-md-2 rounded text-center small ${completedTabs.bank ? 'bg-success text-white' : 'bg-light'}`}>
               {completedTabs.bank ? <FaCheckCircle className="me-1 d-none d-sm-inline" /> : null}
               <span className="d-inline d-sm-none">2.</span>
-              <span className="d-none d-sm-inline">Bank</span>
+              <span className="d-none d-sm-inline">Bank (Optional)</span>
             </div>
           </Col>
           <Col xs={6} sm={4} md={2} className="mb-2">
@@ -742,7 +750,7 @@ const generateEmployeeId = async () => {
             </Nav.Item>
             <Nav.Item>
               <Nav.Link eventKey="bank" className="text-dark small px-2 px-md-3">
-                Bank {completedTabs.bank && <FaCheckCircle className="ms-1 text-success d-none d-sm-inline" size={10} />}
+                Bank (Optional) {completedTabs.bank && <FaCheckCircle className="ms-1 text-success d-none d-sm-inline" size={10} />}
               </Nav.Link>
             </Nav.Item>
             <Nav.Item>
@@ -766,6 +774,11 @@ const generateEmployeeId = async () => {
           <Form>
             {activeTab === 'personal' && (
               <>
+                {/* Required Fields Section */}
+                <div className="mb-3 p-2 bg-light rounded">
+                  <small className="text-muted fw-semibold">Required Information</small>
+                </div>
+                
                 <Row className="mb-3">
                   <Col xs={12}>
                     <Form.Group>
@@ -927,11 +940,16 @@ const generateEmployeeId = async () => {
                   </Col>
                 </Row>
 
+                {/* Optional Fields Section */}
+                <div className="mt-3 mb-2 p-2 bg-light rounded">
+                  <small className="text-muted fw-semibold">Optional Information</small>
+                </div>
+                
                 <Row className="mb-3 g-2">
                   <Col xs={12} md={4}>
                     <Form.Group>
                       <Form.Label className="small fw-semibold text-muted">
-                        PAN Number <span className="text-danger">*</span>
+                        PAN Number
                       </Form.Label>
                       <Form.Control
                         type="text"
@@ -940,7 +958,7 @@ const generateEmployeeId = async () => {
                         onChange={handlePersonalChange}
                         size="sm"
                         maxLength="10"
-                        placeholder="ABCDE1234F"
+                        placeholder="ABCDE1234F (Optional)"
                         style={{ textTransform: 'uppercase' }}
                       />
                     </Form.Group>
@@ -948,7 +966,7 @@ const generateEmployeeId = async () => {
                   <Col xs={12} md={4}>
                     <Form.Group>
                       <Form.Label className="small fw-semibold text-muted">
-                        Aadhar Number <span className="text-danger">*</span>
+                        Aadhar Number
                       </Form.Label>
                       <Form.Control
                         type="text"
@@ -957,14 +975,14 @@ const generateEmployeeId = async () => {
                         onChange={handlePersonalChange}
                         size="sm"
                         maxLength="12"
-                        placeholder="123456789012"
+                        placeholder="123456789012 (Optional)"
                       />
                     </Form.Group>
                   </Col>
                   <Col xs={12} md={4}>
                     <Form.Group>
                       <Form.Label className="small fw-semibold text-muted">
-                        Date of Birth <span className="text-danger">*</span>
+                        Date of Birth
                       </Form.Label>
                       <Form.Control
                         type="date"
@@ -989,7 +1007,7 @@ const generateEmployeeId = async () => {
                         onChange={handlePersonalChange}
                         size="sm"
                       >
-                        <option value="">Select Blood Group</option>
+                        <option value="">Select Blood Group (Optional)</option>
                         {bloodGroups.map(bg => (
                           <option key={bg} value={bg}>{bg}</option>
                         ))}
@@ -999,7 +1017,7 @@ const generateEmployeeId = async () => {
                   <Col xs={12} md={4}>
                     <Form.Group>
                       <Form.Label className="small fw-semibold text-muted">
-                        Emergency Contact <span className="text-danger">*</span>
+                        Emergency Contact
                       </Form.Label>
                       <Form.Control
                         type="tel"
@@ -1008,7 +1026,7 @@ const generateEmployeeId = async () => {
                         onChange={handlePersonalChange}
                         size="sm"
                         maxLength="10"
-                        placeholder="10 digit mobile number"
+                        placeholder="10 digit mobile number (Optional)"
                       />
                     </Form.Group>
                   </Col>
@@ -1016,7 +1034,7 @@ const generateEmployeeId = async () => {
 
                 <Form.Group className="mb-3">
                   <Form.Label className="small fw-semibold text-muted">
-                    Address <span className="text-danger">*</span>
+                    Address
                   </Form.Label>
                   <Form.Control
                     as="textarea"
@@ -1025,7 +1043,7 @@ const generateEmployeeId = async () => {
                     value={tempPersonalData.address}
                     onChange={handlePersonalChange}
                     size="sm"
-                    placeholder="Full address"
+                    placeholder="Full address (Optional)"
                   />
                 </Form.Group>
               </>
@@ -1033,11 +1051,14 @@ const generateEmployeeId = async () => {
 
             {activeTab === 'bank' && (
               <>
+                <div className="mb-3 p-2 bg-light rounded">
+                  <small className="text-muted fw-semibold">Bank Details (Optional)</small>
+                </div>
                 <Row className="mb-3 g-2">
                   <Col xs={12} md={6}>
                     <Form.Group>
                       <Form.Label className="small fw-semibold text-muted">
-                        Bank Account Name <span className="text-danger">*</span>
+                        Bank Account Name
                       </Form.Label>
                       <Form.Control
                         type="text"
@@ -1045,14 +1066,14 @@ const generateEmployeeId = async () => {
                         value={tempBankData.bank_account_name}
                         onChange={handleBankChange}
                         size="sm"
-                        placeholder="Name on bank account"
+                        placeholder="Name on bank account (Optional)"
                       />
                     </Form.Group>
                   </Col>
                   <Col xs={12} md={6}>
                     <Form.Group>
                       <Form.Label className="small fw-semibold text-muted">
-                        Account Number <span className="text-danger">*</span>
+                        Account Number
                       </Form.Label>
                       <Form.Control
                         type="text"
@@ -1060,7 +1081,7 @@ const generateEmployeeId = async () => {
                         value={tempBankData.account_number}
                         onChange={handleBankChange}
                         size="sm"
-                        placeholder="Bank account number"
+                        placeholder="Bank account number (Optional)"
                       />
                     </Form.Group>
                   </Col>
@@ -1070,7 +1091,7 @@ const generateEmployeeId = async () => {
                   <Col xs={12} md={4}>
                     <Form.Group>
                       <Form.Label className="small fw-semibold text-muted">
-                        IFSC Code <span className="text-danger">*</span>
+                        IFSC Code
                       </Form.Label>
                       <Form.Control
                         type="text"
@@ -1079,7 +1100,7 @@ const generateEmployeeId = async () => {
                         onChange={handleBankChange}
                         size="sm"
                         maxLength="11"
-                        placeholder="SBIN0001234"
+                        placeholder="SBIN0001234 (Optional)"
                         style={{ textTransform: 'uppercase' }}
                       />
                     </Form.Group>
@@ -1087,7 +1108,7 @@ const generateEmployeeId = async () => {
                   <Col xs={12} md={4}>
                     <Form.Group>
                       <Form.Label className="small fw-semibold text-muted">
-                        Branch Name <span className="text-danger">*</span>
+                        Branch Name
                       </Form.Label>
                       <Form.Control
                         type="text"
@@ -1095,11 +1116,15 @@ const generateEmployeeId = async () => {
                         value={tempBankData.branch_name}
                         onChange={handleBankChange}
                         size="sm"
-                        placeholder="Bank branch name"
+                        placeholder="Bank branch name (Optional)"
                       />
                     </Form.Group>
                   </Col>
                 </Row>
+                <Alert variant="info" className="mt-2 py-2 small">
+                  <FaInfoCircle className="me-2" />
+                  Bank details can be added later if not available now.
+                </Alert>
               </>
             )}
 
@@ -1199,7 +1224,7 @@ const generateEmployeeId = async () => {
                 <Card className="mb-4 border-0 bg-light">
                   <Card.Body className="p-2 p-md-3">
                     <div className="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center mb-3 gap-2">
-                      <h6 className="small fw-semibold mb-0">Upload Documents</h6>
+                      <h6 className="small fw-semibold mb-0">Upload Documents (Optional)</h6>
                       <Button
                         variant="outline-primary"
                         size="sm"
@@ -1268,7 +1293,7 @@ const generateEmployeeId = async () => {
                 <div className="mt-3 small text-muted bg-light p-2 rounded">
                   <FaFileAlt className="me-2 text-primary flex-shrink-0" size={12} />
                   <small>
-                    <strong>Note:</strong> Supported formats: PDF, DOC, DOCX, JPG, JPEG, PNG
+                    <strong>Note:</strong> Document upload is optional. You can upload later from employee profile.
                   </small>
                 </div>
               </div>

@@ -1,6 +1,6 @@
+// controllers/leaveController.js
 const LeaveYearlyService = require('../services/leaveYearlyService');
 const supabase = require('../config/supabase');
-
 
 // Get leave balance for employee
 exports.getLeaveBalance = async (req, res) => {
@@ -55,17 +55,15 @@ exports.getLeaveBalance = async (req, res) => {
             console.log(`📝 Creating new leave balance for ${employee_id} for year ${currentYear}`);
             
             // Calculate how many months in current year are completed
-            const monthsInCurrentYear = today.getMonth() + 1; // Months from Jan to current month
+            const monthsInCurrentYear = today.getMonth() + 1;
             const daysInCurrentMonth = today.getDate();
             const lastDayOfMonth = new Date(currentYear, today.getMonth() + 1, 0).getDate();
             
             // Count completed months (full months only)
             let completedMonthsInYear = 0;
             if (daysInCurrentMonth === lastDayOfMonth) {
-                // If it's the last day of month, count current month
                 completedMonthsInYear = monthsInCurrentYear;
             } else {
-                // Otherwise count previous months only
                 completedMonthsInYear = Math.max(0, monthsInCurrentYear - 1);
             }
             
@@ -213,7 +211,7 @@ exports.applyLeave = async (req, res) => {
         monthsCompleted = Math.max(0, monthsCompleted);
         const isEligible = monthsCompleted >= 6;
 
-        // Check leave balance for non-Unpaid leaves
+        // Check leave balance for non-Unpaid leaves - FIXED: Direct database query instead of recursive call
         if (leave_type !== 'Unpaid' && leave_type !== 'Comp-Off') {
             if (!isEligible) {
                 return res.status(400).json({
@@ -222,15 +220,22 @@ exports.applyLeave = async (req, res) => {
                 });
             }
 
-            // Get current balance
-            const { data: balanceData, error: balanceError } = await exports.getLeaveBalance({ params: { employee_id } });
-            
+            // Direct database query for balance
+            const { data: balanceData, error: balanceError } = await supabase
+                .from('leave_balance')
+                .select('current_balance')
+                .eq('employee_id', employee_id)
+                .eq('leave_year', today.getFullYear())
+                .maybeSingle();
+
             if (balanceError) throw balanceError;
             
-            if (parseFloat(balanceData.available) < days_count) {
+            const available = balanceData?.current_balance || 0;
+
+            if (available < days_count) {
                 return res.status(400).json({
                     success: false,
-                    message: `Insufficient leave balance. Available: ${balanceData.available} days`
+                    message: `Insufficient leave balance. Available: ${available.toFixed(1)} days`
                 });
             }
         }
@@ -257,13 +262,23 @@ exports.applyLeave = async (req, res) => {
                 end_date: end_date || start_date,
                 reason,
                 days_count: days_count || 1,
-                reporting_manager,
+                reporting_manager: reporting_manager || null,
                 status: 'pending',
-                applied_date: new Date().toISOString().split('T')[0]
+                applied_date: new Date().toISOString().split('T')[0],
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
             }])
             .select();
 
-        if (leaveError) throw leaveError;
+        if (leaveError) {
+            console.error('❌ Leave insert error:', leaveError);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to submit leave request',
+                error: leaveError.message,
+                details: leaveError
+            });
+        }
 
         console.log('✅ Leave applied successfully:', leaveData[0]);
 
@@ -276,19 +291,19 @@ exports.applyLeave = async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error applying leave:', error);
+        console.error('❌ Error applying leave:', error);
+        console.error('Error stack:', error.stack);
         res.status(500).json({
             success: false,
             message: 'Failed to apply leave',
-            error: error.message
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
 };
 
-
 // Helper function to parse shift timing
 const parseShiftTiming = (shiftString) => {
-    // Default shift if not provided
     if (!shiftString) {
         return {
             startHour: 9,
@@ -299,7 +314,6 @@ const parseShiftTiming = (shiftString) => {
         };
     }
 
-    // Parse format like "9:00 AM - 6:00 PM" or "3:00 PM - 12:00 AM"
     const parts = shiftString.split('-');
     if (parts.length !== 2) {
         return {
@@ -341,9 +355,8 @@ const parseShiftTiming = (shiftString) => {
         };
     }
 
-    // Calculate total hours
     let totalHours = endTime.hour - startTime.hour;
-    if (totalHours < 0) totalHours += 24; // Handle overnight shifts
+    if (totalHours < 0) totalHours += 24;
     totalHours += (endTime.minute - startTime.minute) / 60;
 
     return {
@@ -363,7 +376,6 @@ const validateHalfDay = async (employee_id, leaveDate, halfDayType, shiftTiming)
         const month = date.getMonth() + 1;
         const day = date.getDate();
 
-        // Get attendance/working hours for this employee on this date
         const { data: attendance, error: attError } = await supabase
             .from('attendance')
             .select('*')
@@ -373,11 +385,8 @@ const validateHalfDay = async (employee_id, leaveDate, halfDayType, shiftTiming)
         if (attError) throw attError;
 
         let hoursWorked = 0;
-        let clockIn = null;
-        let clockOut = null;
 
         if (attendance && attendance.length > 0) {
-            // Calculate actual hours worked
             if (attendance[0].clock_in && attendance[0].clock_out) {
                 const clockInTime = new Date(attendance[0].clock_in);
                 const clockOutTime = new Date(attendance[0].clock_out);
@@ -385,21 +394,16 @@ const validateHalfDay = async (employee_id, leaveDate, halfDayType, shiftTiming)
             }
         }
 
-        // Calculate total shift hours
         const totalShiftHours = shiftTiming.totalHours;
-
-        // MINIMUM REQUIRED HOURS FOR HALF-DAY VALIDITY = 5 HOURS
         const MINIMUM_REQUIRED_HOURS = 5;
 
         let requiredHours = 0;
         let remainingHalf = '';
 
         if (halfDayType === 'First Half') {
-            // Taking first half off, must work second half
             remainingHalf = 'Second Half';
             requiredHours = MINIMUM_REQUIRED_HOURS;
         } else if (halfDayType === 'Second Half') {
-            // Taking second half off, must work first half
             remainingHalf = 'First Half';
             requiredHours = MINIMUM_REQUIRED_HOURS;
         }
@@ -413,7 +417,6 @@ const validateHalfDay = async (employee_id, leaveDate, halfDayType, shiftTiming)
             totalShiftHours: totalShiftHours.toFixed(1)
         });
 
-        // Check if employee worked enough hours (at least 5 hours) in the remaining half
         if (hoursWorked >= requiredHours) {
             return {
                 valid: true,
@@ -422,7 +425,7 @@ const validateHalfDay = async (employee_id, leaveDate, halfDayType, shiftTiming)
         } else {
             return {
                 valid: false,
-                message: `Insufficient work hours. You only worked ${hoursWorked.toFixed(1)} hours in the ${remainingHalf}. Minimum 5 hours required for half-day. Converting to full day.`
+                message: `Insufficient work hours. You only worked ${hoursWorked.toFixed(1)} hours in the ${remainingHalf}. Minimum 5 hours required for half-day.`
             };
         }
 
@@ -430,11 +433,10 @@ const validateHalfDay = async (employee_id, leaveDate, halfDayType, shiftTiming)
         console.error('Error validating half-day:', error);
         return {
             valid: false,
-            message: 'Unable to validate work hours. Converting to full day for compliance.'
+            message: 'Unable to validate work hours.'
         };
     }
 };
-
 
 // Get leaves
 exports.getLeaves = async (req, res) => {
@@ -443,39 +445,30 @@ exports.getLeaves = async (req, res) => {
 
         console.log('📋 Fetching leaves with params:', { employee_id, role });
 
-        // Simple query first - just get leaves without join
         let query = supabase
             .from('leaves')
             .select('*');
 
-        // Apply employee filter if needed
         if (role === 'employee' && employee_id) {
             query = query.eq('employee_id', employee_id);
         }
 
-        // Order by applied_date descending
         query = query.order('applied_date', { ascending: false });
 
         const { data: leaves, error } = await query;
 
-        if (error) {
-            console.error('❌ Error fetching leaves:', error);
-            throw error;
-        }
+        if (error) throw error;
 
         console.log(`✅ Found ${leaves?.length || 0} leaves`);
 
-        // If no leaves, return empty array
         if (!leaves || leaves.length === 0) {
             return res.json([]);
         }
 
-        // Now get employee details for each leave
         const formattedLeaves = [];
 
         for (const leave of leaves) {
             try {
-                // Fetch employee details for this leave
                 const { data: employee, error: empError } = await supabase
                     .from('employees')
                     .select('first_name, last_name, department, designation')
@@ -523,8 +516,6 @@ exports.getLeaves = async (req, res) => {
 
     } catch (error) {
         console.error('❌ Error in getLeaves:', error);
-        console.error('Error details:', error);
-        
         res.status(500).json({ 
             success: false, 
             message: 'Error fetching leaves',
@@ -538,80 +529,110 @@ exports.updateLeaveStatus = async (req, res) => {
     try {
         const { id } = req.params;
         const { status, remarks } = req.body;
+        const approver_id = req.user?.employeeId || req.body.approved_by;
+
+        console.log('📝 Updating leave status:', { id, status, remarks, approver_id });
 
         if (!status || !['approved', 'rejected', 'cancelled'].includes(status)) {
             return res.status(400).json({
                 success: false,
-                message: 'Valid status is required'
+                message: 'Valid status (approved/rejected/cancelled) is required'
             });
         }
 
         // Get leave details first
         const { data: leave, error: fetchError } = await supabase
             .from('leaves')
-            .select('*')
+            .select('*, employees!inner(first_name, last_name)')
             .eq('id', id)
             .single();
 
-        if (fetchError) throw fetchError;
+        if (fetchError) {
+            console.error('❌ Error fetching leave:', fetchError);
+            throw fetchError;
+        }
 
-        // Update leave status
-        const { data, error } = await supabase
+        if (!leave) {
+            return res.status(404).json({
+                success: false,
+                message: 'Leave request not found'
+            });
+        }
+
+        console.log('📋 Found leave:', leave);
+
+        // Prepare update data - SIMPLIFIED VERSION
+        const updateData = {
+            status: status,
+            remarks: remarks || null,
+            updated_at: new Date().toISOString()
+        };
+
+        // Only add approved_by if the column exists (we'll handle this gracefully)
+        try {
+            // First check if approved_by column exists
+            const { data: columnCheck, error: columnError } = await supabase
+                .from('leaves')
+                .select('approved_by')
+                .limit(1);
+
+            if (!columnError) {
+                // Column exists, add it to update
+                updateData.approved_by = approver_id;
+                updateData.approved_date = status === 'approved' ? new Date().toISOString().split('T')[0] : null;
+            } else {
+                console.log('⚠️ approved_by column does not exist, skipping...');
+            }
+        } catch (colErr) {
+            console.log('⚠️ Could not check approved_by column:', colErr.message);
+        }
+
+        console.log('📝 Updating with data:', updateData);
+
+        // Update leave record
+        const { data: updatedLeave, error: updateError } = await supabase
             .from('leaves')
-            .update({
-                status,
-                approved_by: req.user?.employeeId || req.body.approved_by,
-                approved_date: status === 'approved' ? new Date().toISOString().split('T')[0] : null,
-                remarks: remarks || null
-            })
+            .update(updateData)
             .eq('id', id)
             .select();
 
-        if (error) throw error;
+        if (updateError) {
+            console.error('❌ Error updating leave:', updateError);
+            throw updateError;
+        }
+
+        console.log(`✅ Leave ${status}:`, updatedLeave[0]);
 
         // If comp-off leave is approved, deduct from balance
         if (status === 'approved' && leave.leave_type === 'Comp-Off') {
-            // Update employee's comp_off_balance
-            const { error: updateError } = await supabase
-                .from('employees')
-                .update({
-                    comp_off_balance: supabase.raw('comp_off_balance - ?', [leave.days_count]),
-                    total_comp_off_used: supabase.raw('total_comp_off_used + ?', [leave.days_count])
-                })
-                .eq('employee_id', leave.employee_id);
-
-            if (updateError) {
-                console.error('Error updating comp-off balance:', updateError);
-            } else {
-                // Mark comp-off earnings as used
-                const { error: markError } = await supabase
-                    .from('comp_off_earnings')
+            try {
+                const { error: updateError } = await supabase
+                    .from('employees')
                     .update({
-                        is_used: true,
-                        used_date: new Date().toISOString().split('T')[0],
-                        used_leave_id: id
+                        comp_off_balance: supabase.raw('COALESCE(comp_off_balance, 0) - ?', [leave.days_count]),
+                        total_comp_off_used: supabase.raw('COALESCE(total_comp_off_used, 0) + ?', [leave.days_count])
                     })
-                    .eq('employee_id', leave.employee_id)
-                    .eq('is_used', false)
-                    .order('attendance_date')
-                    .limit(leave.days_count);
+                    .eq('employee_id', leave.employee_id);
 
-                if (markError) {
-                    console.error('Error marking comp-off as used:', markError);
+                if (updateError) {
+                    console.error('Error updating comp-off balance:', updateError);
+                } else {
+                    console.log('✅ Comp-Off balance updated');
                 }
+            } catch (compErr) {
+                console.error('Error in comp-off update:', compErr);
             }
         }
-
-        console.log(`✅ Leave ${status}:`, data[0]);
 
         res.json({
             success: true,
             message: `Leave request ${status} successfully`,
-            leave: data[0]
+            leave: updatedLeave[0]
         });
 
     } catch (error) {
-        console.error('Error updating leave status:', error);
+        console.error('❌ Error updating leave status:', error);
+        console.error('Error stack:', error.stack);
         res.status(500).json({
             success: false,
             message: 'Failed to update leave status',
@@ -630,7 +651,6 @@ exports.getLeaveTypes = async (req, res) => {
         ];
         
         if (employee_id) {
-            // Get employee details to check comp-off balance
             const { data: employee, error } = await supabase
                 .from('employees')
                 .select('comp_off_balance')
@@ -645,7 +665,6 @@ exports.getLeaveTypes = async (req, res) => {
                 });
             }
             
-            // Check probation status for other leave types
             const { data: empData } = await supabase
                 .from('employees')
                 .select('joining_date')
@@ -697,9 +716,7 @@ exports.getLeaveTypes = async (req, res) => {
 exports.manualAccrual = async (req, res) => {
     try {
         const { employee_id } = req.params;
-
         const result = await LeaveYearlyService.addMonthlyAccrual(employee_id);
-
         res.json(result);
     } catch (error) {
         console.error('Error in manual accrual:', error);
@@ -725,3 +742,5 @@ exports.yearlyReset = async (req, res) => {
         });
     }
 };
+
+module.exports = exports;

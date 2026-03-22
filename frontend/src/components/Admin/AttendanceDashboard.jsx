@@ -70,10 +70,7 @@ const AttendanceReports = () => {
   }
 
   const PROFESSIONAL_TAX = 200;
-  const OTHER_DEDUCTIONS = 0;
-  const OVERTIME_RATE = 150; // ₹150 per hour
-
-  // ============== UTILITY FUNCTIONS ==============
+  const OVERTIME_RATE = 150;
 
   // Format decimal hours to "Xh Ym" format
   const formatHours = (decimalHours) => {
@@ -495,6 +492,8 @@ const AttendanceReports = () => {
           holiday: 0,
           weekend: 0,
           total_hours: 0,
+          working_days_count: 0,
+          avg_hours: 0,
           late_count: 0,
           total_late_minutes: 0,
           comp_off_count: 0,
@@ -519,6 +518,12 @@ const AttendanceReports = () => {
       else if (record.status === 'holiday') perEmployee[record.employee_id].holiday++;
       else if (record.status === 'weekend') perEmployee[record.employee_id].weekend++;
 
+      if (record.status === 'present' || record.status === 'working' || record.status === 'half_day') {
+        perEmployee[record.employee_id].working_days_count++;
+        const hours = parseFloat(record.total_hours || 0);
+        perEmployee[record.employee_id].total_hours += hours;
+      }
+
       if (record.is_late) {
         perEmployee[record.employee_id].late_count++;
         perEmployee[record.employee_id].total_late_minutes += record.late_minutes || 0;
@@ -534,13 +539,16 @@ const AttendanceReports = () => {
         perEmployee[record.employee_id].overtime_minutes += record.overtime_minutes || 0;
         perEmployee[record.employee_id].overtime_amount += record.overtime_amount || 0;
       }
-
-      const hours = parseFloat(record.total_hours || 0);
-      perEmployee[record.employee_id].total_hours += hours;
     });
 
     Object.keys(perEmployee).forEach(empId => {
       const emp = perEmployee[empId];
+      if (emp.working_days_count > 0) {
+        emp.avg_hours = emp.total_hours / emp.working_days_count;
+      } else {
+        emp.avg_hours = 0;
+      }
+      
       if (emp.late_count > 0) {
         emp.avg_late_minutes = (emp.total_late_minutes / emp.late_count).toFixed(1);
         emp.late_display = formatLateDisplay(emp.total_late_minutes);
@@ -592,30 +600,18 @@ const AttendanceReports = () => {
     return employee.gender || 'Not Specified';
   };
 
-  const calculateSalary = (employee, presentDays, halfDays, lateCount, overtimeAmount) => {
+  const calculateSalary = (employee, overtimeAmount) => {
     const grossSalary = parseFloat(employee.gross_salary) || 0;
-    const inHandSalary = parseFloat(employee.in_hand_salary) || 0;
-
-    const perDaySalary = grossSalary / 30;
-    const totalWorkingDays = presentDays + (halfDays * 0.5);
-    const actualSalary = totalWorkingDays * perDaySalary;
-
-    const profTax = PROFESSIONAL_TAX;
-    const otherDeductions = OTHER_DEDUCTIONS;
-    const totalDeductions = profTax + otherDeductions;
-
-    // Add overtime amount to net salary
-    const netSalaryToPay = actualSalary - totalDeductions + (overtimeAmount || 0);
-
+    const netSalaryAfterDeduction = grossSalary - PROFESSIONAL_TAX;
+    const actualSalaryAfterOT = netSalaryAfterDeduction + (overtimeAmount || 0);
+    
     return {
       grossSalary: grossSalary.toFixed(2),
-      inHandSalary: inHandSalary.toFixed(2),
-      actualSalary: actualSalary.toFixed(2),
-      profTax: profTax,
-      otherDeductions: otherDeductions,
-      totalDeductions: totalDeductions,
+      professionalTax: PROFESSIONAL_TAX,
+      netSalaryAfterDeduction: netSalaryAfterDeduction.toFixed(2),
       overtimeAmount: overtimeAmount || 0,
-      netSalaryToPay: netSalaryToPay.toFixed(2)
+      actualSalaryAfterOT: actualSalaryAfterOT.toFixed(2),
+      netSalaryToPay: actualSalaryAfterOT.toFixed(2)
     };
   };
 
@@ -697,11 +693,13 @@ const AttendanceReports = () => {
             comp_off_count: 0,
             total_comp_off_days: 0,
             overtime_hours: 0,
-            overtime_amount: 0
+            overtime_amount: 0,
+            avg_hours: 0,
+            total_hours: 0
           };
 
           const leaveBalance = await getLeaveBalance(employee.employee_id);
-          const salary = calculateSalary(employee, empStats.present, empStats.half_day, empStats.late_count, empStats.overtime_amount);
+          const salary = calculateSalary(employee, empStats.overtime_amount);
 
           const row = {
             'Employee Name': `${employee.first_name || ''} ${employee.last_name || ''}`.trim(),
@@ -724,6 +722,8 @@ const AttendanceReports = () => {
                 status = 'H';
               } else if (dayRecord.status === 'weekend') {
                 status = 'W-OFF';
+              } else if (dayRecord.status === 'absent') {
+                status = 'A';
               } else {
                 status = 'A';
               }
@@ -748,19 +748,16 @@ const AttendanceReports = () => {
           row['Weekend Off'] = empStats.weekend || 0;
           row['Absent'] = empStats.absent || 0;
           row['Late Coming'] = empStats.late_count || 0;
-          row['Total Late Time'] = formatLateDisplay(empStats.total_late_minutes) || '0';
           row['Comp-Off Earned Count'] = empStats.comp_off_count || 0;
           row['Total Comp-Off Days'] = empStats.total_comp_off_days.toFixed(1) || '0';
           row['Overtime Hours'] = empStats.overtime_hours || 0;
           row['Overtime Amount'] = empStats.overtime_amount || 0;
-          row['Total Hours'] = formatHours(empStats.total_hours) || '0';
-          row['Amount'] = salary.actualSalary;
-          row['Gross Salary'] = salary.grossSalary;
-          row['Net Salary'] = salary.inHandSalary;
-          row['Actual Salary'] = salary.actualSalary;
-          row['Professional Tax'] = salary.profTax;
-          row['Deduction'] = salary.totalDeductions;
-          row['Overtime Added'] = salary.overtimeAmount;
+          row['Avg Working Hours/Day'] = empStats.avg_hours ? formatHours(empStats.avg_hours) : '0h';
+          row['Gross Salary (Monthly)'] = salary.grossSalary;
+          row['Professional Tax (₹200)'] = salary.professionalTax;
+          row['Net Salary (After Deduction)'] = salary.netSalaryAfterDeduction;
+          row['Overtime Amount Added'] = salary.overtimeAmount > 0 ? salary.overtimeAmount : 0;
+          row['Actual Salary (After OT)'] = salary.actualSalaryAfterOT;
           row['Net Salary To be Pay'] = salary.netSalaryToPay;
           row['Gender'] = getGender(employee);
           row['Account Number'] = employee.account_number || 'N/A';
@@ -783,8 +780,8 @@ const AttendanceReports = () => {
           { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 10 }, { wch: 10 },
           { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 15 }, { wch: 15 },
           { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
-          { wch: 12 }, { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 15 },
-          { wch: 18 }, { wch: 20 }, { wch: 15 }, { wch: 20 }
+          { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 },
+          { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 20 }
         );
 
         ws['!cols'] = colWidths;
@@ -855,7 +852,6 @@ const AttendanceReports = () => {
 
   return (
     <div className="p-2 p-md-3 p-lg-4">
-      {/* Header - Responsive */}
       <div className="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center mb-3 gap-2">
         <h5 className="mb-0 d-flex align-items-center">
           <FaCalendarAlt className="me-2 text-primary" />
@@ -870,7 +866,6 @@ const AttendanceReports = () => {
         </Alert>
       )}
 
-      {/* View Toggle Buttons - Responsive */}
       <div className="mb-3 border-bottom pb-2 d-flex flex-wrap gap-2">
         <Button
           variant={activeView === 'daily' ? 'primary' : 'light'}
@@ -890,7 +885,6 @@ const AttendanceReports = () => {
       </div>
 
       {activeView === 'daily' ? (
-        // Daily View Controls - Responsive
         <div className="d-flex flex-column flex-sm-row mb-3 gap-2">
           <Form.Control
             type="date"
@@ -905,7 +899,6 @@ const AttendanceReports = () => {
           </Button>
         </div>
       ) : (
-        // Monthly View Controls - Responsive
         <div className="mb-3">
           <Row className="g-2">
             <Col xs={12} lg={8}>
@@ -968,7 +961,6 @@ const AttendanceReports = () => {
         </div>
       )}
 
-      {/* Legend - Responsive */}
       <div className="d-flex flex-wrap gap-2 gap-md-3 mb-3 small justify-content-center justify-content-md-start">
         <span className="d-flex align-items-center"><Badge bg="success" pill className="me-1">P</Badge> Present</span>
         <span className="d-flex align-items-center"><Badge bg="warning" pill className="me-1">HD</Badge> Half Day</span>
@@ -999,7 +991,6 @@ const AttendanceReports = () => {
           </Card.Header>
           <Card.Body className="p-0">
             {activeView === 'daily' ? (
-              // Daily Attendance Table - Responsive
               <div className="table-responsive" style={{ maxHeight: '400px', overflow: 'auto' }}>
                 <Table size="sm" striped className="mb-0">
                   <thead className="bg-light sticky-top" style={{ top: 0, zIndex: 10 }}>
@@ -1088,13 +1079,14 @@ const AttendanceReports = () => {
                         </tr>
                       ))
                     ) : (
-                      <tr><td colSpan="12" className="text-center py-4">No attendance records</td></tr>
+                      <tr>
+                        <td colSpan="12" className="text-center py-4">No attendance records</td>
+                      </tr>
                     )}
                   </tbody>
                 </Table>
               </div>
             ) : (
-              // Monthly Attendance Table - Responsive
               <div className="monthly-table-container" style={{ position: 'relative', height: '400px', overflow: 'auto' }}>
                 <style>
                   {`
@@ -1202,7 +1194,7 @@ const AttendanceReports = () => {
                       <th className="text-center fw-normal small bg-light d-none d-lg-table-cell" style={{ minWidth: '60px', top: 0, zIndex: 10 }}>OT</th>
                       <th className="text-center fw-normal small bg-light d-none d-xl-table-cell" style={{ minWidth: '60px', top: 0, zIndex: 10 }}>OT Amt</th>
                       <th className="text-center fw-normal small bg-light d-none d-xl-table-cell" style={{ minWidth: '60px', top: 0, zIndex: 10 }}>Comp-Off</th>
-                      <th className="text-center fw-normal small bg-light" style={{ minWidth: '50px', top: 0, zIndex: 10 }}>Hours</th>
+                      <th className="text-center fw-normal small bg-light" style={{ minWidth: '70px', top: 0, zIndex: 10 }}>Avg Hours</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1329,13 +1321,17 @@ const AttendanceReports = () => {
                               )}
                             </td>
                             <td className="text-center">
-                              <strong className="text-nowrap">{formatHours(empStats.total_hours)}</strong>
+                              <strong className="text-nowrap">{empStats.avg_hours ? formatHours(empStats.avg_hours) : '0h'}</strong>
+                              <br />
+                              <small className="text-muted d-none d-sm-inline">({empStats.total_hours.toFixed(1)}h / {empStats.working_days_count}d)</small>
                             </td>
                           </tr>
                         );
                       })
                     ) : (
-                      <tr><td colSpan={daysInMonth + 15} className="text-center py-4">No attendance data</td></tr>
+                      <tr>
+                        <td colSpan={daysInMonth + 15} className="text-center py-4">No attendance data</td>
+                      </tr>
                     )}
                   </tbody>
                 </table>
@@ -1345,7 +1341,6 @@ const AttendanceReports = () => {
         </Card>
       )}
 
-      {/* Footer Note - Responsive */}
       <div className="text-center mt-3 text-muted small">
         <p className="mb-0 d-flex flex-wrap justify-content-center gap-2">
           <span><FaClock className="me-1" /> Hover for details</span>

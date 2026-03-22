@@ -305,64 +305,61 @@ const ApplyLeave = () => {
     e.preventDefault();
 
     if (!validateForm()) {
-      showNotification('Please fix the errors in the form', 'warning');
-      return;
+        showNotification('Please fix the errors in the form', 'warning');
+        return;
     }
 
     setSubmitting(true);
 
     try {
-      const leaveData = {
-        ...formData,
-        employee_id: user.employeeId,
-        days_count: calculatedDays,
-        applied_date: new Date().toISOString().split('T')[0]
-      };
+        const leaveData = {
+            ...formData,
+            employee_id: user.employeeId,  // This is already in the body
+            days_count: calculatedDays,
+            applied_date: new Date().toISOString().split('T')[0]
+        };
 
-      const response = await axios.post(API_ENDPOINTS.LEAVE_APPLY, leaveData, {
-        headers: {
-          'employee-id': user.employeeId
+        // REMOVE the custom headers - just use default axios instance
+        const response = await axios.post(API_ENDPOINTS.LEAVE_APPLY, leaveData);
+
+        if (response.data.success) {
+            showNotification(
+                formData.leave_type === 'Comp-Off' 
+                    ? 'Comp-Off request submitted successfully!' 
+                    : 'Leave request submitted successfully!', 
+                'success'
+            );
+            
+            // Reset form
+            setFormData({
+                leave_type: leaveBalance.is_eligible ? 'Annual' : (leaveBalance.comp_off_balance > 0 ? 'Comp-Off' : 'Unpaid'),
+                leave_duration: 'Full Day',
+                half_day_type: '',
+                start_date: '',
+                end_date: '',
+                reason: '',
+                reporting_manager: employeeDetails.reporting_manager
+            });
+            
+            // Refresh data
+            await fetchLeaveBalance();
+            await fetchRecentLeaves();
+            
+            // Navigate back after short delay
+            setTimeout(() => {
+                navigate('/employee/dashboard');
+            }, 2000);
         }
-      });
-
-      if (response.data.success) {
-        showNotification(
-          formData.leave_type === 'Comp-Off' 
-            ? 'Comp-Off request submitted successfully!' 
-            : 'Leave request submitted successfully!', 
-          'success'
-        );
-        
-        // Reset form
-        setFormData({
-          leave_type: leaveBalance.is_eligible ? 'Annual' : (leaveBalance.comp_off_balance > 0 ? 'Comp-Off' : 'Unpaid'),
-          leave_duration: 'Full Day',
-          half_day_type: '',
-          start_date: '',
-          end_date: '',
-          reason: '',
-          reporting_manager: employeeDetails.reporting_manager
-        });
-        
-        // Refresh data
-        await fetchLeaveBalance();
-        await fetchRecentLeaves();
-        
-        // Navigate back after short delay
-        setTimeout(() => {
-          navigate('/employee/dashboard');
-        }, 2000);
-      }
     } catch (error) {
-      console.error('Error submitting leave:', error);
-      showNotification(
-        error.response?.data?.message || 'Failed to submit leave request',
-        'danger'
-      );
+        console.error('Error submitting leave:', error);
+        showNotification(
+            error.response?.data?.message || 'Failed to submit leave request',
+            'danger'
+        );
     } finally {
-      setSubmitting(false);
+        setSubmitting(false);
     }
-  };
+};
 
   const handleCancel = () => {
     navigate('/employee/dashboard');
