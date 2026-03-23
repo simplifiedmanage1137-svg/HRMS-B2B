@@ -39,85 +39,62 @@ console.log(`Port: ${PORT}`);
 console.log('='.repeat(70));
 
 // ============== CORS CONFIGURATION ==============
-// Define allowed origins
+// Define allowed origins - CORRECTED
 const allowedOrigins = [
     'http://localhost:5173',  // Local development (Vite default)
     'http://localhost:3000',   // Local development (React default)
     'http://127.0.0.1:5173',
     'http://127.0.0.1:3000',
-    'https://employee-management-system-red-chi.vercel.app', // Your Vercel frontend
-    'https://employee-management-system-brvo.onrender.com' // Backend URL (optional)
+    'https://employee-management-system-red-chi.vercel.app', // Your Vercel frontend - FIXED (removed double slash)
+    'https://employee-management-system-brvo.onrender.com' // Your backend URL
 ];
 
-// Custom CORS middleware - with employee-id header allowed
-app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    
-    // Log all requests for debugging
-    console.log(`📍 ${req.method} ${req.url} - Origin: ${origin || 'no origin'}`);
-    
-    // Set CORS headers for all responses
-    if (origin && allowedOrigins.includes(origin)) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
-    } else if (!origin) {
-        // Allow requests with no origin (like mobile apps, curl, etc)
-        res.setHeader('Access-Control-Allow-Origin', '*');
-    } else {
-        console.log(`⚠️ Origin not allowed: ${origin}`);
-        // For development, still allow but log it
-        if (!isProduction) {
-            res.setHeader('Access-Control-Allow-Origin', origin);
-        } else {
-            // In production, block it
-            return res.status(403).json({
-                success: false,
-                message: 'CORS error: Origin not allowed'
-            });
-        }
-    }
-    
-    // Set other CORS headers - IMPORTANT: employee-id is now allowed
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 
-        'Origin, X-Requested-With, Content-Type, Accept, Authorization, employee-id, X-Employee-Id'
-    );
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Range, X-Content-Range');
-    
-    // Handle preflight requests
-    if (req.method === 'OPTIONS') {
-        console.log('✅ Handling OPTIONS preflight request');
-        return res.sendStatus(200);
-    }
-    
-    next();
-});
-
-// Also use cors package for additional security
-app.use(cors({
-    origin: function(origin, callback) {
+// Configure CORS options
+const corsOptions = {
+    origin: function (origin, callback) {
         // Allow requests with no origin (like mobile apps, curl, Postman)
-        if (!origin) return callback(null, true);
+        if (!origin) {
+            console.log('✅ No origin header, allowing request');
+            return callback(null, true);
+        }
         
-        if (allowedOrigins.indexOf(origin) !== -1 || !isProduction) {
+        // Check if origin is allowed
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            console.log(`✅ CORS allowed for origin: ${origin}`);
             callback(null, true);
         } else {
-            console.log('❌ Blocked origin:', origin);
+            console.log(`❌ CORS blocked for origin: ${origin}`);
+            console.log(`   Allowed origins: ${allowedOrigins.join(', ')}`);
             callback(new Error('Not allowed by CORS'));
         }
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: [
-        'Content-Type', 
-        'Authorization', 
-        'X-Requested-With', 
-        'Accept', 
-        'Origin', 
+        'Content-Type',
+        'Authorization',
+        'X-Requested-With',
+        'Accept',
+        'Origin',
         'employee-id',
         'X-Employee-Id'
-    ]
-}));
+    ],
+    exposedHeaders: ['Content-Range', 'X-Content-Range'],
+    optionsSuccessStatus: 200
+};
+
+// Apply CORS middleware FIRST
+app.use(cors(corsOptions));
+
+// Optional: Additional custom CORS logging middleware
+app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    console.log(`📍 ${req.method} ${req.url} - Origin: ${origin || 'no origin'}`);
+    if (origin && allowedOrigins.includes(origin)) {
+        console.log(`✅ CORS allowed: ${origin}`);
+    }
+    next();
+});
 
 // ============== OTHER MIDDLEWARE ==============
 app.use(express.json({ limit: '50mb' }));
@@ -181,7 +158,9 @@ app.get('/api/health', (req, res) => {
         message: 'Server is healthy',
         timestamp: new Date().toISOString(),
         environment: process.env.NODE_ENV || 'development',
-        port: PORT
+        port: PORT,
+        cors_enabled: true,
+        allowed_origins: allowedOrigins
     });
 });
 
@@ -223,6 +202,22 @@ app.get('/api/test-db', async (req, res) => {
     }
 });
 
+// ============== CORS DEBUG ENDPOINT ==============
+app.get('/api/cors-debug', (req, res) => {
+    res.json({
+        success: true,
+        headers: req.headers,
+        origin: req.headers.origin,
+        method: req.method,
+        allowed_origins: allowedOrigins,
+        cors_headers: {
+            'Access-Control-Allow-Origin': res.getHeader('Access-Control-Allow-Origin'),
+            'Access-Control-Allow-Methods': res.getHeader('Access-Control-Allow-Methods'),
+            'Access-Control-Allow-Headers': res.getHeader('Access-Control-Allow-Headers')
+        }
+    });
+});
+
 // ============== ROOT ENDPOINT ==============
 app.get('/', (req, res) => {
     res.json({
@@ -234,6 +229,7 @@ app.get('/', (req, res) => {
             health: '/api/health',
             test: '/api/test',
             testDb: '/api/test-db',
+            corsDebug: '/api/cors-debug',
             auth: '/api/auth/*',
             employees: '/api/employees/*',
             leaves: '/api/leaves/*',
@@ -314,6 +310,7 @@ app.use((req, res) => {
             '/api/health',
             '/api/test',
             '/api/test-db',
+            '/api/cors-debug',
             '/api/auth/*',
             '/api/employees/*',
             '/api/leaves/*',
@@ -337,7 +334,8 @@ app.use((err, req, res, next) => {
             success: false,
             message: 'CORS error: Origin not allowed',
             error: err.message,
-            origin: req.headers.origin
+            origin: req.headers.origin,
+            allowedOrigins: allowedOrigins
         });
     }
     
