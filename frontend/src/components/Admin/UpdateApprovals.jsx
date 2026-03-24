@@ -14,7 +14,8 @@ import {
   FaTimesCircle,
   FaCalendarAlt,
   FaClock,
-  FaExclamationTriangle
+  FaExclamationTriangle,
+  FaUpload
 } from 'react-icons/fa';
 import axios from '../../config/axios';
 import API_ENDPOINTS from '../../config/api';
@@ -68,93 +69,23 @@ const UpdateApprovals = () => {
     }
   };
 
-  const handleViewDetails = (request) => {
-    setSelectedRequest(request);
-    setShowModal(true);
-    setComments('');
+  // ✅ MOVE getStatusBadge function BEFORE it's used in the component
+  const getStatusBadge = (status) => {
+    if (!status) return <Badge bg="secondary">Unknown</Badge>;
+    
+    switch(status) {
+      case 'approved':
+        return <Badge bg="success" pill className="d-inline-flex align-items-center"><FaCheckCircle className="me-1" size={10} /> Approved</Badge>;
+      case 'rejected':
+        return <Badge bg="danger" pill className="d-inline-flex align-items-center"><FaTimesCircle className="me-1" size={10} /> Rejected</Badge>;
+      case 'pending':
+        return <Badge bg="warning" pill className="d-inline-flex align-items-center"><FaClock className="me-1" size={10} /> Pending</Badge>;
+      case 'completed':
+        return <Badge bg="info" pill className="d-inline-flex align-items-center"><FaCheckCircle className="me-1" size={10} /> Completed</Badge>;
+      default:
+        return <Badge bg="secondary">{status}</Badge>;
+    }
   };
-
-const handleApprove = async () => {
-  if (!selectedRequest) return;
-  
-  setProcessing(true);
-  setMessage({ type: '', text: '' });
-  
-  try {
-    console.log('📤 Approving request:', selectedRequest.id);
-    
-    const response = await axios.post(API_ENDPOINTS.ADMIN_UPDATES_HANDLE, {
-      request_id: selectedRequest.id,
-      action: 'approve',
-      comments: comments || null
-    });
-    
-    console.log('✅ Approve response:', response.data);
-    
-    setMessage({ 
-      type: 'success', 
-      text: 'Request approved successfully! Employee data has been updated.' 
-    });
-    
-    setShowModal(false);
-    await fetchCompletedRequests(); // Refresh the list
-    
-    // 👇 IMPORTANT: Dispatch event to update sidebar count
-    window.dispatchEvent(new Event('updateApprovalsChanged'));
-    
-    setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-    
-  } catch (error) {
-    console.error('❌ Error approving request:', error);
-    setMessage({ 
-      type: 'danger', 
-      text: error.response?.data?.message || error.message || 'Error approving request' 
-    });
-  } finally {
-    setProcessing(false);
-  }
-};
-
-const handleReject = async () => {
-  if (!selectedRequest) return;
-  
-  setProcessing(true);
-  setMessage({ type: '', text: '' });
-  
-  try {
-    console.log('📤 Rejecting request:', selectedRequest.id);
-    
-    const response = await axios.post(API_ENDPOINTS.ADMIN_UPDATES_HANDLE, {
-      request_id: selectedRequest.id,
-      action: 'reject',
-      comments: comments || null
-    });
-    
-    console.log('✅ Reject response:', response.data);
-    
-    setMessage({ 
-      type: 'success', 
-      text: 'Request rejected successfully!' 
-    });
-    
-    setShowModal(false);
-    await fetchCompletedRequests(); // Refresh the list
-    
-    // 👇 IMPORTANT: Dispatch event to update sidebar count
-    window.dispatchEvent(new Event('updateApprovalsChanged'));
-    
-    setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-    
-  } catch (error) {
-    console.error('❌ Error rejecting request:', error);
-    setMessage({ 
-      type: 'danger', 
-      text: error.response?.data?.message || error.message || 'Error rejecting request' 
-    });
-  } finally {
-    setProcessing(false);
-  }
-};
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
@@ -173,18 +104,90 @@ const handleReject = async () => {
     return completedRequests.filter(req => req.status === filter);
   };
 
-  const getStatusBadge = (status) => {
-    if (!status) return <Badge bg="secondary">Unknown</Badge>;
+  const handleViewDetails = (request) => {
+    console.log('Viewing request details:', request);
+    setSelectedRequest(request);
+    setShowModal(true);
+    setComments('');
+  };
+
+  const handleApprove = async () => {
+    if (!selectedRequest) return;
     
-    switch(status) {
-      case 'approved':
-        return <Badge bg="success" pill className="d-inline-flex align-items-center"><FaCheckCircle className="me-1" size={10} /> Approved</Badge>;
-      case 'rejected':
-        return <Badge bg="danger" pill className="d-inline-flex align-items-center"><FaTimesCircle className="me-1" size={10} /> Rejected</Badge>;
-      case 'pending':
-        return <Badge bg="warning" pill className="d-inline-flex align-items-center"><FaClock className="me-1" size={10} /> Pending</Badge>;
-      default:
-        return <Badge bg="secondary">{status}</Badge>;
+    setProcessing(true);
+    setMessage({ type: '', text: '' });
+    
+    try {
+      console.log('📤 Approving request:', selectedRequest.id);
+      
+      const response = await axios.post(API_ENDPOINTS.ADMIN_UPDATES_HANDLE, {
+        request_id: selectedRequest.id,
+        action: 'approve',
+        comments: comments || null
+      });
+      
+      console.log('✅ Approve response:', response.data);
+      
+      setMessage({ 
+        type: 'success', 
+        text: 'Request approved successfully! Employee data has been updated.' 
+      });
+      
+      setShowModal(false);
+      await fetchCompletedRequests();
+      
+      window.dispatchEvent(new Event('updateApprovalsChanged'));
+      
+      setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+      
+    } catch (error) {
+      console.error('❌ Error approving request:', error);
+      setMessage({ 
+        type: 'danger', 
+        text: error.response?.data?.message || error.message || 'Error approving request' 
+      });
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!selectedRequest) return;
+    
+    setProcessing(true);
+    setMessage({ type: '', text: '' });
+    
+    try {
+      console.log('📤 Rejecting request:', selectedRequest.id);
+      
+      const response = await axios.post(API_ENDPOINTS.ADMIN_UPDATES_HANDLE, {
+        request_id: selectedRequest.id,
+        action: 'reject',
+        comments: comments || null
+      });
+      
+      console.log('✅ Reject response:', response.data);
+      
+      setMessage({ 
+        type: 'success', 
+        text: 'Request rejected successfully!' 
+      });
+      
+      setShowModal(false);
+      await fetchCompletedRequests();
+      
+      window.dispatchEvent(new Event('updateApprovalsChanged'));
+      
+      setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+      
+    } catch (error) {
+      console.error('❌ Error rejecting request:', error);
+      setMessage({ 
+        type: 'danger', 
+        text: error.response?.data?.message || error.message || 'Error rejecting request' 
+      });
+    } finally {
+      setProcessing(false);
     }
   };
 
@@ -318,16 +321,16 @@ const handleReject = async () => {
                   <tr>
                     <th className="small fw-normal text-dark">#</th>
                     <th className="small fw-normal text-dark">Employee</th>
-                    <th className="small fw-normal text-dark d-none d-md-table-cell">Requested Fields</th>
+                    <th className="small fw-normal text-dark d-none d-md-table-cell">Request Type</th>
                     <th className="small fw-normal text-dark d-none d-sm-table-cell">Submitted On</th>
                     <th className="small fw-normal text-dark">Status</th>
                     <th className="small fw-normal text-dark">Actions</th>
-                  </tr>
+                   </tr>
                 </thead>
                 <tbody>
                   {filteredRequests.map((req, index) => (
                     <tr key={req.id}>
-                      <td className="small">{index + 1}</td>
+                      <td className="small">{index + 1} </td>
                       <td>
                         <div className="d-flex align-items-center">
                           <FaUser className="me-2 text-primary flex-shrink-0" size={12} />
@@ -338,21 +341,21 @@ const handleReject = async () => {
                             <small className="text-muted d-block text-truncate" title={req.employee_id}>{req.employee_id}</small>
                           </div>
                         </div>
-                      </td>
+                       </td>
                       <td className="d-none d-md-table-cell">
-                        <div className="d-flex flex-wrap gap-1" style={{ maxWidth: '200px' }}>
-                          {(req.requested_fields || []).map(field => (
-                            <Badge 
-                              key={field} 
-                              bg="info" 
-                              pill 
-                              className="px-2 py-1 text-truncate"
-                              style={{ fontSize: '11px', maxWidth: '100px' }}
-                              title={field}
-                            >
-                              {field}
+                        <div className="d-flex align-items-center">
+                          {req.is_document_update ? (
+                            <>
+                              <FaUpload className="me-1 text-success" size={12} />
+                              <Badge bg="info" pill className="px-2 py-1">
+                                Document Upload
+                              </Badge>
+                            </>
+                          ) : (
+                            <Badge bg="secondary" pill className="px-2 py-1">
+                              Info Update
                             </Badge>
-                          ))}
+                          )}
                         </div>
                       </td>
                       <td className="d-none d-sm-table-cell">
@@ -420,62 +423,102 @@ const handleReject = async () => {
                       </h6>
                       <p className="mb-1 small"><strong>Status:</strong> {getStatusBadge(selectedRequest.status)}</p>
                       <p className="mb-1 small"><strong>Submitted:</strong> {formatDate(selectedRequest.updated_at)}</p>
-                      <p className="mb-0 small"><strong>Requested Fields:</strong></p>
-                      <div className="d-flex flex-wrap gap-1 mt-1">
-                        {(selectedRequest.requested_fields || []).map(field => (
-                          <Badge key={field} bg="info" pill className="px-2 py-1 small">
-                            {field}
-                          </Badge>
-                        ))}
-                      </div>
+                      <p className="mb-0 small"><strong>Request Type:</strong> {selectedRequest.is_document_update ? 'Document Upload' : 'Information Update'}</p>
+                      {selectedRequest.is_document_update && selectedRequest.document_types?.length > 0 && (
+                        <div className="mt-2">
+                          <small className="fw-semibold">Documents Uploaded:</small>
+                          <div className="d-flex flex-wrap gap-1 mt-1">
+                            {selectedRequest.document_types.map(doc => (
+                              <Badge key={doc} bg="success" pill className="px-2 py-1 small">
+                                {doc.replace(/_/g, ' ').toUpperCase()}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </Col>
                   </Row>
                 </Card.Body>
               </Card>
 
-              {/* Data Comparison */}
-              <Row className="g-2">
-                <Col xs={12} md={6}>
-                  <Card className="border-0 shadow-sm h-100">
-                    <Card.Header className="bg-light py-2">
-                      <h6 className="mb-0 text-primary small fw-semibold">Current Data</h6>
-                    </Card.Header>
-                    <Card.Body className="p-2 p-md-3">
-                      <pre style={{ 
-                        background: '#f8f9fa', 
-                        padding: '8px', 
-                        borderRadius: '4px',
-                        overflow: 'auto',
-                        maxHeight: '250px',
-                        fontSize: '11px',
-                        margin: 0
-                      }}>
-                        {JSON.stringify(selectedRequest.employeeDetails || {}, null, 2)}
-                      </pre>
-                    </Card.Body>
-                  </Card>
-                </Col>
-                <Col xs={12} md={6}>
-                  <Card className="border-0 shadow-sm h-100">
-                    <Card.Header className="bg-light py-2">
-                      <h6 className="mb-0 text-success small fw-semibold">Updated Data</h6>
-                    </Card.Header>
-                    <Card.Body className="p-2 p-md-3">
-                      <pre style={{ 
-                        background: '#f8f9fa', 
-                        padding: '8px', 
-                        borderRadius: '4px',
-                        overflow: 'auto',
-                        maxHeight: '250px',
-                        fontSize: '11px',
-                        margin: 0
-                      }}>
-                        {JSON.stringify(selectedRequest.employee_data || {}, null, 2)}
-                      </pre>
-                    </Card.Body>
-                  </Card>
-                </Col>
-              </Row>
+              {/* Data Comparison - Only show for info updates */}
+              {!selectedRequest.is_document_update && selectedRequest.employee_data && Object.keys(selectedRequest.employee_data).length > 0 && (
+                <Row className="g-2">
+                  <Col xs={12} md={6}>
+                    <Card className="border-0 shadow-sm h-100">
+                      <Card.Header className="bg-light py-2">
+                        <h6 className="mb-0 text-primary small fw-semibold">Current Data</h6>
+                      </Card.Header>
+                      <Card.Body className="p-2 p-md-3">
+                        <pre style={{ 
+                          background: '#f8f9fa', 
+                          padding: '8px', 
+                          borderRadius: '4px',
+                          overflow: 'auto',
+                          maxHeight: '250px',
+                          fontSize: '11px',
+                          margin: 0
+                        }}>
+                          {JSON.stringify(selectedRequest.employeeDetails || {}, null, 2)}
+                        </pre>
+                      </Card.Body>
+                    </Card>
+                  </Col>
+                  <Col xs={12} md={6}>
+                    <Card className="border-0 shadow-sm h-100">
+                      <Card.Header className="bg-light py-2">
+                        <h6 className="mb-0 text-success small fw-semibold">Updated Data</h6>
+                      </Card.Header>
+                      <Card.Body className="p-2 p-md-3">
+                        <pre style={{ 
+                          background: '#f8f9fa', 
+                          padding: '8px', 
+                          borderRadius: '4px',
+                          overflow: 'auto',
+                          maxHeight: '250px',
+                          fontSize: '11px',
+                          margin: 0
+                        }}>
+                          {JSON.stringify(selectedRequest.employee_data || {}, null, 2)}
+                        </pre>
+                      </Card.Body>
+                    </Card>
+                  </Col>
+                </Row>
+              )}
+
+              {/* Document Upload Info */}
+              {selectedRequest.is_document_update && (
+                <Card className="border-0 bg-light mt-3">
+                  <Card.Header className="bg-light py-2">
+                    <h6 className="mb-0 text-success small fw-semibold d-flex align-items-center">
+                      <FaUpload className="me-2" size={12} />
+                      Document Upload Details
+                    </h6>
+                  </Card.Header>
+                  <Card.Body className="p-2 p-md-3">
+                    <p className="mb-2 small">
+                      <strong>Documents uploaded by employee:</strong>
+                    </p>
+                    <div className="d-flex flex-wrap gap-2 mb-3">
+                      {selectedRequest.document_types?.map(doc => (
+                        <Badge key={doc} bg="info" pill className="px-3 py-2">
+                          {doc.replace(/_/g, ' ').toUpperCase()}
+                        </Badge>
+                      ))}
+                    </div>
+                    {selectedRequest.employee_data?.documents_uploaded_at && (
+                      <p className="mb-0 small text-muted">
+                        <strong>Uploaded on:</strong> {formatDate(selectedRequest.employee_data.documents_uploaded_at)}
+                      </p>
+                    )}
+                    <div className="mt-2 p-2 bg-white rounded small">
+                      <FaInfoCircle className="me-1 text-info" size={10} />
+                      <span className="text-muted">Documents have been uploaded by the employee and are ready for review.</span>
+                    </div>
+                  </Card.Body>
+                </Card>
+              )}
 
               {/* Comments Section */}
               <Form.Group className="mt-3">

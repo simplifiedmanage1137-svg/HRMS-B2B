@@ -9,7 +9,8 @@ import {
   FaTimesCircle, FaSearch, FaFilter, FaBriefcase,
   FaEnvelope, FaPhone, FaMapMarkerAlt, FaUniversity,
   FaCalendarAlt, FaClock, FaUserTie, FaFileAlt,
-  FaCreditCard, FaHeartbeat
+  FaCreditCard, FaHeartbeat, FaFilePdf, FaFileWord,
+  FaFileImage, FaUpload
 } from 'react-icons/fa';
 import axios from '../../config/axios';
 import API_ENDPOINTS from '../../config/api';
@@ -19,12 +20,14 @@ const SendUpdateRequest = () => {
   const [filteredEmployees, setFilteredEmployees] = useState([]);
   const [selectedEmployee, setSelectedEmployee] = useState('');
   const [selectedFields, setSelectedFields] = useState([]);
+  const [selectedDocuments, setSelectedDocuments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('all');
 
+  // Field options for employee information
   const fieldOptions = [
     {
       value: 'personal',
@@ -64,9 +67,10 @@ const SendUpdateRequest = () => {
     },
     {
       value: 'documents',
-      label: 'Documents',
+      label: 'Documents (Upload/Re-upload)',
       icon: <FaFileAlt className="text-success" />,
-      fields: ['aadhar_number', 'pan_number']
+      fields: ['documents'],
+      isDocument: true
     },
     {
       value: 'salary',
@@ -74,6 +78,19 @@ const SendUpdateRequest = () => {
       icon: <FaCreditCard className="text-success" />,
       fields: ['gross_salary', 'in_hand_salary']
     }
+  ];
+
+  // Document types for upload requests
+  const documentTypes = [
+    { value: 'profile_image', label: 'Profile Image', icon: <FaFileImage className="text-primary" />, accept: 'image/*' },
+    { value: 'appointment_letter', label: 'Appointment Letter', icon: <FaFileWord className="text-info" />, accept: '.pdf,.doc,.docx' },
+    { value: 'offer_letter', label: 'Offer Letter', icon: <FaFilePdf className="text-danger" />, accept: '.pdf,.doc,.docx' },
+    { value: 'contract_document', label: 'Contract Document', icon: <FaFileAlt className="text-secondary" />, accept: '.pdf,.doc,.docx' },
+    { value: 'aadhar_card', label: 'Aadhar Card', icon: <FaFileImage className="text-primary" />, accept: 'image/*,.pdf' },
+    { value: 'pan_card', label: 'PAN Card', icon: <FaFileImage className="text-warning" />, accept: 'image/*,.pdf' },
+    { value: 'bank_proof', label: 'Bank Proof', icon: <FaFileAlt className="text-info" />, accept: '.pdf,.jpg,.png' },
+    { value: 'education_certificates', label: 'Education Certificates', icon: <FaFileAlt className="text-success" />, accept: '.pdf,.doc,.docx' },
+    { value: 'experience_certificates', label: 'Experience Certificates', icon: <FaFileAlt className="text-secondary" />, accept: '.pdf,.doc,.docx' }
   ];
 
   useEffect(() => {
@@ -160,11 +177,25 @@ const SendUpdateRequest = () => {
         ? prev.filter(f => f !== field)
         : [...prev, field]
     );
+    
+    // If unselecting documents, clear selected documents
+    if (field === 'documents' && selectedFields.includes('documents')) {
+      setSelectedDocuments([]);
+    }
+  };
+
+  const handleDocumentChange = (docType) => {
+    setSelectedDocuments(prev =>
+      prev.includes(docType)
+        ? prev.filter(d => d !== docType)
+        : [...prev, docType]
+    );
   };
 
   const handleSelectAll = () => {
     if (selectedFields.length === fieldOptions.length) {
       setSelectedFields([]);
+      setSelectedDocuments([]);
     } else {
       setSelectedFields(fieldOptions.map(f => f.value));
     }
@@ -189,6 +220,16 @@ const SendUpdateRequest = () => {
       return;
     }
 
+    // Validate document selection
+    const isDocumentSelected = selectedFields.includes('documents');
+    if (isDocumentSelected && selectedDocuments.length === 0) {
+      setMessage({
+        type: 'danger',
+        text: 'Please select at least one document type to request'
+      });
+      return;
+    }
+
     setLoading(true);
     setMessage({ type: '', text: '' });
 
@@ -197,29 +238,39 @@ const SendUpdateRequest = () => {
       const fieldsToUpdate = [];
       selectedFields.forEach(category => {
         const categoryObj = fieldOptions.find(f => f.value === category);
-        if (categoryObj) {
+        if (categoryObj && !categoryObj.isDocument) {
           fieldsToUpdate.push(...categoryObj.fields);
         }
       });
 
-      const response = await axios.post(API_ENDPOINTS.ADMIN_UPDATES_SEND_REQUEST, {
+      const requestData = {
         employee_id: selectedEmployee,
-        requested_fields: selectedFields,      // Store categories
-        requested_field_names: fieldsToUpdate,  // Store actual field names
+        requested_fields: selectedFields,
+        requested_field_names: fieldsToUpdate,
         notes: `Please update your ${selectedFields.map(f => {
           const fieldObj = fieldOptions.find(opt => opt.value === f);
           return fieldObj?.label || f;
         }).join(', ')} information.`
-      });
+      };
+
+      // Add document types if documents field is selected
+      if (isDocumentSelected) {
+        requestData.document_types = selectedDocuments;
+      }
+
+      console.log('📤 Sending request data:', requestData);
+
+      const response = await axios.post(API_ENDPOINTS.ADMIN_UPDATES_SEND_REQUEST, requestData);
 
       setMessage({
         type: 'success',
-        text: 'Update request sent successfully!'
+        text: `Update request sent successfully! ${isDocumentSelected ? `Document upload requested for: ${selectedDocuments.map(d => documentTypes.find(doc => doc.value === d)?.label).join(', ')}` : ''}`
       });
 
       // Reset form
       setSelectedEmployee('');
       setSelectedFields([]);
+      setSelectedDocuments([]);
       setSearchTerm('');
       setDepartmentFilter('all');
 
@@ -245,7 +296,7 @@ const SendUpdateRequest = () => {
   };
 
   return (
-    <div className="p-2 p-md-3 p-lg-4">
+    <div className="p-2 p-md-3 p-lg-4" style={{ backgroundColor: '#f8f9fc', minHeight: '100vh' }}>
       {/* Header - Responsive */}
       <div className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center mb-4 gap-3">
         <h5 className="mb-0 d-flex align-items-center">
@@ -257,7 +308,7 @@ const SendUpdateRequest = () => {
         </Badge>
       </div>
 
-      {/* Message Alert - Responsive */}
+      {/* Message Alert */}
       {message.text && (
         <Alert
           variant={message.type}
@@ -344,7 +395,7 @@ const SendUpdateRequest = () => {
                 ))}
               </Form.Select>
 
-              {/* Filter Info - Responsive */}
+              {/* Filter Info */}
               {(searchTerm || departmentFilter !== 'all') && (
                 <div className="mt-2 d-flex flex-wrap align-items-center gap-2">
                   <small className="text-muted">Active filters:</small>
@@ -416,14 +467,54 @@ const SendUpdateRequest = () => {
               </Row>
             </Form.Group>
 
-            {/* Selected Fields Summary - Responsive */}
+            {/* Document Types Selection - Show only when Documents is selected */}
+            {selectedFields.includes('documents') && (
+              <Form.Group className="mb-4">
+                <div className="d-flex align-items-center mb-2">
+                  <FaUpload className="me-2 text-success" size={14} />
+                  <Form.Label className="fw-semibold small mb-0">
+                    Select Documents to Request <span className="text-danger">*</span>
+                  </Form.Label>
+                </div>
+                <div className="bg-light p-2 p-md-3 rounded" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                  <Row className="g-2">
+                    {documentTypes.map(doc => (
+                      <Col xs={12} sm={6} md={4} key={doc.value} className="mb-2">
+                        <Form.Check
+                          type="checkbox"
+                          id={doc.value}
+                          checked={selectedDocuments.includes(doc.value)}
+                          onChange={() => handleDocumentChange(doc.value)}
+                          label={
+                            <span className="d-flex align-items-center">
+                              <span className="me-2 flex-shrink-0">{doc.icon}</span>
+                              <span className="small text-truncate" style={{ maxWidth: '130px' }} title={doc.label}>
+                                {doc.label}
+                              </span>
+                            </span>
+                          }
+                        />
+                      </Col>
+                    ))}
+                  </Row>
+                  <div className="mt-2 p-2 bg-white rounded small text-muted">
+                    <FaInfoCircle className="me-1" size={12} />
+                    <strong>Note:</strong> Employee will be able to upload/re-upload these documents when they accept the request.
+                    <br />
+                    <small>Supported formats: PDF, DOC, DOCX, JPG, JPEG, PNG (Max 10MB per file)</small>
+                  </div>
+                </div>
+              </Form.Group>
+            )}
+
+            {/* Selected Fields Summary */}
             {selectedFields.length > 0 && (
               <div className="mb-4 p-2 p-md-3 bg-light rounded">
                 <div className="d-flex align-items-center mb-2">
                   <FaCheckCircle className="text-success me-2 flex-shrink-0" size={14} />
                   <small className="fw-semibold">Selected fields to update:</small>
                 </div>
-                <div className="d-flex flex-wrap gap-2">
+                <div className="d-flex flex-wrap gap-2 mb-2">
                   {selectedFields.map(field => {
                     const fieldObj = fieldOptions.find(f => f.value === field);
                     return (
@@ -438,10 +529,37 @@ const SendUpdateRequest = () => {
                     );
                   })}
                 </div>
+                
+                {/* Document Types Summary */}
+                {selectedFields.includes('documents') && selectedDocuments.length > 0 && (
+                  <>
+                    <div className="d-flex align-items-center mt-2">
+                      <FaUpload className="text-success me-2 flex-shrink-0" size={12} />
+                      <small className="fw-semibold">Documents to upload:</small>
+                    </div>
+                    <div className="d-flex flex-wrap gap-2 mt-1">
+                      {selectedDocuments.map(doc => {
+                        const docObj = documentTypes.find(d => d.value === doc);
+                        return (
+                          <Badge
+                            key={doc}
+                            bg="success"
+                            className="px-2 px-md-3 py-1 py-md-2 d-flex align-items-center"
+                          >
+                            <span className="me-1">{docObj?.icon}</span>
+                            <span className="small">{docObj?.label}</span>
+                          </Badge>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+                
                 <small className="text-muted d-block mt-2 small">
                   Total fields to update: {
                     selectedFields.reduce((total, field) => {
                       const fieldObj = fieldOptions.find(f => f.value === field);
+                      if (fieldObj?.isDocument) return total + selectedDocuments.length;
                       return total + (fieldObj?.fields.length || 0);
                     }, 0)
                   }
@@ -449,7 +567,7 @@ const SendUpdateRequest = () => {
               </div>
             )}
 
-            {/* Submit Button - Responsive */}
+            {/* Submit Button */}
             <div className="text-center text-md-end">
               <Button
                 type="submit"
@@ -475,7 +593,7 @@ const SendUpdateRequest = () => {
         </Card.Body>
       </Card>
 
-      {/* Info Card - Responsive */}
+      {/* Info Card */}
       <Card className="border-0 shadow-sm mt-4 bg-light">
         <Card.Body className="p-2 p-md-3">
           <div className="d-flex align-items-start gap-2">
@@ -483,13 +601,16 @@ const SendUpdateRequest = () => {
             <div>
               <h6 className="mb-2 small fw-bold">About Update Requests</h6>
               <p className="small text-muted mb-1">
-                • Sending an update request will notify the employee to review and update their information.
+                • <strong>Information Update:</strong> Sends a request for employee to update their information fields.
               </p>
               <p className="small text-muted mb-1">
-                • Employees can accept or reject the request from their dashboard.
+                • <strong>Document Upload:</strong> Sends a request for employee to upload or re-upload specific documents.
               </p>
               <p className="small text-muted mb-1">
-                • Once approved by the employee, you can review and approve the changes.
+                • Employees can accept the request and update their information or upload documents.
+              </p>
+              <p className="small text-muted mb-1">
+                • Once submitted by employee, you can review and approve/reject the changes in "Update Approvals".
               </p>
               <p className="small text-muted mb-0">
                 • Track all pending requests in the "Update Approvals" section.

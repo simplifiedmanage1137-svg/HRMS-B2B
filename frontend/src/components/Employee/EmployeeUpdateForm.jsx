@@ -5,7 +5,8 @@ import { Form, Button, Card, Alert, Spinner, Row, Col } from 'react-bootstrap';
 import axios from '../../config/axios';
 import API_ENDPOINTS from '../../config/api';
 import { useAuth } from '../../context/AuthContext';
-import { FaSave, FaArrowLeft } from 'react-icons/fa';
+import EmployeeDocumentUpload from './EmployeeDocumentUpload';
+import { FaSave, FaArrowLeft, FaUpload } from 'react-icons/fa';
 
 const EmployeeUpdateForm = () => {
   const { requestId } = useParams();
@@ -14,12 +15,13 @@ const EmployeeUpdateForm = () => {
   
   const [formData, setFormData] = useState({});
   const [requestDetails, setRequestDetails] = useState(null);
+  const [existingDocuments, setExistingDocuments] = useState({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState('info'); // 'info' or 'documents'
 
-  // Field to icon mapping
   const fieldIcons = {
     personal: { icon: '👤', label: 'Personal Information' },
     contact: { icon: '📞', label: 'Contact Details' },
@@ -31,7 +33,6 @@ const EmployeeUpdateForm = () => {
     salary: { icon: '💰', label: 'Salary Information' }
   };
 
-  // Field groups mapping
   const fieldGroups = {
     personal: [
       { name: 'first_name', label: 'First Name', type: 'text', required: true },
@@ -67,10 +68,6 @@ const EmployeeUpdateForm = () => {
     emergency: [
       { name: 'emergency_contact', label: 'Emergency Contact Number', type: 'tel' }
     ],
-    documents: [
-      { name: 'aadhar_number', label: 'Aadhar Number', type: 'text' },
-      { name: 'pan_number', label: 'PAN Number', type: 'text' }
-    ],
     salary: [
       { name: 'gross_salary', label: 'Gross Salary', type: 'number' },
       { name: 'in_hand_salary', label: 'In-hand Salary', type: 'number' }
@@ -81,6 +78,7 @@ const EmployeeUpdateForm = () => {
     if (requestId) {
       fetchRequestDetails();
       fetchCurrentData();
+      fetchExistingDocuments();
     }
   }, [requestId]);
 
@@ -96,9 +94,7 @@ const EmployeeUpdateForm = () => {
   const fetchCurrentData = async () => {
     try {
       setLoading(true);
-      console.log('📡 Fetching current employee data...');
       const response = await axios.get(API_ENDPOINTS.EMPLOYEE_UPDATES_CURRENT_DATA);
-      console.log('✅ Current data:', response.data);
       setFormData(response.data);
     } catch (error) {
       console.error('❌ Error fetching data:', error);
@@ -108,30 +104,38 @@ const EmployeeUpdateForm = () => {
     }
   };
 
+  const fetchExistingDocuments = async () => {
+    try {
+      const response = await axios.get(API_ENDPOINTS.EMPLOYEE_DOCUMENTS(user.employeeId));
+      setExistingDocuments(response.data);
+    } catch (error) {
+      console.error('Error fetching existing documents:', error);
+    }
+  };
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = async (e) => {
+  const handleInfoSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
     setMessage('');
     setError('');
     
     try {
-      console.log('📤 Submitting update for request:', requestId);
-      
-      // Only send the fields that were requested
       const updatedData = {};
       if (requestDetails?.requested_fields) {
         requestDetails.requested_fields.forEach(category => {
-          const fields = fieldGroups[category] || [];
-          fields.forEach(field => {
-            if (formData[field.name] !== undefined) {
-              updatedData[field.name] = formData[field.name];
-            }
-          });
+          if (category !== 'documents') {
+            const fields = fieldGroups[category] || [];
+            fields.forEach(field => {
+              if (formData[field.name] !== undefined) {
+                updatedData[field.name] = formData[field.name];
+              }
+            });
+          }
         });
       }
 
@@ -140,9 +144,7 @@ const EmployeeUpdateForm = () => {
         updatedData
       });
       
-      console.log('✅ Update submitted successfully:', response.data);
       setMessage('Update submitted for admin approval!');
-      
       setTimeout(() => navigate('/employee/update-requests'), 2000);
     } catch (error) {
       console.error('❌ Error submitting:', error);
@@ -152,54 +154,14 @@ const EmployeeUpdateForm = () => {
     }
   };
 
-  const renderField = (field) => {
-    const value = formData[field.name] || '';
-    
-    switch (field.type) {
-      case 'textarea':
-        return (
-          <Form.Control
-            as="textarea"
-            rows={3}
-            name={field.name}
-            value={value}
-            onChange={handleChange}
-            placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
-            required={field.required}
-            size="sm"
-          />
-        );
-      
-      case 'select':
-        return (
-          <Form.Select
-            name={field.name}
-            value={value}
-            onChange={handleChange}
-            required={field.required}
-            size="sm"
-          >
-            <option value="">Select {field.label}</option>
-            {field.options?.map(opt => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </Form.Select>
-        );
-      
-      default:
-        return (
-          <Form.Control
-            type={field.type}
-            name={field.name}
-            value={value}
-            onChange={handleChange}
-            placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
-            required={field.required}
-            size="sm"
-          />
-        );
-    }
+  const handleDocumentComplete = () => {
+    setMessage('Documents uploaded successfully! Waiting for admin approval.');
+    setTimeout(() => navigate('/employee/update-requests'), 2000);
   };
+
+  const isDocumentRequest = requestDetails?.is_document_update || false;
+  const documentTypes = requestDetails?.document_types || [];
+  const hasInfoFields = requestDetails?.requested_fields?.filter(f => f !== 'documents')?.length > 0;
 
   if (loading) {
     return (
@@ -242,32 +204,97 @@ const EmployeeUpdateForm = () => {
             </Alert>
           )}
           
-          {requestDetails?.requested_fields?.length > 0 ? (
-            <Form onSubmit={handleSubmit}>
-              {requestDetails.requested_fields.map(category => (
-                <Card key={category} className="mb-4 border-0 bg-light">
-                  <Card.Header className="bg-white py-2">
-                    <h6 className="mb-0 small">
-                      {fieldIcons[category]?.icon} {fieldIcons[category]?.label || category}
-                    </h6>
-                  </Card.Header>
-                  <Card.Body className="p-2 p-md-3">
-                    <Row className="g-2">
-                      {fieldGroups[category]?.map(field => (
-                        <Col key={field.name} xs={12} md={6} className="mb-2">
-                          <Form.Group>
-                            <Form.Label className="small fw-semibold">
-                              {field.label}
-                              {field.required && <span className="text-danger ms-1">*</span>}
-                            </Form.Label>
-                            {renderField(field)}
-                          </Form.Group>
-                        </Col>
-                      ))}
-                    </Row>
-                  </Card.Body>
-                </Card>
-              ))}
+          {/* Tab Navigation */}
+          {(hasInfoFields || !isDocumentRequest) && isDocumentRequest && (
+            <div className="d-flex border-bottom mb-4">
+              {hasInfoFields && (
+                <Button
+                  variant={activeTab === 'info' ? 'primary' : 'light'}
+                  size="sm"
+                  onClick={() => setActiveTab('info')}
+                  className="me-2 rounded-0 border-0"
+                >
+                  Information Update
+                </Button>
+              )}
+              {isDocumentRequest && documentTypes.length > 0 && (
+                <Button
+                  variant={activeTab === 'documents' ? 'primary' : 'light'}
+                  size="sm"
+                  onClick={() => setActiveTab('documents')}
+                  className="rounded-0 border-0"
+                >
+                  <FaUpload className="me-1" size={12} />
+                  Document Upload ({documentTypes.length})
+                </Button>
+              )}
+            </div>
+          )}
+
+          {/* Information Update Tab */}
+          {activeTab === 'info' && hasInfoFields && (
+            <Form onSubmit={handleInfoSubmit}>
+              {requestDetails.requested_fields.map(category => {
+                if (category === 'documents') return null;
+                return (
+                  <Card key={category} className="mb-4 border-0 bg-light">
+                    <Card.Header className="bg-white py-2">
+                      <h6 className="mb-0 small">
+                        {fieldIcons[category]?.icon} {fieldIcons[category]?.label || category}
+                      </h6>
+                    </Card.Header>
+                    <Card.Body className="p-2 p-md-3">
+                      <Row className="g-2">
+                        {fieldGroups[category]?.map(field => (
+                          <Col key={field.name} xs={12} md={6} className="mb-2">
+                            <Form.Group>
+                              <Form.Label className="small fw-semibold">
+                                {field.label}
+                                {field.required && <span className="text-danger ms-1">*</span>}
+                              </Form.Label>
+                              {field.type === 'select' ? (
+                                <Form.Select
+                                  name={field.name}
+                                  value={formData[field.name] || ''}
+                                  onChange={handleChange}
+                                  required={field.required}
+                                  size="sm"
+                                >
+                                  <option value="">Select {field.label}</option>
+                                  {field.options?.map(opt => (
+                                    <option key={opt} value={opt}>{opt}</option>
+                                  ))}
+                                </Form.Select>
+                              ) : field.type === 'textarea' ? (
+                                <Form.Control
+                                  as="textarea"
+                                  rows={3}
+                                  name={field.name}
+                                  value={formData[field.name] || ''}
+                                  onChange={handleChange}
+                                  placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
+                                  required={field.required}
+                                  size="sm"
+                                />
+                              ) : (
+                                <Form.Control
+                                  type={field.type}
+                                  name={field.name}
+                                  value={formData[field.name] || ''}
+                                  onChange={handleChange}
+                                  placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
+                                  required={field.required}
+                                  size="sm"
+                                />
+                              )}
+                            </Form.Group>
+                          </Col>
+                        ))}
+                      </Row>
+                    </Card.Body>
+                  </Card>
+                );
+              })}
 
               <div className="d-flex flex-column flex-sm-row justify-content-end gap-2 mt-4">
                 <Button 
@@ -299,10 +326,26 @@ const EmployeeUpdateForm = () => {
                 </Button>
               </div>
             </Form>
-          ) : (
-            <Alert variant="warning" className="py-2 small">
-              No fields specified for update. Please contact admin.
-            </Alert>
+          )}
+
+          {/* Document Upload Tab */}
+          {activeTab === 'documents' && isDocumentRequest && documentTypes.length > 0 && (
+            <EmployeeDocumentUpload
+              requestId={requestId}
+              documentTypes={documentTypes}
+              existingDocuments={existingDocuments}
+              onComplete={handleDocumentComplete}
+            />
+          )}
+
+          {/* If only document request */}
+          {isDocumentRequest && !hasInfoFields && (
+            <EmployeeDocumentUpload
+              requestId={requestId}
+              documentTypes={documentTypes}
+              existingDocuments={existingDocuments}
+              onComplete={handleDocumentComplete}
+            />
           )}
         </Card.Body>
       </Card>

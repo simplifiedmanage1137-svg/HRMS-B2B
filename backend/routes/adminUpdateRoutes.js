@@ -1,3 +1,4 @@
+// routes/adminUpdateRoutes.js
 const express = require('express');
 const router = express.Router();
 const supabase = require('../config/supabase');
@@ -30,7 +31,7 @@ router.get('/pending-count', verifyToken, isAdmin, async (req, res) => {
         const { count, error } = await supabase
             .from('update_requests')
             .select('*', { count: 'exact', head: true })
-            .eq('status', 'completed'); // ✅ Completed by employee, waiting for admin
+            .eq('status', 'completed');
 
         if (error) throw error;
 
@@ -41,7 +42,6 @@ router.get('/pending-count', verifyToken, isAdmin, async (req, res) => {
         res.json({ count: 0 });
     }
 });
-
 
 // Get all pending requests
 router.get('/pending-requests', verifyToken, isAdmin, async (req, res) => {
@@ -77,16 +77,20 @@ router.get('/pending-requests', verifyToken, isAdmin, async (req, res) => {
     }
 });
 
-// Send update request to employee
+// Send update request to employee - UPDATED with document support
 router.post('/send-request', verifyToken, isAdmin, async (req, res) => {
     try {
-        const { employee_id, requested_fields, notes } = req.body;
+        const { employee_id, requested_fields, notes, document_types } = req.body;
 
         console.log('='.repeat(50));
         console.log('📝 SENDING UPDATE REQUEST');
         console.log('Employee ID:', employee_id);
         console.log('Requested fields:', requested_fields);
+        console.log('Document types:', document_types);
         console.log('='.repeat(50));
+
+        // Check if this is a document update request
+        const isDocumentUpdate = requested_fields.includes('documents') && document_types && document_types.length > 0;
 
         const insertData = {
             employee_id,
@@ -94,6 +98,8 @@ router.post('/send-request', verifyToken, isAdmin, async (req, res) => {
             requested_fields: requested_fields || [],
             notes: notes || null,
             status: 'pending',
+            is_document_update: isDocumentUpdate,
+            document_types: document_types || [],
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
         };
@@ -106,12 +112,18 @@ router.post('/send-request', verifyToken, isAdmin, async (req, res) => {
         if (error) throw error;
 
         // Create notification for employee
+        let notificationMessage = `Admin has requested you to update your ${requested_fields.join(', ')} information.`;
+        
+        if (isDocumentUpdate) {
+            notificationMessage = `Admin has requested you to upload the following documents: ${document_types.join(', ')}.`;
+        }
+
         await supabase
             .from('notifications')
             .insert([{
                 employee_id: employee_id,
                 title: 'Information Update Request',
-                message: `Admin has requested you to update your ${requested_fields.join(', ')} information.`,
+                message: notificationMessage,
                 type: 'update_request',
                 reference_id: data[0].id,
                 is_read: false,
@@ -121,7 +133,8 @@ router.post('/send-request', verifyToken, isAdmin, async (req, res) => {
         res.status(201).json({
             success: true,
             message: 'Update request sent successfully',
-            request_id: data[0].id
+            request_id: data[0].id,
+            is_document_update: isDocumentUpdate
         });
 
     } catch (error) {
@@ -134,8 +147,7 @@ router.post('/send-request', verifyToken, isAdmin, async (req, res) => {
     }
 });
 
-// routes/adminUpdateRoutes.js - Fixed completed-requests endpoint
-
+// Get completed requests
 router.get('/completed-requests', verifyToken, isAdmin, async (req, res) => {
     try {
         console.log('='.repeat(50));
@@ -143,7 +155,6 @@ router.get('/completed-requests', verifyToken, isAdmin, async (req, res) => {
         console.log('Admin ID:', req.userId);
         console.log('='.repeat(50));
 
-        // First, get all completed requests without join to avoid errors
         const { data: requests, error } = await supabase
             .from('update_requests')
             .select('*')
@@ -165,12 +176,10 @@ router.get('/completed-requests', verifyToken, isAdmin, async (req, res) => {
             return res.json([]);
         }
 
-        // Now get employee details for each request
         const formattedRequests = [];
 
         for (const req of requests) {
             try {
-                // Fetch employee details
                 const { data: employee, error: empError } = await supabase
                     .from('employees')
                     .select('first_name, last_name, email, department, designation')
@@ -190,6 +199,8 @@ router.get('/completed-requests', verifyToken, isAdmin, async (req, res) => {
                     notes: req.notes,
                     created_at: req.created_at,
                     updated_at: req.updated_at,
+                    is_document_update: req.is_document_update || false,
+                    document_types: req.document_types || [],
                     employee_name: employee ? `${employee.first_name || ''} ${employee.last_name || ''}`.trim() : 'Unknown',
                     employee_email: employee?.email,
                     employee_department: employee?.department,
@@ -198,7 +209,6 @@ router.get('/completed-requests', verifyToken, isAdmin, async (req, res) => {
 
             } catch (empErr) {
                 console.error(`❌ Error processing request ${req.id}:`, empErr);
-                // Still add the request without employee details
                 formattedRequests.push({
                     id: req.id,
                     employee_id: req.employee_id,
@@ -208,6 +218,8 @@ router.get('/completed-requests', verifyToken, isAdmin, async (req, res) => {
                     notes: req.notes,
                     created_at: req.created_at,
                     updated_at: req.updated_at,
+                    is_document_update: req.is_document_update || false,
+                    document_types: req.document_types || [],
                     employee_name: 'Unknown',
                     employee_email: null,
                     employee_department: null,
@@ -229,13 +241,11 @@ router.get('/completed-requests', verifyToken, isAdmin, async (req, res) => {
     }
 });
 
-// routes/adminUpdateRoutes.js - Ultra simplified version
-
-// routes/adminUpdateRoutes.js - Updated handle-request without admin_comments
+// routes/adminUpdateRoutes.js - Updated handle-request endpoint
 
 router.post('/handle-request', verifyToken, isAdmin, async (req, res) => {
     try {
-        const { request_id, action } = req.body; // Remove comments from destructuring
+        const { request_id, action } = req.body;
 
         console.log('='.repeat(50));
         console.log('📝 HANDLE REQUEST');
@@ -243,7 +253,6 @@ router.post('/handle-request', verifyToken, isAdmin, async (req, res) => {
         console.log('Action:', action);
         console.log('='.repeat(50));
 
-        // Validate input
         if (!request_id) {
             return res.status(400).json({
                 success: false,
@@ -266,15 +275,23 @@ router.post('/handle-request', verifyToken, isAdmin, async (req, res) => {
             .single();
 
         if (fetchError || !request) {
+            console.error('Request not found:', fetchError);
             return res.status(404).json({
                 success: false,
                 message: 'Request not found'
             });
         }
 
-        console.log('✅ Found request:', request);
+        console.log('✅ Found request:', {
+            id: request.id,
+            employee_id: request.employee_id,
+            status: request.status,
+            is_document_update: request.is_document_update,
+            document_types: request.document_types,
+            has_employee_data: !!request.employee_data
+        });
 
-        // Check if request is in completed status
+        // Check if request is in completed state
         if (request.status !== 'completed') {
             return res.status(400).json({
                 success: false,
@@ -284,8 +301,8 @@ router.post('/handle-request', verifyToken, isAdmin, async (req, res) => {
 
         const newStatus = action === 'approve' ? 'approved' : 'rejected';
 
-        // If approved, update employee data
-        if (action === 'approve' && request.employee_data) {
+        // If approved and there's employee data, update employee record
+        if (action === 'approve' && request.employee_data && Object.keys(request.employee_data).length > 0) {
             try {
                 console.log('📝 Updating employee data for:', request.employee_id);
                 console.log('Employee data:', request.employee_data);
@@ -297,27 +314,54 @@ router.post('/handle-request', verifyToken, isAdmin, async (req, res) => {
 
                 if (empUpdateError) {
                     console.error('❌ Error updating employee:', empUpdateError);
-                    throw empUpdateError;
+                    // Don't throw, just log - we still want to mark request as approved
+                } else {
+                    console.log('✅ Employee data updated successfully');
                 }
-                console.log('✅ Employee data updated successfully');
             } catch (empError) {
                 console.error('❌ Employee update failed:', empError);
-                return res.status(500).json({
-                    success: false,
-                    message: 'Failed to update employee data',
-                    error: empError.message
-                });
+                // Continue with request approval even if employee update fails
             }
         }
 
-        // Update request status WITHOUT admin_comments
+        // For document-only requests, no employee data update needed
+        if (action === 'approve' && request.is_document_update) {
+            console.log('📝 Document-only request - no employee data to update');
+            
+            // Optionally update a flag in employees table that documents were updated
+            try {
+                const { error: docUpdateError } = await supabase
+                    .from('employees')
+                    .update({ 
+                        documents_updated_at: new Date().toISOString(),
+                        last_document_update: request.document_types 
+                    })
+                    .eq('employee_id', request.employee_id);
+                    
+                if (docUpdateError) {
+                    console.error('⚠️ Error updating document timestamp:', docUpdateError);
+                }
+            } catch (docErr) {
+                console.error('⚠️ Document update error:', docErr);
+            }
+        }
+
+        // Update request status
+        const updateData = {
+            status: newStatus,
+            updated_at: new Date().toISOString()
+        };
+        
+        // Add reviewed_by if available
+        if (req.employeeId) {
+            updateData.reviewed_by = req.employeeId;
+        }
+
+        console.log('📝 Updating request with:', updateData);
+
         const { error: updateError } = await supabase
             .from('update_requests')
-            .update({
-                status: newStatus,
-                updated_at: new Date().toISOString()
-                // ❌ Remove admin_comments from here
-            })
+            .update(updateData)
             .eq('id', request_id);
 
         if (updateError) {
@@ -325,37 +369,52 @@ router.post('/handle-request', verifyToken, isAdmin, async (req, res) => {
             throw updateError;
         }
 
-        console.log(`✅ Request ${action}ed successfully`);
+        console.log(`✅ Request ${action}ed successfully, new status: ${newStatus}`);
 
         // Create notification for employee
-        try {
-            const notificationMessage = action === 'approve'
-                ? 'Your information update request has been approved by admin.'
-                : `Your information update request has been rejected by admin.`;
+        let notificationMessage = '';
+        let notificationTitle = '';
+        
+        if (action === 'approve') {
+            if (request.is_document_update) {
+                notificationTitle = 'Documents Approved';
+                notificationMessage = `Your uploaded documents (${request.document_types?.map(d => d.replace(/_/g, ' ').toUpperCase()).join(', ')}) have been approved by admin.`;
+            } else {
+                notificationTitle = 'Update Request Approved';
+                notificationMessage = 'Your information update request has been approved by admin.';
+            }
+        } else {
+            if (request.is_document_update) {
+                notificationTitle = 'Documents Rejected';
+                notificationMessage = `Your uploaded documents have been rejected by admin. Please upload again if needed.`;
+            } else {
+                notificationTitle = 'Update Request Rejected';
+                notificationMessage = `Your information update request has been rejected by admin.`;
+            }
+        }
 
-            const { error: notifError } = await supabase
+        try {
+            await supabase
                 .from('notifications')
                 .insert([{
                     employee_id: request.employee_id,
-                    title: `Update Request ${action === 'approve' ? 'Approved' : 'Rejected'}`,
+                    title: notificationTitle,
                     message: notificationMessage,
                     type: `update_${action === 'approve' ? 'approved' : 'rejected'}`,
                     reference_id: request_id,
-                    created_at: new Date().toISOString()
+                    created_at: new Date().toISOString(),
+                    read: false
                 }]);
-
-            if (notifError) {
-                console.error('⚠️ Error creating notification:', notifError);
-            } else {
-                console.log('✅ Notification created for employee');
-            }
+            console.log('✅ Notification created for employee');
         } catch (notifError) {
-            console.error('⚠️ Notification error:', notifError);
+            console.error('⚠️ Error creating notification:', notifError);
         }
 
         res.json({
             success: true,
-            message: `Request ${action === 'approve' ? 'approved' : 'rejected'} successfully`
+            message: `Request ${action === 'approve' ? 'approved' : 'rejected'} successfully`,
+            status: newStatus,
+            is_document_update: request.is_document_update
         });
 
     } catch (error) {
@@ -370,12 +429,11 @@ router.post('/handle-request', verifyToken, isAdmin, async (req, res) => {
     }
 });
 
-// ✅ NEW: Mark all notifications as read for admin
+// Mark all notifications as read for admin
 router.post('/mark-notifications-read', verifyToken, isAdmin, async (req, res) => {
     try {
         console.log('📋 Marking all notifications as read for admin:', req.userId);
 
-        // Update all admin notifications for this admin
         const { error } = await supabase
             .from('admin_notifications')
             .update({ is_read: true })
