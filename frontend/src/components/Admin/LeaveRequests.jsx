@@ -81,7 +81,7 @@ const LeaveRequests = () => {
   const fetchLeaveRequests = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(API_ENDPOINTS.LEAVES);
+      const response = await axios.get(`${API_ENDPOINTS.LEAVES}?all=true`);
       console.log('Leave requests fetched:', response.data);
       setLeaveRequests(response.data);
       setFilteredRequests(response.data);

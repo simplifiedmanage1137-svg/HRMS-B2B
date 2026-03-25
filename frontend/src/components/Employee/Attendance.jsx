@@ -459,47 +459,70 @@ const Attendance = () => {
     }
   };
 
-  // Add this function to check and recover active session
+  // In Attendance.jsx - Updated recoverActiveSession
   const recoverActiveSession = async () => {
     try {
-      console.log('🔍 Checking for active session...');
+      console.log('🔍 Attempting to recover active session...');
 
-      // First check if there's an active session in local storage
+      // First check local storage
       const storedSession = loadSessionFromStorage();
-      if (storedSession) {
-        console.log('✅ Found stored session:', storedSession);
+      if (storedSession && storedSession.session_id) {
+        console.log('✅ Found valid stored session:', storedSession);
         setActiveSession(storedSession);
-        return;
+        return true;
       }
 
-      // If no stored session, check with server
+      // Check with server for active session
       const response = await axios.get(API_ENDPOINTS.ATTENDANCE_TODAY(user.employeeId));
       const serverSession = response.data.active_session;
+      const todayAttendance = response.data.attendance;
 
-      if (serverSession) {
+      console.log('📡 Server response:', { serverSession, todayAttendance });
+
+      if (serverSession && serverSession.session_id) {
         console.log('✅ Found active session on server:', serverSession);
         setActiveSession(serverSession);
         saveSessionToStorage(serverSession);
         setHasClockedOutToday(false);
-      } else {
-        // Check if today's attendance has clock_in but no clock_out
-        const todayAttendance = response.data.attendance;
-        if (todayAttendance && todayAttendance.clock_in && !todayAttendance.clock_out) {
-          console.log('⚠️ Found attendance with clock_in but no clock_out, creating session...');
+        return true;
+      }
 
-          // Create a session for this attendance
-          const newSession = {
-            session_id: todayAttendance.session_id || 'recovered-' + Date.now(),
+      // Check if today's attendance has clock_in but no clock_out
+      if (todayAttendance && todayAttendance.clock_in && !todayAttendance.clock_out) {
+        console.log('⚠️ Found attendance with clock_in but no clock_out');
+        console.log('Attendance record:', todayAttendance);
+
+        // Check if there's a session_id in the attendance record
+        if (todayAttendance.session_id) {
+          console.log('✅ Found session_id in attendance record:', todayAttendance.session_id);
+          const recoveredSession = {
+            session_id: todayAttendance.session_id,
             clock_in_time: todayAttendance.clock_in
           };
-
-          setActiveSession(newSession);
-          saveSessionToStorage(newSession);
+          setActiveSession(recoveredSession);
+          saveSessionToStorage(recoveredSession);
           setHasClockedOutToday(false);
+          return true;
         }
+
+        // Create a new session using attendance ID as session_id
+        console.log('⚠️ Creating new session from attendance record');
+        const newSession = {
+          session_id: `recovered-${todayAttendance.id}-${Date.now()}`,
+          clock_in_time: todayAttendance.clock_in
+        };
+        setActiveSession(newSession);
+        saveSessionToStorage(newSession);
+        setHasClockedOutToday(false);
+        return true;
       }
+
+      console.log('ℹ️ No active session found to recover');
+      return false;
+
     } catch (error) {
       console.error('Error recovering session:', error);
+      return false;
     }
   };
 
@@ -945,20 +968,55 @@ const Attendance = () => {
     }
   };
 
-  // Handle clock out
+  // In Attendance.jsx - Updated handleClockOut
   const handleClockOut = async () => {
     setLoading(true);
-    try {
-      const sessionToUse = activeSession || loadSessionFromStorage();
-      if (!sessionToUse) throw new Error('No active session found');
 
-      const response = await axios.post(API_ENDPOINTS.ATTENDANCE_CLOCK_OUT, {
+    // Debug session state before attempting clock-out
+    console.log('🔍 Clock-out attempt - Session state:');
+    console.log('  activeSession:', activeSession);
+    console.log('  stored session:', loadSessionFromStorage());
+    console.log('  hasClockedOutToday:', hasClockedOutToday);
+
+    try {
+      let sessionToUse = activeSession || loadSessionFromStorage();
+
+      // If no session found, try to recover
+      if (!sessionToUse) {
+        console.log('⚠️ No session found, attempting recovery...');
+        await recoverActiveSession();
+        sessionToUse = loadSessionFromStorage();
+
+        if (!sessionToUse) {
+          setMessage({ type: 'warning', text: 'No active session found. Please clock in first.' });
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Verify session has required fields
+      if (!sessionToUse.session_id) {
+        console.error('❌ Invalid session object:', sessionToUse);
+        setMessage({ type: 'danger', text: 'Invalid session. Please clock in again.' });
+        clearSessionFromStorage();
+        setActiveSession(null);
+        setLoading(false);
+        return;
+      }
+
+      const requestData = {
         employee_id: user.employeeId,
         session_id: sessionToUse.session_id,
         latitude: location?.latitude,
         longitude: location?.longitude,
         accuracy: location?.accuracy
-      });
+      };
+
+      console.log('📤 Clock-out request:', requestData);
+
+      const response = await axios.post(API_ENDPOINTS.ATTENDANCE_CLOCK_OUT, requestData);
+
+      console.log('✅ Clock-out success:', response.data);
 
       setMessage({ type: 'success', text: response.data.message });
       setAttendance(prev => ({
@@ -975,10 +1033,28 @@ const Attendance = () => {
 
       await fetchTodayAttendance();
       await fetchAttendanceHistory();
+
     } catch (error) {
-      if (error.response?.data?.error_type === 'NO_ACTIVE_SESSION') {
-        setActiveSession(null);
+      console.error('❌ Clock-out error:', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+
+      if (error.response?.status === 400) {
+        if (error.response?.data?.message === 'No active clock-in session found') {
+          // Clear corrupted session
+          clearSessionFromStorage();
+          setActiveSession(null);
+          setMessage({ type: 'warning', text: 'Session expired. Please clock in again.' });
+        } else if (error.response?.data?.message?.includes('Session ID')) {
+          setMessage({ type: 'danger', text: 'Invalid session. Please clock in again.' });
+          clearSessionFromStorage();
+          setActiveSession(null);
+        } else {
+          setMessage({ type: 'danger', text: error.response?.data?.message || 'Failed to clock out' });
+        }
+      } else if (error.response?.data?.error_type === 'NO_ACTIVE_SESSION') {
         clearSessionFromStorage();
+        setActiveSession(null);
         setMessage({ type: 'warning', text: 'Session expired. Please clock in again.' });
       } else {
         setMessage({ type: 'danger', text: error.response?.data?.message || error.message });

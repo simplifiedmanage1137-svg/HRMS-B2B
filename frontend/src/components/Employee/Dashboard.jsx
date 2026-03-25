@@ -1,10 +1,10 @@
 // src/components/Employee/Dashboard.jsx
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Card, Table, Badge, Spinner, Alert, Button, ProgressBar } from 'react-bootstrap';
-import { 
-  FaUserCircle, 
-  FaCalendarAlt, 
-  FaClock, 
+import {
+  FaUserCircle,
+  FaCalendarAlt,
+  FaClock,
   FaUmbrellaBeach,
   FaCheckCircle,
   FaTimesCircle,
@@ -166,7 +166,7 @@ const EmployeeDashboard = () => {
     try {
       const today = new Date();
       const currentYear = today.getFullYear();
-      
+
       // Get holidays for current year and next year
       const allHolidays = holidays.filter(h => {
         const holidayDate = new Date(h.date);
@@ -175,13 +175,13 @@ const EmployeeDashboard = () => {
 
       // Sort by date (ascending)
       const sortedHolidays = allHolidays.sort((a, b) => new Date(a.date) - new Date(b.date));
-      
+
       // Take only next 3 upcoming holidays
       const nextHolidays = sortedHolidays.slice(0, 3).map(holiday => {
         const holidayDate = new Date(holiday.date);
         const diffTime = holidayDate - today;
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        
+
         return {
           date: holiday.date,
           name: holiday.name,
@@ -200,7 +200,7 @@ const EmployeeDashboard = () => {
   const loadDashboardData = async () => {
     setLoading(true);
     setError('');
-    
+
     try {
       // Fetch all data in parallel for better performance
       await Promise.all([
@@ -212,7 +212,7 @@ const EmployeeDashboard = () => {
         fetchAttendanceHistory(),
         fetchTodayEvents()
       ]);
-      
+
       // Load upcoming holidays separately
       loadUpcomingHolidays();
     } catch (error) {
@@ -243,10 +243,10 @@ const EmployeeDashboard = () => {
   const fetchLeaveBalance = async () => {
     try {
       console.log('Fetching leave balance for:', user.employeeId);
-      
+
       const response = await axios.get(API_ENDPOINTS.LEAVE_BALANCE(user.employeeId));
       console.log('Leave balance response:', response.data);
-      
+
       setLeaveBalance({
         available: parseFloat(response.data.available) || 0,
         total_accrued: parseFloat(response.data.total_accrued) || 12,
@@ -257,10 +257,10 @@ const EmployeeDashboard = () => {
         total_comp_off_used: parseFloat(response.data.total_comp_off_used) || 0,
         is_eligible: response.data.is_eligible || false
       });
-      
+
     } catch (error) {
       console.error('Error fetching leave balance:', error);
-      
+
       // Set default values if API fails
       setLeaveBalance({
         available: 12,
@@ -272,7 +272,7 @@ const EmployeeDashboard = () => {
         total_comp_off_used: 0,
         is_eligible: false
       });
-      
+
       showNotification('Using default leave balance', 'info');
     }
   };
@@ -281,7 +281,7 @@ const EmployeeDashboard = () => {
     try {
       const response = await axios.get(`${API_ENDPOINTS.ATTENDANCE}/comp-off/${user.employeeId}/history`);
       setCompOffHistory(response.data.earnings || []);
-      
+
       // Update stats with comp-off count
       const earned = response.data.earnings?.filter(e => !e.is_used).length || 0;
       setStats(prev => ({
@@ -295,10 +295,19 @@ const EmployeeDashboard = () => {
 
   const fetchLeaveRequests = async () => {
     try {
-      const response = await axios.get(API_ENDPOINTS.LEAVE_BY_EMPLOYEE(user.employeeId));
+      // Don't pass employee_id in params - let the backend determine it from the token
+      const response = await axios.get(API_ENDPOINTS.LEAVES);
+
       const leaves = response.data || [];
+      console.log(`📋 Fetched ${leaves.length} leave requests for current employee`);
+
+      // Log to verify we're only getting current employee's leaves
+      leaves.forEach(leave => {
+        console.log(`   - Leave: ${leave.leave_type} (${leave.status}) for date ${leave.start_date}`);
+      });
+
       setLeaveRequests(leaves.slice(0, 5)); // Show only 5 most recent
-      
+
       // Calculate leave stats
       setStats(prev => ({
         ...prev,
@@ -318,7 +327,7 @@ const EmployeeDashboard = () => {
       const response = await axios.get(
         `${API_ENDPOINTS.ATTENDANCE_REPORT}?start=${today}&end=${today}&employee_id=${user.employeeId}`
       );
-      
+
       if (response.data.attendance && response.data.attendance.length > 0) {
         setTodayAttendance(response.data.attendance[0]);
       }
@@ -327,26 +336,95 @@ const EmployeeDashboard = () => {
     }
   };
 
+  // In Attendance.jsx - Fix the handleClockOut function
+const handleClockOut = async () => {
+    setLoading(true);
+    try {
+        const sessionToUse = activeSession || loadSessionFromStorage();
+        
+        if (!sessionToUse) {
+            setMessage({ type: 'warning', text: 'No active session found. Please clock in first.' });
+            setLoading(false);
+            return;
+        }
+
+        console.log('🔍 Clock-out request details:', {
+            employee_id: user.employeeId,
+            session_id: sessionToUse.session_id,
+            hasLocation: !!location,
+            latitude: location?.latitude,
+            longitude: location?.longitude
+        });
+
+        const requestData = {
+            employee_id: user.employeeId,
+            session_id: sessionToUse.session_id,
+            latitude: location?.latitude,
+            longitude: location?.longitude,
+            accuracy: location?.accuracy
+        };
+
+        const response = await axios.post(API_ENDPOINTS.ATTENDANCE_CLOCK_OUT, requestData);
+
+        setMessage({ type: 'success', text: response.data.message });
+        setAttendance(prev => ({
+            ...prev,
+            clock_out: response.data.clock_out,
+            total_hours: response.data.total_hours,
+            total_minutes: response.data.total_minutes,
+            total_hours_display: response.data.total_hours_display,
+            status: response.data.status
+        }));
+        setActiveSession(null);
+        clearSessionFromStorage();
+        setHasClockedOutToday(true);
+
+        await fetchTodayAttendance();
+        await fetchAttendanceHistory();
+    } catch (error) {
+        console.error('❌ Clock-out error:', error);
+        console.error('Error response:', error.response?.data);
+        
+        if (error.response?.status === 400) {
+            if (error.response?.data?.message === 'No active clock-in session found') {
+                setActiveSession(null);
+                clearSessionFromStorage();
+                setMessage({ type: 'warning', text: 'Session expired. Please clock in again.' });
+            } else {
+                setMessage({ type: 'danger', text: error.response?.data?.message || 'Failed to clock out' });
+            }
+        } else if (error.response?.data?.error_type === 'NO_ACTIVE_SESSION') {
+            setActiveSession(null);
+            clearSessionFromStorage();
+            setMessage({ type: 'warning', text: 'Session expired. Please clock in again.' });
+        } else {
+            setMessage({ type: 'danger', text: error.response?.data?.message || error.message });
+        }
+    } finally {
+        setLoading(false);
+    }
+};
+
   const fetchAttendanceHistory = async () => {
     try {
       const endDate = new Date();
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - 30); // Last 30 days
-      
+
       const startDateStr = startDate.toISOString().split('T')[0];
       const endDateStr = endDate.toISOString().split('T')[0];
-      
+
       const response = await axios.get(
         `${API_ENDPOINTS.ATTENDANCE_REPORT}?start=${startDateStr}&end=${endDateStr}&employee_id=${user.employeeId}`
       );
-      
+
       const attendance = response.data.attendance || [];
-      
+
       // Generate complete calendar for the last 30 days
       const completeHistory = generateLast30DaysAttendance(attendance, startDate, endDate);
-      
+
       setAttendanceHistory(completeHistory);
-      
+
       // Calculate attendance stats
       let present = 0;
       let absent = 0;
@@ -355,7 +433,7 @@ const EmployeeDashboard = () => {
       let lateDays = 0;
       let totalLateMinutes = 0;
       let compOffEarned = 0;
-      
+
       completeHistory.forEach(record => {
         if (record.isWeeklyOff) {
           weeklyOff++;
@@ -378,7 +456,7 @@ const EmployeeDashboard = () => {
           absent++;
         }
       });
-      
+
       setStats(prev => ({
         ...prev,
         presentDays: present,
@@ -397,24 +475,24 @@ const EmployeeDashboard = () => {
   const generateLast30DaysAttendance = (history, startDate, endDate) => {
     const completeHistory = [];
     const currentDate = new Date(endDate); // Start from today and go backwards
-    
+
     // Generate 30 days from today backwards
     for (let i = 0; i < 30; i++) {
       const date = new Date(currentDate);
       date.setDate(date.getDate() - i);
-      
+
       const dateStr = date.toISOString().split('T')[0];
       const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
-      
+
       // Check if it's a weekly off day
       const isWeeklyOff = WEEKLY_OFF_DAYS.includes(dayOfWeek);
-      
+
       // Find if there's an attendance record for this date
       const existingRecord = history.find(h => {
         const recordDate = new Date(h.attendance_date).toISOString().split('T')[0];
         return recordDate === dateStr;
       });
-      
+
       if (existingRecord) {
         // Use actual attendance data
         completeHistory.push({
@@ -444,7 +522,7 @@ const EmployeeDashboard = () => {
         });
       }
     }
-    
+
     // Sort by date descending (today first)
     return completeHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
   };
@@ -463,22 +541,22 @@ const EmployeeDashboard = () => {
       'rgba(169, 169, 169, 0.6)',  // Saturday - Gray (W-OFF)
       'rgba(169, 169, 169, 0.6)'   // Sunday - Gray (W-OFF)
     ];
-    
+
     attendanceHistory.forEach(record => {
       if (record.clock_in && record.total_hours) {
         const date = new Date(record.attendance_date);
         const dayIndex = date.getDay(); // 0 = Sunday, 1 = Monday, etc.
-        
+
         // Adjust index for our array (Monday = 0)
         let adjustedIndex = dayIndex === 0 ? 6 : dayIndex - 1;
-        
+
         hoursByDay[adjustedIndex] += parseFloat(record.total_hours);
         workingDaysCount[adjustedIndex]++;
       }
     });
 
     // Calculate average hours per day
-    const avgHoursByDay = hoursByDay.map((total, index) => 
+    const avgHoursByDay = hoursByDay.map((total, index) =>
       workingDaysCount[index] > 0 ? Math.round((total / workingDaysCount[index]) * 10) / 10 : 0
     );
 
@@ -530,7 +608,7 @@ const EmployeeDashboard = () => {
   };
 
   const getStatusBadge = (status) => {
-    switch(status) {
+    switch (status) {
       case 'approved':
         return <Badge bg="success" className="px-2 py-1"><FaCheckCircle className="me-1" size={10} /> Approved</Badge>;
       case 'pending':
@@ -544,23 +622,23 @@ const EmployeeDashboard = () => {
 
   const getAttendanceStatus = (record) => {
     if (!record) return <Badge bg="secondary">Not Marked</Badge>;
-    
+
     const attendanceDate = new Date(record.attendance_date);
     const dayOfWeek = attendanceDate.getDay();
-    
+
     // Check if it's a weekly off day
     if (WEEKLY_OFF_DAYS.includes(dayOfWeek)) {
       return <Badge bg="secondary"><FaMoon className="me-1" size={10} /> W-OFF</Badge>;
     }
-    
+
     if (!record.clock_in) return <Badge bg="secondary">Not Clocked</Badge>;
-    
+
     if (record.clock_in && !record.clock_out) {
       // Check if late while working
       if (record.late_minutes > 0) {
         return (
           <Badge bg="warning">
-            <FaClock className="me-1" size={10} /> 
+            <FaClock className="me-1" size={10} />
             Working (Late {formatLateTime(record.late_minutes)})
           </Badge>
         );
@@ -571,7 +649,7 @@ const EmployeeDashboard = () => {
     if (record.comp_off_awarded) {
       return (
         <Badge bg="purple">
-          <FaTrophy className="me-1" size={10} /> 
+          <FaTrophy className="me-1" size={10} />
           Comp-Off Earned
         </Badge>
       );
@@ -581,7 +659,7 @@ const EmployeeDashboard = () => {
       if (record.late_minutes > 0) {
         return (
           <Badge bg="warning">
-            <FaCheckCircle className="me-1" size={10} /> 
+            <FaCheckCircle className="me-1" size={10} />
             Present (Late {formatLateTime(record.late_minutes)})
           </Badge>
         );
@@ -593,7 +671,7 @@ const EmployeeDashboard = () => {
       if (record.late_minutes > 0) {
         return (
           <Badge bg="warning">
-            <FaCloudSun className="me-1" size={10} /> 
+            <FaCloudSun className="me-1" size={10} />
             Half Day (Late {formatLateTime(record.late_minutes)})
           </Badge>
         );
@@ -606,17 +684,17 @@ const EmployeeDashboard = () => {
 
   const formatLateTime = (lateMinutes) => {
     if (!lateMinutes || lateMinutes <= 0) return null;
-    
+
     const totalSeconds = Math.round(lateMinutes * 60);
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
-    
+
     const parts = [];
     if (hours > 0) parts.push(`${hours}h`);
     if (minutes > 0) parts.push(`${minutes}m`);
     if (seconds > 0 || (hours === 0 && minutes === 0)) parts.push(`${seconds}s`);
-    
+
     return parts.join(' ');
   };
 
@@ -691,9 +769,9 @@ const EmployeeDashboard = () => {
           </p>
         </div>
         <div className="d-flex flex-wrap gap-2 ms-0 ms-md-auto">
-          <Button 
-            variant="outline-primary" 
-            size="sm" 
+          <Button
+            variant="outline-primary"
+            size="sm"
             onClick={refreshData}
             disabled={refreshing}
             className="d-inline-flex align-items-center"
@@ -785,8 +863,8 @@ const EmployeeDashboard = () => {
                   </p>
                 </div>
               </div>
-              <Button 
-                variant="dark" 
+              <Button
+                variant="dark"
                 size="sm"
                 onClick={() => navigate('/attendance')}
                 className="ms-0 ms-sm-auto w-20 w-sm-auto"
@@ -891,7 +969,7 @@ const EmployeeDashboard = () => {
             </Card.Header>
             <Card.Body className="p-2 p-md-3">
               <div style={{ height: '280px', position: 'relative' }}>
-                <Bar 
+                <Bar
                   data={attendanceChartData}
                   options={{
                     responsive: true,
@@ -908,7 +986,7 @@ const EmployeeDashboard = () => {
                         bodyFont: { size: 10 },
                         padding: 6,
                         callbacks: {
-                          label: function(context) {
+                          label: function (context) {
                             const value = context.raw;
                             const dayIndex = context.dataIndex;
                             if (dayIndex === 5 || dayIndex === 6) {
@@ -933,7 +1011,7 @@ const EmployeeDashboard = () => {
                         grid: { color: 'rgba(0, 0, 0, 0.05)' },
                         ticks: {
                           stepSize: 1,
-                          callback: function(value) { return value + 'h'; },
+                          callback: function (value) { return value + 'h'; },
                           font: { size: 9 }
                         }
                       },
@@ -951,7 +1029,7 @@ const EmployeeDashboard = () => {
                   }}
                 />
               </div>
-              
+
               {/* Legend - Responsive */}
               <div className="mt-3 d-flex flex-wrap justify-content-center align-items-center gap-3 gap-md-4 small">
                 <div className="d-flex align-items-center">
@@ -963,7 +1041,7 @@ const EmployeeDashboard = () => {
                   <span className="text-muted">W-OFF</span>
                 </div>
               </div>
-              
+
               <div className="mt-2 text-center text-muted small">
                 <FaInfoCircle className="me-1" size={8} />
                 Avg hours per day (last 30 days)
@@ -985,19 +1063,19 @@ const EmployeeDashboard = () => {
             <Card.Body className="p-2 p-md-3">
               <div className="d-flex flex-column flex-md-row align-items-center" style={{ minHeight: '220px' }}>
                 <div style={{ width: '100%', maxWidth: '250px', height: '200px' }}>
-                  <Doughnut 
+                  <Doughnut
                     data={leaveChartData}
                     options={{
                       responsive: true,
                       maintainAspectRatio: false,
                       plugins: {
-                        legend: { 
+                        legend: {
                           position: 'bottom',
                           labels: { font: { size: 10 } }
                         },
                         tooltip: {
                           callbacks: {
-                            label: function(context) { return `${context.raw} days`; }
+                            label: function (context) { return `${context.raw} days`; }
                           }
                         }
                       },
@@ -1035,9 +1113,9 @@ const EmployeeDashboard = () => {
                 <FaHistory className="me-2 text-primary" />
                 Recent Leave Requests
               </h6>
-              <Button 
-                variant="link" 
-                size="sm" 
+              <Button
+                variant="link"
+                size="sm"
                 onClick={() => navigate('/apply-leave')}
                 className="text-decoration-none p-0"
               >
@@ -1061,8 +1139,8 @@ const EmployeeDashboard = () => {
                       leaveRequests.map((leave, index) => (
                         <tr key={leave.id || index}>
                           <td className="small">
-                            <Badge 
-                              bg={leave.leave_type === 'Comp-Off' ? 'purple' : 'secondary'} 
+                            <Badge
+                              bg={leave.leave_type === 'Comp-Off' ? 'purple' : 'secondary'}
                               className="px-2 py-1 text-nowrap"
                             >
                               {leave.leave_type === 'Comp-Off' && '🎉 '}
@@ -1085,8 +1163,8 @@ const EmployeeDashboard = () => {
                         <td colSpan="5" className="text-center py-4">
                           <FaUmbrellaBeach size={24} className="text-muted mb-2 opacity-50" />
                           <p className="text-muted small mb-2">No leave requests found</p>
-                          <Button 
-                            variant="primary" 
+                          <Button
+                            variant="primary"
                             size="sm"
                             onClick={() => navigate('/apply-leave')}
                           >
@@ -1176,8 +1254,8 @@ const EmployeeDashboard = () => {
             </Card.Header>
             <Card.Body className="p-2 p-md-3">
               <div className="d-grid gap-2">
-                <Button 
-                  variant="primary" 
+                <Button
+                  variant="primary"
                   onClick={() => navigate('/apply-leave')}
                   className="d-flex align-items-center justify-content-between"
                   size="sm"
@@ -1185,8 +1263,8 @@ const EmployeeDashboard = () => {
                   <span><FaUmbrellaBeach className="me-2" size={12} /> Apply for Leave</span>
                   <FaArrowRight size={10} />
                 </Button>
-                <Button 
-                  variant="outline-primary" 
+                <Button
+                  variant="outline-primary"
                   onClick={() => navigate('/attendance')}
                   className="d-flex align-items-center justify-content-between"
                   size="sm"
@@ -1194,8 +1272,8 @@ const EmployeeDashboard = () => {
                   <span><FaClock className="me-2" size={12} /> Mark Attendance</span>
                   <FaArrowRight size={10} />
                 </Button>
-                <Button 
-                  variant="outline-success" 
+                <Button
+                  variant="outline-success"
                   onClick={() => navigate('/salary-slip')}
                   className="d-flex align-items-center justify-content-between"
                   size="sm"
