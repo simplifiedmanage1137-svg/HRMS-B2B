@@ -350,7 +350,7 @@ exports.clockIn = async (req, res) => {
     }
 };
 
-// In attendanceController.js - Fix the clockOut function
+// In attendanceController.js - Updated clockOut function
 exports.clockOut = async (req, res) => {
     try {
         console.log('='.repeat(70));
@@ -545,12 +545,11 @@ exports.clockOut = async (req, res) => {
             status = 'half_day';
         }
 
-        // Prepare update data
+        // Prepare update data - REMOVED total_hours_display from update to avoid column error
         const updateData = {
             clock_out: now.toISOString(),
             total_hours: Math.round(totalHours * 100) / 100,
             total_minutes: Math.round(totalMinutes),
-            total_hours_display: totalHoursDisplay,
             status: status,
             latitude: latitude || attendanceRecord.latitude,
             longitude: longitude || attendanceRecord.longitude,
@@ -561,6 +560,20 @@ exports.clockOut = async (req, res) => {
             overtime_hours: overtime.overtimeHours || 0,
             overtime_amount: overtime.overtimeAmount || 0
         };
+
+        // Only add total_hours_display if column exists (try to add it)
+        try {
+            // Check if column exists
+            const { data: columnCheck } = await supabase
+                .from('attendance')
+                .select('total_hours_display')
+                .limit(1);
+
+            // If no error, column exists
+            updateData.total_hours_display = totalHoursDisplay;
+        } catch (colError) {
+            console.log('⚠️ total_hours_display column does not exist, skipping...');
+        }
 
         console.log('📝 Updating attendance with:', updateData);
 
