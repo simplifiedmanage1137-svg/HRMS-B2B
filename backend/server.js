@@ -53,7 +53,7 @@ const allowedOrigins = [
     'http://127.0.0.1:5174',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:3001',
-    'https://employee-management-system-six-gray.vercel.app', // Your Vercel frontend
+    'https://employee-management-system-psi-teal.vercel.app', // Your Vercel frontend
     'https://employee-management-system-brvo.onrender.com' // Your backend URL
 ];
 
