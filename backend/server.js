@@ -45,22 +45,22 @@ console.log('='.repeat(70));
 // ============== CORS CONFIGURATION ==============
 // Read allowed origins from environment variable or use defaults
 const allowedOriginsFromEnv = process.env.ALLOWED_ORIGINS 
-    ? process.env.ALLOWED_ORIGINS.split(',')
+    ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
     : [];
 
 // Define allowed origins (including your Vercel frontend)
 const allowedOrigins = [
-    'http://localhost:5173',  // Local development (Vite default)
-    'http://localhost:5174',  // Vite alternate port
-    'http://localhost:3000',   // Local development (React default)
-    'http://localhost:3001',   // React alternate
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:3000',
+    'http://localhost:3001',
     'http://127.0.0.1:5173',
     'http://127.0.0.1:5174',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:3001',
     'https://employee-management-system-jj6a.vercel.app', // Your Vercel frontend
     'https://employee-management-system-brvo.onrender.com', // Your backend URL
-    ...allowedOriginsFromEnv
+   ...allowedOriginsFromEnv
 ];
 
 // Remove duplicates
@@ -80,8 +80,13 @@ const corsOptions = {
             return callback(null, true);
         }
         
-        // Check if origin is allowed
-        if (uniqueAllowedOrigins.indexOf(origin) !== -1) {
+        // Check if origin is allowed (case-insensitive)
+        const originLower = origin.toLowerCase();
+        const isAllowed = uniqueAllowedOrigins.some(allowed => 
+            allowed.toLowerCase() === originLower
+        );
+        
+        if (isAllowed) {
             console.log(`✅ CORS allowed for origin: ${origin}`);
             callback(null, true);
         } else {
@@ -105,8 +110,11 @@ const corsOptions = {
     optionsSuccessStatus: 200
 };
 
+
 // Apply CORS middleware FIRST
 app.use(cors(corsOptions));
+
+app.options('*', cors(corsOptions));
 
 // Additional CORS logging middleware
 app.use((req, res, next) => {

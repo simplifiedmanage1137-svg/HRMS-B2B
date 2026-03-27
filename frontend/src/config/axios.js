@@ -1,24 +1,26 @@
 // src/config/axios.js
 import axios from 'axios';
-import API_ENDPOINTS from './api';
 
-// For Vite, use import.meta.env
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_URL = import.meta.env.VITE_API_URL || 'https://employee-management-system-brvo.onrender.com';
 
 const axiosInstance = axios.create({
-    baseURL: API_BASE_URL,
+    baseURL: `${API_URL}/api`,
+    timeout: 30000,
     headers: {
         'Content-Type': 'application/json',
+        'Accept': 'application/json'
     },
+    withCredentials: true // Important for sending cookies
 });
 
-// Request interceptor to add auth token
+// Request interceptor
 axiosInstance.interceptors.request.use(
     (config) => {
         const token = localStorage.getItem('token');
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
+        console.log(`📤 ${config.method.toUpperCase()} ${config.url}`, config.data);
         return config;
     },
     (error) => {
@@ -26,15 +28,19 @@ axiosInstance.interceptors.request.use(
     }
 );
 
-// Response interceptor for error handling
+// Response interceptor
 axiosInstance.interceptors.response.use(
-    (response) => response,
+    (response) => {
+        console.log(`📥 ${response.config.method.toUpperCase()} ${response.config.url} - Status: ${response.status}`);
+        return response;
+    },
     (error) => {
-        // Handle 401 Unauthorized errors
-        if (error.response && error.response.status === 401) {
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-            window.location.href = '/login';
+        console.error('❌ API Error:', error.message);
+        if (error.response) {
+            console.error('Response data:', error.response.data);
+            console.error('Response status:', error.response.status);
+        } else if (error.request) {
+            console.error('No response received:', error.request);
         }
         return Promise.reject(error);
     }
