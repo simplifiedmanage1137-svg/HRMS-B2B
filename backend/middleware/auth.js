@@ -1,4 +1,3 @@
-// middleware/auth.js
 const jwt = require('jsonwebtoken');
 
 const verifyToken = (req, res, next) => {
@@ -20,7 +19,6 @@ const verifyToken = (req, res, next) => {
             });
         }
         
-        // Set user info in request
         req.user = {
             id: decoded.id,
             employeeId: decoded.employeeId,
@@ -45,15 +43,34 @@ const isAdmin = (req, res, next) => {
 const isOwnDataOrAdmin = (req, res, next) => {
     const userRole = req.user?.role;
     const userEmployeeId = req.user?.employeeId;
-    const requestedEmployeeId = req.params.employee_id;
+    
+    // Check params first (for GET requests with employee_id in URL)
+    let requestedEmployeeId = req.params.employee_id;
+    
+    // If not in params, check body (for POST requests)
+    if (!requestedEmployeeId && req.body.employee_id) {
+        requestedEmployeeId = req.body.employee_id;
+    }
+    
+    // If still not found, check query params
+    if (!requestedEmployeeId && req.query.employee_id) {
+        requestedEmployeeId = req.query.employee_id;
+    }
 
     if (userRole === 'admin') {
-        // Admin can access any data
         return next();
     }
 
     if (userEmployeeId === requestedEmployeeId) {
-        // User can access their own data
+        return next();
+    }
+
+    // If no employee_id is specified, assume user is accessing their own data
+    if (!requestedEmployeeId) {
+        // For POST requests like generate salary slip, attach user's employee_id to body
+        if (req.method === 'POST' && !req.body.employee_id) {
+            req.body.employee_id = userEmployeeId;
+        }
         return next();
     }
 

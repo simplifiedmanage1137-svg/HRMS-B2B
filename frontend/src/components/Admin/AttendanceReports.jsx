@@ -75,31 +75,32 @@ const AttendanceReports = () => {
   // Format decimal hours to "Xh Ym" format
   const formatHours = (decimalHours) => {
     if (!decimalHours || decimalHours <= 0) return '-';
-    
+
     const totalMinutes = Math.round(decimalHours * 60);
     const hours = Math.floor(totalMinutes / 60);
     const minutes = totalMinutes % 60;
-    
+
     if (minutes === 0) {
       return `${hours}h`;
     }
     return `${hours}h ${minutes}m`;
   };
 
+
   // Format late minutes to "Xh Ym Zs" format
   const formatLateDisplay = (lateMinutes) => {
     if (!lateMinutes || lateMinutes <= 0) return null;
-    
+
     const totalSeconds = Math.round(lateMinutes * 60);
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
-    
+
     const parts = [];
     if (hours > 0) parts.push(`${hours}h`);
     if (minutes > 0) parts.push(`${minutes}m`);
     if (seconds > 0 || (hours === 0 && minutes === 0)) parts.push(`${seconds}s`);
-    
+
     return parts.join(' ');
   };
 
@@ -181,8 +182,14 @@ const AttendanceReports = () => {
           record.status = 'working';
         }
 
+        record.late_minutes = Number(record.late_minutes) || 0;
+        record.is_late = record.late_minutes > 0;
+
+        // FIX: Always calculate late_display if late_minutes exists
         if (record.late_minutes > 0) {
           record.late_display = formatLateDisplay(record.late_minutes);
+        } else {
+          record.late_display = null;
         }
 
         return record;
@@ -460,6 +467,7 @@ const AttendanceReports = () => {
           statusBadge,
           statusIcon,
           late_minutes: lateMinutes,
+          late_display: lateMinutes > 0 ? formatLateDisplay(lateMinutes) : null,
           is_late: lateMinutes > 0,
           tooltip,
           leave_type: leaveType,
@@ -548,7 +556,7 @@ const AttendanceReports = () => {
       } else {
         emp.avg_hours = 0;
       }
-      
+
       if (emp.late_count > 0) {
         emp.avg_late_minutes = (emp.total_late_minutes / emp.late_count).toFixed(1);
         emp.late_display = formatLateDisplay(emp.total_late_minutes);
@@ -604,7 +612,7 @@ const AttendanceReports = () => {
     const grossSalary = parseFloat(employee.gross_salary) || 0;
     const netSalaryAfterDeduction = grossSalary - PROFESSIONAL_TAX;
     const actualSalaryAfterOT = netSalaryAfterDeduction + (overtimeAmount || 0);
-    
+
     return {
       grossSalary: grossSalary.toFixed(2),
       professionalTax: PROFESSIONAL_TAX,
@@ -809,7 +817,7 @@ const AttendanceReports = () => {
         </Badge>
       );
     }
-    
+
     if (record.comp_off_awarded) {
       return (
         <Badge bg="purple" className="px-2 py-1 text-nowrap" style={{ backgroundColor: '#9b59b6' }}>
@@ -817,7 +825,7 @@ const AttendanceReports = () => {
         </Badge>
       );
     }
-    
+
     if (record.status === 'working') {
       return record.is_late ?
         <Badge bg="warning" className="px-2 py-1 text-nowrap" style={{ backgroundColor: '#fd7e14' }}>
@@ -1012,7 +1020,7 @@ const AttendanceReports = () => {
                   <tbody>
                     {dailyAttendance.length > 0 ? (
                       dailyAttendance.map((record, index) => (
-                        <tr key={index} className={record.is_late ? 'table-warning' : ''}>
+                        <tr key={index} className={record.late_minutes > 0 ? 'table-warning' : ''}>
                           <td className="text-center small">{index + 1}</td>
                           <td className="small">
                             <div className="text-truncate" style={{ maxWidth: '100px' }} title={`${record.first_name} ${record.last_name}`}>
@@ -1034,6 +1042,9 @@ const AttendanceReports = () => {
                             <span className="text-nowrap" title={formatShortTime(record.clock_in)}>
                               {formatShortTime(record.clock_in)}
                             </span>
+                            {record.late_minutes > 0 && (
+                              <sup className="text-warning ms-1">⚠️</sup>
+                            )}
                           </td>
                           <td className="small d-none d-lg-table-cell">
                             {record.late_minutes > 0 ? (

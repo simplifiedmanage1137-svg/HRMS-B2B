@@ -232,10 +232,16 @@ const Attendance = () => {
     }
 
     if (isToday && record.clock_in && !record.clock_out) {
+      if (record.late_minutes > 0) {
+        return <Badge bg="warning" className="px-2 py-1 text-dark"><FaExclamationTriangle className="me-1" size={10} /> Late ({formatLateTime(record.late_minutes)})</Badge>;
+      }
       return <Badge bg="info" className="px-2 py-1"><FaClock className="me-1" size={10} /> Working</Badge>;
     }
 
     if (record.status === 'present') {
+      if (record.late_minutes > 0) {
+        return <Badge bg="warning" className="px-2 py-1 text-dark"><FaExclamationTriangle className="me-1" size={10} /> Late ({formatLateTime(record.late_minutes)})</Badge>;
+      }
       return <Badge bg="success" className="px-2 py-1"><FaCheckCircle className="me-1" size={10} /> Present</Badge>;
     }
 
@@ -302,9 +308,18 @@ const Attendance = () => {
         attendanceData.clock_in = attendanceData.clock_in_ist || attendanceData.clock_in;
         attendanceData.clock_out = attendanceData.clock_out_ist || attendanceData.clock_out;
 
-        if (attendanceData.late_minutes > 0 && !attendanceData.late_display) {
-          attendanceData.late_display = formatLateTime(attendanceData.late_minutes);
+        attendanceData.late_minutes = Number(attendanceData.late_minutes) || 0;
+        attendanceData.late_display = attendanceData.late_display || (attendanceData.late_minutes > 0 ? formatLateTime(attendanceData.late_minutes) : null);
+        attendanceData.is_late = attendanceData.late_minutes > 0;
+
+        if (!attendanceData.status) {
+          if (attendanceData.clock_in && !attendanceData.clock_out) {
+            attendanceData.status = 'working';
+          } else if (attendanceData.clock_in && attendanceData.clock_out) {
+            attendanceData.status = 'present';
+          }
         }
+
         setAttendance(attendanceData);
         if (attendanceData.clock_out) {
           setHasClockedOutToday(true);
@@ -484,8 +499,8 @@ const Attendance = () => {
       const existingRecord = historyMap[dateStr];
 
       if (existingRecord) {
-        const lateMinutes = existingRecord.late_minutes || 0;
-        let lateDisplay = existingRecord.late_display;
+        const lateMinutes = Number(existingRecord.late_minutes) || 0;
+        let lateDisplay = existingRecord.late_display || (lateMinutes > 0 ? formatLateTime(lateMinutes) : null);
         let clockOut = existingRecord.clock_out_ist || existingRecord.clock_out;
         let displayStatus = existingRecord.status;
         let totalHoursDisplay = existingRecord.total_hours_display;
@@ -497,6 +512,11 @@ const Attendance = () => {
         // IMPORTANT: Use clock_in_ist first, fallback to clock_in
         const clockInValue = existingRecord.clock_in_ist || existingRecord.clock_in;
         const clockOutValue = existingRecord.clock_out_ist || existingRecord.clock_out;
+
+        // If clock in exists and clock out missing on today's record, treat as working
+        if (!displayStatus && clockInValue && !clockOutValue && isToday) {
+          displayStatus = 'working';
+        }
 
         // Format clock-in in IST
         if (clockInValue) {

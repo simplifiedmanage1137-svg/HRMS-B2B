@@ -20,8 +20,12 @@ export const NotificationProvider = ({ children }) => {
   const [todayEvents, setTodayEvents] = useState({ birthdays: [], anniversaries: [], total: 0 });
   const [loading, setLoading] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
+  const [employeeUpdate, setEmployeeUpdate] = useState(Date.now()); // Track employee changes
 
-  // Show notification function (can be used for toast/snackbar notifications)
+  // Function to trigger employee list refresh
+  const triggerEmployeeUpdate = useCallback(() => {
+    setEmployeeUpdate(Date.now());
+  }, []);
   const showNotification = useCallback((message, type = 'info', duration = 3000) => {
     console.log(`📢 Notification (${type}):`, message);
     
@@ -181,7 +185,11 @@ export const NotificationProvider = ({ children }) => {
     // Toast notifications
     showNotification,
     toastMessage,
-    clearToast
+    clearToast,
+    
+    // Employee update trigger
+    employeeUpdate,
+    triggerEmployeeUpdate
   };
 
   return (

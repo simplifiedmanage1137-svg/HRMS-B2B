@@ -700,6 +700,29 @@ router.get('/:employeeId/documents', async (req, res) => {
     try {
         const { employeeId } = req.params;
 
+        console.log('📄 Fetching documents for employee:', employeeId);
+
+        // First verify employee exists
+        const { data: employee, error: empError } = await supabase
+            .from('employees')
+            .select('id')
+            .eq('employee_id', employeeId)
+            .maybeSingle();
+
+        if (empError) {
+            console.error('❌ Error checking employee:', empError);
+            throw empError;
+        }
+
+        if (!employee) {
+            console.log('⚠️ Employee not found:', employeeId);
+            return res.status(404).json({
+                success: false,
+                message: 'Employee not found'
+            });
+        }
+
+        // Now fetch documents
         const { data, error } = await supabase
             .from('employees')
             .select(`
@@ -709,16 +732,16 @@ router.get('/:employeeId/documents', async (req, res) => {
                 relieving_letter, salary_slip
             `)
             .eq('employee_id', employeeId)
-            .single();
+            .maybeSingle();
 
         if (error) {
-            if (error.code === 'PGRST116') {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Employee not found'
-                });
-            }
+            console.error('❌ Error fetching documents:', error);
             throw error;
+        }
+
+        if (!data) {
+            console.log('⚠️ No document record found for employee:', employeeId);
+            return res.json({});
         }
 
         // Filter out null values
@@ -729,14 +752,16 @@ router.get('/:employeeId/documents', async (req, res) => {
             }
         });
 
+        console.log('✅ Documents fetched successfully:', Object.keys(documents));
         res.json(documents);
 
     } catch (error) {
-        console.error('Error fetching documents:', error);
+        console.error('❌ Error in documents endpoint:', error);
         res.status(500).json({
             success: false,
             message: 'Failed to fetch documents',
-            error: error.message
+            error: error.message,
+            details: error.details || error.hint
         });
     }
 });

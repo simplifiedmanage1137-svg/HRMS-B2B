@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Form, Button, Card, Row, Col, Spinner, Alert, Modal, Table, Badge, ProgressBar } from 'react-bootstrap';
-import { FaSave, FaArrowLeft, FaFileAlt, FaFileImage, FaFilePdf, FaDownload, FaEye, FaUpload, FaTrash, FaPlus, FaSync } from 'react-icons/fa';
+import { FaSave, FaArrowLeft, FaFileAlt, FaFileImage, FaFilePdf, FaDownload, FaEye, FaUpload, FaTrash, FaPlus } from 'react-icons/fa';
 import axios from '../../config/axios';
 import API_ENDPOINTS from '../../config/api';
 import { useNotification } from '../../context/NotificationContext';
@@ -10,7 +10,7 @@ import { useNotification } from '../../context/NotificationContext';
 const EditEmployee = () => {
     const { id } = useParams();
     const navigate = useNavigate();
-    const { showNotification } = useNotification();
+    const { showNotification, triggerEmployeeUpdate } = useNotification();
 
     // Form states
     const [formData, setFormData] = useState({
@@ -56,12 +56,12 @@ const EditEmployee = () => {
     const [showDocumentModal, setShowDocumentModal] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
-    const [lastUpdateTimestamp, setLastUpdateTimestamp] = useState(Date.now()); // ✅ Added this state
 
     // New document upload states
     const [selectedFiles, setSelectedFiles] = useState([]);
     const [selectedDocTypes, setSelectedDocTypes] = useState([]);
     const [showUploadModal, setShowUploadModal] = useState(false);
+    const [lastUpdateTimestamp, setLastUpdateTimestamp] = useState(null);
 
     const documentTypes = [
         { value: 'appointment_letter', label: 'Appointment Letter', icon: <FaFileAlt className="text-info" /> },
@@ -105,7 +105,7 @@ const EditEmployee = () => {
 
             // After getting employee details, fetch documents
             if (employee.employee_id) {
-                await fetchEmployeeDocuments(employee.employee_id);
+                fetchEmployeeDocuments(employee.employee_id);
             } else {
                 console.error('Employee ID not found in response');
             }
@@ -119,16 +119,16 @@ const EditEmployee = () => {
         }
     };
 
+
     const fetchEmployeeDocuments = async (employeeId) => {
         try {
             setDocLoading(true);
             console.log('📄 Fetching documents for employee ID:', employeeId);
-            
-            // Add cache-busting timestamp
-            const timestamp = Date.now();
-            const response = await axios.get(`${API_ENDPOINTS.EMPLOYEE_DOCUMENTS(employeeId)}?_=${timestamp}`);
+
+            // Make sure we have the latest data
+            const response = await axios.get(API_ENDPOINTS.EMPLOYEE_DOCUMENTS(employeeId));
             console.log('✅ Documents response:', response.data);
-            
+
             // Process documents - filter out null/empty values
             const docs = Object.entries(response.data || {})
                 .filter(([key, value]) => value && value !== 'null' && value !== '')
@@ -138,17 +138,17 @@ const EditEmployee = () => {
                     displayName: formatDocumentName(key),
                     icon: getDocumentIcon(key, value)
                 }));
-            
+
             console.log('📊 Processed documents:', docs);
             setEmployeeDocuments(docs);
-            
-            // Update timestamp to force re-render if needed
+
+            // Force a re-render by updating a timestamp
             setLastUpdateTimestamp(Date.now());
-            
+
         } catch (error) {
             console.error('❌ Error fetching documents:', error);
             setEmployeeDocuments([]);
-            // Don't show notification for this error to avoid spam
+            showNotification('Failed to load documents', 'warning');
         } finally {
             setDocLoading(false);
         }
@@ -186,9 +186,7 @@ const EditEmployee = () => {
     };
 
     const handleViewDocument = (doc) => {
-        const url = `${API_ENDPOINTS.EMPLOYEE_DOCUMENT_BY_TYPE(formData.employee_id, doc.type)}?inline=true&_=${Date.now()}`;
-        console.log('🔍 Opening document URL:', url);
-        window.open(url, '_blank');
+        window.open(`${API_ENDPOINTS.EMPLOYEE_DOCUMENT_BY_TYPE(formData.employee_id, doc.type)}?inline=true`, '_blank');
     };
 
     const handleDownloadDocument = async (doc) => {
@@ -309,17 +307,23 @@ const EditEmployee = () => {
         if (successCount > 0) {
             showNotification(`${successCount} document(s) uploaded successfully!`, 'success');
 
-            // Wait a moment for the server to process
+            // 👇 IMPORTANT: Wait a moment for the server to process
             await new Promise(resolve => setTimeout(resolve, 500));
 
-            // Refresh documents list with fresh data
+            // 👇 Refresh documents list with fresh data
             console.log('🔄 Refreshing documents list after upload...');
             await fetchEmployeeDocuments(formData.employee_id);
 
-            // Close the upload modal
+            // 👇 Trigger employee list update in other tabs
+            triggerEmployeeUpdate();
+
+            // 👇 Update timestamp to force re-render
+            setLastUpdateTimestamp(Date.now());
+
+            // 👇 Close the upload modal
             setShowUploadModal(false);
 
-            // Clear selected files
+            // 👇 Clear selected files
             setSelectedFiles([]);
             setSelectedDocTypes([]);
         }
@@ -332,6 +336,7 @@ const EditEmployee = () => {
         setUploadProgress(0);
     };
 
+    // Updated handleDeleteDocument with refresh
     const handleDeleteDocument = async (doc) => {
         if (!window.confirm(`Are you sure you want to delete ${doc.displayName}?`)) {
             return;
@@ -341,11 +346,14 @@ const EditEmployee = () => {
             await axios.delete(API_ENDPOINTS.EMPLOYEE_DOCUMENT_DELETE(formData.employee_id, doc.type));
             showNotification('Document deleted successfully!', 'success');
 
-            // Wait a moment for the server to process
-            await new Promise(resolve => setTimeout(resolve, 500));
-
-            // Refresh documents list after deletion
+            // 👇 Refresh documents list after deletion
             await fetchEmployeeDocuments(formData.employee_id);
+
+            // 👇 Trigger employee list update in other tabs
+            triggerEmployeeUpdate();
+
+            // 👇 Update timestamp to force re-render
+            setLastUpdateTimestamp(Date.now());
 
         } catch (error) {
             console.error('Error deleting document:', error);
@@ -361,6 +369,7 @@ const EditEmployee = () => {
         }));
     };
 
+    // In EditEmployee.jsx, before sending the update, log what you're sending:
     const handleSubmit = async (e) => {
         e.preventDefault();
         setSaving(true);
@@ -419,7 +428,7 @@ const EditEmployee = () => {
 
     return (
         <div className="container-fluid p-2 p-md-3 p-lg-4">
-            {/* Header */}
+            {/* Header - Responsive */}
             <div className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center mb-4 gap-3">
                 <div className="d-flex flex-wrap align-items-center gap-2">
                     <Button
@@ -460,7 +469,6 @@ const EditEmployee = () => {
                         <h6 className="mb-0">Personal Information</h6>
                     </Card.Header>
                     <Card.Body className="p-2 p-md-3">
-                        {/* ... keep your existing form fields ... */}
                         <Row className="g-2 g-md-3 mb-3">
                             <Col xs={12} md={4}>
                                 <Form.Group>
@@ -867,20 +875,11 @@ const EditEmployee = () => {
                     </Card.Body>
                 </Card>
 
-                {/* Documents Section with Upload - Updated with Refresh Button */}
+                {/* Documents Section with Upload - Responsive */}
                 <Card className="shadow-sm mb-4">
                     <Card.Header className="bg-light py-2 py-md-3 d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-2">
                         <h6 className="mb-0">Employee Documents</h6>
                         <div className="d-flex flex-wrap gap-2">
-                            <Button
-                                variant="outline-secondary"
-                                size="sm"
-                                onClick={() => fetchEmployeeDocuments(formData.employee_id)}
-                                className="d-inline-flex align-items-center"
-                                title="Refresh Documents"
-                            >
-                                <FaSync className="me-2" /> <span className="d-none d-sm-inline">Refresh</span>
-                            </Button>
                             <Button
                                 variant="success"
                                 size="sm"
@@ -974,7 +973,7 @@ const EditEmployee = () => {
                     </Card.Body>
                 </Card>
 
-                {/* Submit Button */}
+                {/* Submit Button - Responsive */}
                 <div className="text-center text-md-end mt-4">
                     <Button
                         type="submit"
@@ -998,7 +997,7 @@ const EditEmployee = () => {
                 </div>
             </Form>
 
-            {/* Upload Documents Modal */}
+            {/* Upload Documents Modal - Responsive */}
             <Modal show={showUploadModal} onHide={() => setShowUploadModal(false)} size="lg" centered dialogClassName="mx-2 mx-md-auto">
                 <Modal.Header closeButton className="bg-success text-white py-2">
                     <Modal.Title as="h6" className="mb-0 small fw-semibold d-flex align-items-center">
@@ -1120,7 +1119,7 @@ const EditEmployee = () => {
                 </Modal.Footer>
             </Modal>
 
-            {/* View Documents Modal */}
+            {/* View Documents Modal - Responsive */}
             <Modal show={showDocumentModal} onHide={() => setShowDocumentModal(false)} size="lg" centered dialogClassName="mx-2 mx-md-auto">
                 <Modal.Header closeButton className="bg-info text-white py-2">
                     <Modal.Title as="h6" className="mb-0 small fw-semibold d-flex align-items-center">

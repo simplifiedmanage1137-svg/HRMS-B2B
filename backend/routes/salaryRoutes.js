@@ -1,17 +1,17 @@
-// routes/salaryRoutes.js
+// routes/salaryRoutes.js - Alternative simple fix
 const express = require('express');
 const router = express.Router();
 const salaryController = require('../controllers/salaryController');
 const { verifyToken, isAdmin, isOwnDataOrAdmin } = require('../middleware/auth');
 
-// Employee routes (require authentication)
+// Employee routes
 router.get('/employee/:employee_id', verifyToken, isOwnDataOrAdmin, salaryController.getEmployeeSalarySlips);
 router.get('/:id', verifyToken, salaryController.getSalarySlipById);
 router.get('/:employee_id/:month/:year', verifyToken, isOwnDataOrAdmin, salaryController.getSalarySlipByMonth);
 
-// 👇 IMPORTANT: Employee can generate their own salary slip
-// Make sure this uses isOwnDataOrAdmin, NOT isAdmin
-router.post('/generate', verifyToken, isOwnDataOrAdmin, salaryController.generateSalarySlip);
+// SIMPLE FIX: Remove isOwnDataOrAdmin from generate route
+// Only verify token, then let controller handle permission check
+router.post('/generate', verifyToken, salaryController.generateSalarySlip);
 
 // Admin only routes
 router.post('/generate-bulk', verifyToken, isAdmin, salaryController.generateBulkSalarySlips);

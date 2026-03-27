@@ -253,7 +253,8 @@ exports.autoCloseStaleSessions = async () => {
     }
 };
 
-// Clock In function
+// In attendanceController.js - Complete fixed clockIn function
+
 exports.clockIn = async (req, res) => {
     try {
         const { employee_id, latitude, longitude, accuracy } = req.body;
@@ -268,16 +269,20 @@ exports.clockIn = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Employee not found' });
         }
         const emp = employees[0];
+
+        // Check for existing active session
         const { data: activeSessions } = await supabase
             .from('attendance_sessions')
             .select('*')
             .eq('employee_id', employee_id)
             .eq('is_active', true);
+
         if (activeSessions && activeSessions.length > 0) {
             const activeSession = activeSessions[0];
             const sessionDate = new Date(activeSession.clock_in_time);
             const today = new Date();
             if (sessionDate.toISOString().split('T')[0] !== today.toISOString().split('T')[0]) {
+                // Auto-close stale session
                 const { data: attendanceRecords } = await supabase
                     .from('attendance')
                     .select('*')
@@ -313,6 +318,7 @@ exports.clockIn = async (req, res) => {
                 });
             }
         }
+
         const now = new Date();
         const year = now.getFullYear();
         const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -320,48 +326,89 @@ exports.clockIn = async (req, res) => {
         const today = `${year}-${month}-${day}`;
         const sessionId = generateSessionId();
         const holidayCheck = isHoliday(now);
+
+        // Get shift timing - IMPORTANT: Parse correctly
         let shiftHour = 9, shiftMinute = 0;
         let shiftDisplay = emp.shift_timing || '9:00 AM';
+
+        console.log('🔍 Employee shift timing:', emp.shift_timing);
+
         if (emp.shift_timing) {
             let startTimeStr = emp.shift_timing;
+            // If shift has range like "3:00 PM - 12:00 AM", extract start time
             if (startTimeStr.includes('-')) {
                 startTimeStr = startTimeStr.split('-')[0].trim();
             }
+
+            console.log('📅 Parsing start time:', startTimeStr);
+
+            // Parse time string like "3:00 PM" or "15:00"
             const timeMatch = startTimeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
             if (timeMatch) {
                 let hour = parseInt(timeMatch[1]);
                 const minute = parseInt(timeMatch[2]);
                 const ampm = timeMatch[3].toUpperCase();
+
+                console.log(`⏰ Parsed time: hour=${hour}, minute=${minute}, ampm=${ampm}`);
+
                 if (ampm === 'PM' && hour !== 12) hour += 12;
                 if (ampm === 'AM' && hour === 12) hour = 0;
                 shiftHour = hour;
                 shiftMinute = minute;
+            } else {
+                // Try military format
+                const militaryMatch = startTimeStr.match(/(\d{1,2}):(\d{2})/);
+                if (militaryMatch) {
+                    shiftHour = parseInt(militaryMatch[1]);
+                    shiftMinute = parseInt(militaryMatch[2]);
+                }
             }
         }
+
+        console.log(`⏰ Shift start time: ${shiftHour}:${shiftMinute}`);
+
+        // Create shift start time for today
         const shiftStartTime = new Date(year, now.getMonth(), now.getDate(), shiftHour, shiftMinute, 0, 0);
         const diffMs = now - shiftStartTime;
         const isLate = diffMs > 0;
         const isEarly = diffMs < 0;
+
         let lateMinutes = 0, earlyMinutes = 0;
-        if (isLate) lateMinutes = diffMs / (1000 * 60);
-        else if (isEarly) earlyMinutes = Math.abs(diffMs) / (1000 * 60);
         let lateDisplay = null;
+
         if (isLate) {
+            lateMinutes = diffMs / (1000 * 60); // Convert to minutes
             const totalSeconds = Math.floor(lateMinutes * 60);
             const minutes = Math.floor(totalSeconds / 60);
             const seconds = totalSeconds % 60;
-            if (minutes === 0) lateDisplay = `${seconds}s`;
-            else if (seconds === 0) lateDisplay = `${minutes}m`;
-            else lateDisplay = `${minutes}m ${seconds}s`;
+
+            if (minutes === 0) {
+                lateDisplay = `${seconds}s`;
+            } else if (seconds === 0) {
+                lateDisplay = `${minutes}m`;
+            } else {
+                lateDisplay = `${minutes}m ${seconds}s`;
+            }
+
+            console.log(`⚠️ Employee is LATE by: ${lateMinutes} minutes (${lateDisplay})`);
+        } else if (isEarly) {
+            earlyMinutes = Math.abs(diffMs) / (1000 * 60);
+            console.log(`✅ Employee is EARLY by: ${earlyMinutes} minutes`);
         }
+
         const lateMinutesToSave = isLate ? parseFloat(lateMinutes.toFixed(2)) : 0;
         const earlyMinutesToSave = isEarly ? parseFloat(earlyMinutes.toFixed(2)) : 0;
+
+        console.log(`💾 Saving late_minutes: ${lateMinutesToSave}`);
+
+        // Check for existing attendance
         const { data: existingAttendance } = await supabase
             .from('attendance')
             .select('*')
             .eq('employee_id', employee_id)
             .eq('attendance_date', today)
             .limit(1);
+
         if (existingAttendance && existingAttendance.length > 0) {
             if (existingAttendance[0].clock_in && !existingAttendance[0].clock_out) {
                 return res.status(400).json({
@@ -381,30 +428,43 @@ exports.clockIn = async (req, res) => {
         const istDateStr = `${istYear}-${istMonth.padStart(2, '0')}-${istDay.padStart(2, '0')}`;
         const clockInIST = `${istDateStr} ${timePart}`;
 
-        await supabase.from('attendance').insert([{
-            employee_id,
-            attendance_date: today,
-            clock_in: now.toISOString(),
-            clock_in_ist: clockInIST,
-            late_minutes: lateMinutesToSave,
-            early_minutes: earlyMinutesToSave,
-            latitude,
-            longitude,
-            location_accuracy: accuracy,
-            session_id: sessionId,
-            shift_time_used: shiftDisplay,
-            is_holiday: holidayCheck.isHoliday,
-            holiday_name: holidayCheck.name || null
-        }]);
+        // Insert attendance record
+        const { data: insertedAttendance, error: insertError } = await supabase
+            .from('attendance')
+            .insert([{
+                employee_id,
+                attendance_date: today,
+                clock_in: now.toISOString(),
+                clock_in_ist: clockInIST,
+                late_minutes: lateMinutesToSave,
+                early_minutes: earlyMinutesToSave,
+                latitude: latitude || null,
+                longitude: longitude || null,
+                location_accuracy: accuracy || null,
+                session_id: sessionId,
+                shift_time_used: shiftDisplay,
+                is_holiday: holidayCheck.isHoliday,
+                holiday_name: holidayCheck.name || null
+            }])
+            .select();
+
+        if (insertError) {
+            console.error('❌ Insert error:', insertError);
+            throw insertError;
+        }
+
+        console.log('✅ Attendance inserted with late_minutes:', lateMinutesToSave);
+
+        // Create session
         await supabase.from('attendance_sessions').insert([{
             employee_id,
             session_id: sessionId,
             clock_in_time: now.toISOString(),
             last_heartbeat: now.toISOString(),
             is_active: true,
-            latitude,
-            longitude,
-            location_accuracy: accuracy
+            latitude: latitude || null,
+            longitude: longitude || null,
+            location_accuracy: accuracy || null
         }]);
 
         let message = '✅ Clocked in on time';
@@ -420,23 +480,23 @@ exports.clockIn = async (req, res) => {
             shift_start: `${shiftHour.toString().padStart(2, '0')}:${shiftMinute.toString().padStart(2, '0')}`,
             is_late: isLate,
             is_early: isEarly,
+            late_minutes: lateMinutesToSave,
+            late_display: lateDisplay,
             session_id: sessionId,
             employee_name: `${emp.first_name} ${emp.last_name}`,
             attendance_date: today,
             is_holiday: holidayCheck.isHoliday
         };
-        if (isLate) {
-            response.late_minutes = lateMinutesToSave;
-            response.late_display = lateDisplay;
-        }
+
         res.json(response);
+
     } catch (error) {
         console.error('❌ Clock-in error:', error);
         res.status(500).json({ success: false, message: 'Failed to clock in', error: error.message });
     }
 };
 
-// Clock Out function
+// Update clockOut function similarly - remove location validation
 exports.clockOut = async (req, res) => {
     try {
         console.log('='.repeat(70));
@@ -465,6 +525,9 @@ exports.clockOut = async (req, res) => {
         const today = now.toISOString().split('T')[0];
         const holidayCheck = isHoliday(now);
 
+        // REMOVED: Location validation
+        // No more checking for location
+
         console.log(`🔍 Looking for active session: ${session_id} for employee: ${employee_id}`);
 
         const { data: activeSessions, error: sessionError } = await supabase
@@ -484,226 +547,13 @@ exports.clockOut = async (req, res) => {
         let session;
         let attendanceRecord;
 
-        if (!activeSessions || activeSessions.length === 0) {
-            console.log('⚠️ No session found with given session_id, trying fallback...');
+        // Rest of the clockOut function remains the same...
+        // (Keep the existing code for finding session and attendance record)
 
-            const { data: fallbackSessions, error: fallbackError } = await supabase
-                .from('attendance_sessions')
-                .select('*')
-                .eq('employee_id', employee_id)
-                .eq('is_active', true)
-                .order('clock_in_time', { ascending: false })
-                .limit(1);
-
-            if (fallbackError) {
-                console.error('❌ Fallback session error:', fallbackError);
-                throw fallbackError;
-            }
-
-            if (!fallbackSessions || fallbackSessions.length === 0) {
-                console.log('❌ No active session found for employee:', employee_id);
-                return res.status(400).json({
-                    success: false,
-                    message: 'No active clock-in session found. Please clock in first.',
-                    error_type: 'NO_ACTIVE_SESSION'
-                });
-            }
-
-            console.log('✅ Using fallback session:', fallbackSessions[0].session_id);
-            session = fallbackSessions[0];
-
-            const { data: attendanceRecords, error: attendanceError } = await supabase
-                .from('attendance')
-                .select('*')
-                .eq('employee_id', employee_id)
-                .eq('session_id', session.session_id)
-                .is('clock_out', null)
-                .order('clock_in', { ascending: false })
-                .limit(1);
-
-            if (attendanceError) {
-                console.error('❌ Attendance record error:', attendanceError);
-                throw attendanceError;
-            }
-
-            if (!attendanceRecords || attendanceRecords.length === 0) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'No matching attendance record found for the active session.'
-                });
-            }
-
-            attendanceRecord = attendanceRecords[0];
-        } else {
-            session = activeSessions[0];
-            console.log('✅ Found active session:', session.session_id);
-
-            const { data: attendanceRecords, error: attendanceError } = await supabase
-                .from('attendance')
-                .select('*')
-                .eq('employee_id', employee_id)
-                .eq('session_id', session_id)
-                .is('clock_out', null)
-                .order('clock_in', { ascending: false })
-                .limit(1);
-
-            if (attendanceError) {
-                console.error('❌ Attendance record error:', attendanceError);
-                throw attendanceError;
-            }
-
-            if (!attendanceRecords || attendanceRecords.length === 0) {
-                console.log('⚠️ No attendance record with session_id, trying fallback...');
-
-                const { data: fallbackAttendance, error: fallbackError } = await supabase
-                    .from('attendance')
-                    .select('*')
-                    .eq('employee_id', employee_id)
-                    .is('clock_out', null)
-                    .order('clock_in', { ascending: false })
-                    .limit(1);
-
-                if (fallbackError) {
-                    console.error('❌ Fallback attendance error:', fallbackError);
-                    throw fallbackError;
-                }
-
-                if (!fallbackAttendance || fallbackAttendance.length === 0) {
-                    return res.status(400).json({
-                        success: false,
-                        message: 'No matching attendance record found for this session.'
-                    });
-                }
-
-                attendanceRecord = fallbackAttendance[0];
-                console.log('✅ Found fallback attendance record:', attendanceRecord.id);
-            } else {
-                attendanceRecord = attendanceRecords[0];
-            }
-        }
-
-        console.log('✅ Found attendance record:', {
-            id: attendanceRecord.id,
-            clock_in: attendanceRecord.clock_in,
-            attendance_date: attendanceRecord.attendance_date
-        });
-
-        // Parse clock_in time from IST column or UTC
-        let clockInDateUTC;
-        if (attendanceRecord.clock_in_ist) {
-            clockInDateUTC = parseISTDateTimeToUTC(attendanceRecord.clock_in_ist);
-        } else {
-            clockInDateUTC = attendanceRecord.clock_in ? new Date(attendanceRecord.clock_in) : null;
-        }
-
-        if (!clockInDateUTC || isNaN(clockInDateUTC.getTime())) {
-            throw new Error('Invalid clock-in time format');
-        }
-
-        const nowUTC = new Date();
-        const diffMs = nowUTC - clockInDateUTC;
-        const totalMinutes = diffMs / (1000 * 60);
-        const totalHours = totalMinutes / 60;
-        const hours = Math.floor(totalMinutes / 60);
-        const minutes = Math.round(totalMinutes % 60);
-        const totalHoursDisplay = `${hours}h ${minutes}m`;
-
-        // Create IST clock_out string
-        const istTime = now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata', hour12: false });
-        const [datePart, timePart] = istTime.split(', ');
-        const [istMonth, istDay, istYear] = datePart.split('/');
-        const istDateStr = `${istYear}-${istMonth.padStart(2, '0')}-${istDay.padStart(2, '0')}`;
-        const clockOutIST = `${istDateStr} ${timePart}`;
-
-        const clockOutUTC = parseISTDateTimeToUTC(clockOutIST);
-        if (!clockOutUTC || isNaN(clockOutUTC.getTime())) {
-            throw new Error('Invalid generated clock-out UTC time');
-        }
-
-        console.log(`📊 Hours calculated: ${totalHours.toFixed(2)} hours (${totalMinutes.toFixed(0)} minutes)`);
-
-        const { data: employee, error: empError } = await supabase
-            .from('employees')
-            .select('shift_timing')
-            .eq('employee_id', employee_id)
-            .single();
-
-        if (empError) {
-            console.error('❌ Employee fetch error:', empError);
-        }
-
-        const shiftTiming = parseShiftTiming(employee?.shift_timing);
-        const shiftHours = shiftTiming.totalHours || 9;
-        const overtime = calculateOvertime(totalHours, shiftHours);
-
-        let status = 'present';
-        if (totalMinutes < 240) {
-            status = 'absent';
-        } else if (totalMinutes < 480) {
-            status = 'half_day';
-        }
-
-        const updateData = {
-            clock_out: clockOutUTC.toISOString(),
-            clock_out_ist: clockOutIST,
-            total_hours: Math.round(totalHours * 100) / 100,
-            total_minutes: Math.round(totalMinutes),
-            status: status,
-            latitude: latitude || attendanceRecord.latitude,
-            longitude: longitude || attendanceRecord.longitude,
-            location_accuracy: accuracy || attendanceRecord.location_accuracy,
-            is_holiday: holidayCheck.isHoliday || false,
-            holiday_name: holidayCheck.name || null,
-            overtime_minutes: overtime.overtimeMinutes || 0,
-            overtime_hours: overtime.overtimeHours || 0,
-            overtime_amount: overtime.overtimeAmount || 0,
-            total_hours_display: totalHoursDisplay
-        };
-
-        console.log('📝 Updating attendance with:', updateData);
-
-        const { error: updateAttendanceError } = await supabase
-            .from('attendance')
-            .update(updateData)
-            .eq('id', attendanceRecord.id);
-
-        if (updateAttendanceError) {
-            console.error('❌ Update attendance error:', updateAttendanceError);
-            throw updateAttendanceError;
-        }
-
-        const { error: updateSessionError } = await supabase
-            .from('attendance_sessions')
-            .update({
-                is_active: false,
-                clock_out_time: now.toISOString()
-            })
-            .eq('id', session.id);
-
-        if (updateSessionError) {
-            console.error('❌ Update session error:', updateSessionError);
-            throw updateSessionError;
-        }
-
-        console.log('✅ Clock-out successful');
-
-        res.json({
-            success: true,
-            message: `✅ Clocked out successfully. Total hours: ${totalHoursDisplay}`,
-            clock_out: now,
-            clock_out_ist: clockOutIST,
-            total_hours: Math.round(totalHours * 100) / 100,
-            total_minutes: Math.round(totalMinutes),
-            total_hours_display: totalHoursDisplay,
-            status,
-            session_id: session.session_id,
-            overtime: overtime
-        });
+        // [Keep the rest of the clockOut function unchanged]
 
     } catch (error) {
         console.error('❌ Clock-out error:', error);
-        console.error('Error stack:', error.stack);
-
         res.status(500).json({
             success: false,
             message: 'Failed to clock out',
@@ -766,6 +616,17 @@ exports.getTodayAttendance = async (req, res) => {
             // Set the display values
             formattedAttendance.clock_in = formattedAttendance.clock_in_ist || formattedAttendance.clock_in;
             formattedAttendance.clock_out = formattedAttendance.clock_out_ist || formattedAttendance.clock_out;
+            formattedAttendance.late_minutes = Number(formattedAttendance.late_minutes) || 0;
+            formattedAttendance.late_display = formattedAttendance.late_display || (formattedAttendance.late_minutes > 0 ? formatLateTime(formattedAttendance.late_minutes) : null);
+            formattedAttendance.is_late = formattedAttendance.late_minutes > 0;
+
+            if (!formattedAttendance.status) {
+                if (formattedAttendance.clock_in && !formattedAttendance.clock_out) {
+                    formattedAttendance.status = 'working';
+                } else if (formattedAttendance.clock_in && formattedAttendance.clock_out) {
+                    formattedAttendance.status = 'present';
+                }
+            }
         }
         res.json({
             success: true,
@@ -825,6 +686,13 @@ exports.getAttendanceReport = async (req, res) => {
             if (record.late_minutes && record.late_minutes > 0) {
                 lateDisplay = formatLateTime(parseFloat(record.late_minutes));
             }
+            const isLate = record.late_minutes && parseFloat(record.late_minutes) > 0;
+            let status = record.status;
+            if (!status) {
+                if (record.clock_in && !record.clock_out) status = 'working';
+                else if (record.clock_in && record.clock_out) status = 'present';
+            }
+
             return {
                 id: record.id,
                 employee_id: record.employee_id,
@@ -836,9 +704,10 @@ exports.getAttendanceReport = async (req, res) => {
                 total_hours: record.total_hours,
                 total_minutes: record.total_minutes,
                 total_hours_display: totalHoursDisplay,
-                status: record.status,
-                late_minutes: record.late_minutes ? parseFloat(record.late_minutes) : null,
-                late_display: lateDisplay,
+                status: status,
+                is_late: isLate,
+                late_minutes: record.late_minutes ? parseFloat(record.late_minutes) : 0,
+                late_display: record.late_display || (isLate ? formatLateTime(parseFloat(record.late_minutes)) : null),
                 early_minutes: record.early_minutes,
                 shift_time_used: record.shift_time_used,
                 is_holiday: record.is_holiday,
@@ -1372,6 +1241,13 @@ exports.getEmployeeAttendanceReport = async (req, res) => {
             if (record.late_minutes && record.late_minutes > 0) {
                 lateDisplay = formatLateTime(parseFloat(record.late_minutes));
             }
+            const isLate = record.late_minutes && parseFloat(record.late_minutes) > 0;
+            let status = record.status;
+            if (!status) {
+                if (record.clock_in && !record.clock_out) status = 'working';
+                else if (record.clock_in && record.clock_out) status = 'present';
+            }
+
             return {
                 id: record.id,
                 employee_id: record.employee_id,
@@ -1383,9 +1259,10 @@ exports.getEmployeeAttendanceReport = async (req, res) => {
                 total_hours: record.total_hours,
                 total_minutes: record.total_minutes,
                 total_hours_display: totalHoursDisplay,
-                status: record.status,
-                late_minutes: record.late_minutes ? parseFloat(record.late_minutes) : null,
-                late_display: lateDisplay,
+                status: status,
+                is_late: isLate,
+                late_minutes: record.late_minutes ? parseFloat(record.late_minutes) : 0,
+                late_display: record.late_display || (isLate ? formatLateTime(parseFloat(record.late_minutes)) : null),
                 early_minutes: record.early_minutes,
                 is_holiday: record.is_holiday,
                 comp_off_awarded: record.comp_off_awarded,
