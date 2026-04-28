@@ -3,146 +3,259 @@ const supabase = require('../config/supabase');
 // Helper function to get month name
 function getMonthName(monthNumber) {
     const months = ['January', 'February', 'March', 'April', 'May', 'June',
-                    'July', 'August', 'September', 'October', 'November', 'December'];
+        'July', 'August', 'September', 'October', 'November', 'December'];
     return months[monthNumber - 1] || 'Unknown';
 }
 
-// salaryController.js - Complete generateSalarySlip function
+// salaryController.js - Add this check function
+const checkTableExists = async (tableName) => {
+    try {
+        const { data, error } = await supabase
+            .from(tableName)
+            .select('count', { count: 'exact', head: true })
+            .limit(1);
 
-/**
- * Generate salary slip for an employee
- * Access: Employee can generate their own, Admin can generate for anyone
- */
+        if (error && error.code === '42P01') {
+            return false;
+        }
+        return true;
+    } catch (error) {
+        if (error.message && error.message.includes('does not exist')) {
+            return false;
+        }
+        throw error;
+    }
+};
 
-// Generate salary slip with overtime
+// Add this at the top of salaryController.js
+const setEmployeeContext = async (employeeId, role) => {
+    try {
+        // Set the current employee ID in the session
+        await supabase.rpc('set_employee_context', {
+            employee_id: employeeId,
+            role: role || 'employee'
+        });
+    } catch (error) {
+        console.log('Could not set employee context, continuing...');
+    }
+};
+
+const getCycleDates = (month, year) => {
+    // April salary = 26 Mar to 25 Apr
+    // month=4, year=2026 → start: 2026-03-26, end: 2026-04-25
+    const startMonth = month - 1; // previous month (1-based)
+    const startYear  = startMonth === 0 ? year - 1 : year;
+    const actualStartMonth = startMonth === 0 ? 12 : startMonth;
+
+    // Build date strings directly to avoid UTC offset shifting
+    const pad = (n) => String(n).padStart(2, '0');
+    const startDateStr = `${startYear}-${pad(actualStartMonth)}-26`;
+    const endDateStr   = `${year}-${pad(month)}-25`;
+
+    return {
+        startDate:    new Date(`${startDateStr}T00:00:00`),
+        endDate:      new Date(`${endDateStr}T00:00:00`),
+        startDateStr,
+        endDateStr
+    };
+};
+
+const getCurrentCycle = () => {
+    const today = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    let startYear, startMonth, endYear, endMonth;
+
+    if (today.getDate() >= 26) {
+        startYear  = today.getFullYear();
+        startMonth = today.getMonth() + 1; // current month
+        endYear    = startMonth === 12 ? startYear + 1 : startYear;
+        endMonth   = startMonth === 12 ? 1 : startMonth + 1;
+    } else {
+        endYear    = today.getFullYear();
+        endMonth   = today.getMonth() + 1; // current month
+        startYear  = endMonth === 1 ? endYear - 1 : endYear;
+        startMonth = endMonth === 1 ? 12 : endMonth - 1;
+    }
+
+    const startDateStr = `${startYear}-${pad(startMonth)}-26`;
+    const endDateStr   = `${endYear}-${pad(endMonth)}-25`;
+
+    return {
+        startDate:    new Date(`${startDateStr}T00:00:00`),
+        endDate:      new Date(`${endDateStr}T00:00:00`),
+        startDateStr,
+        endDateStr,
+        monthName: new Date(`${endDateStr}T00:00:00`).toLocaleString('default', { month: 'long' }),
+        year: endYear
+    };
+};
+
 exports.generateSalarySlip = async (req, res) => {
     try {
-        console.log('='.repeat(70));
-        console.log('💰 GENERATING SALARY SLIP');
-        console.log('Request body:', JSON.stringify(req.body, null, 2));
-        console.log('='.repeat(70));
-
-        const { employee_id, month, year, overtime_amount, overtime_hours } = req.body;
+        const { employee_id, month, year } = req.body;
 
         if (!employee_id || !month || !year) {
+            return res.status(400).json({ success: false, message: 'Employee ID, month, and year are required' });
+        }
+
+        const tableExists = await checkTableExists('salary_slips');
+        if (!tableExists) {
+            return res.status(500).json({ success: false, message: 'Salary slips table not created yet.' });
+        }
+
+        const { data: employee, error: empError } = await supabase
+            .from('employees').select('*').eq('employee_id', employee_id).single();
+        if (empError || !employee) {
+            return res.status(404).json({ success: false, message: 'Employee not found' });
+        }
+
+        // Cycle dates: prev month 26th to current month 25th
+        const cycle = getCycleDates(parseInt(month), parseInt(year));
+
+        // ── RULE: Salary slip can only be generated from 27th of the salary month ──
+        const today = new Date();
+        const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+        const cycleEndMonth = parseInt(month);
+        const cycleEndYear  = parseInt(year);
+        // Earliest allowed date = cycleEnd + 2 days = 27th of salary month
+        const allowedFrom = new Date(`${cycleEndYear}-${String(cycleEndMonth).padStart(2,'0')}-27T00:00:00`);
+        if (today < allowedFrom) {
+            const allowedDateStr = `27 ${new Date(allowedFrom).toLocaleString('en-IN',{month:'long'})} ${cycleEndYear}`;
             return res.status(400).json({
                 success: false,
-                message: 'Employee ID, month, and year are required'
+                message: `Salary slip for ${new Date(allowedFrom).toLocaleString('en-IN',{month:'long'})} ${cycleEndYear} can only be generated from ${allowedDateStr}.`
             });
         }
 
-        // Get employee details
-        const { data: employee, error: empError } = await supabase
-            .from('employees')
-            .select('*')
-            .eq('employee_id', employee_id)
-            .single();
-
-        if (empError || !employee) {
-            return res.status(404).json({
-                success: false,
-                message: 'Employee not found'
-            });
-        }
-
-        // Check if salary slip already exists for this month/year
-        const { data: existingSlip, error: checkError } = await supabase
-            .from('salary_slips')
-            .select('*')
-            .eq('employee_id', employee_id)
-            .eq('month', month)
-            .eq('year', year)
-            .maybeSingle();
-
-        if (checkError) throw checkError;
-
+        // Check existing slip
+        const { data: existingSlip } = await supabase
+            .from('salary_slips').select('*')
+            .eq('employee_id', employee_id).eq('month', month).eq('year', year).maybeSingle();
         if (existingSlip) {
-            return res.json({
-                success: true,
-                message: 'Salary slip already exists',
-                salarySlip: existingSlip
-            });
+            return res.json({ success: true, message: 'Salary slip already exists', salarySlip: existingSlip });
         }
 
-        // Calculate salary components
-        const basicSalary = parseFloat(employee.gross_salary || employee.salary || 0);
-        const dtDeduction = 200; // Fixed deduction
-        const overtimeAmt = parseFloat(overtime_amount) || 0;
-        const overtimeHrs = parseFloat(overtime_hours) || 0;
-        const netSalary = basicSalary - dtDeduction + overtimeAmt;
-
-        console.log('📊 Salary calculation:', {
-            basicSalary,
-            dtDeduction,
-            overtimeAmt,
-            overtimeHrs,
-            netSalary
-        });
-
-        // Create salary slip with all fields
-        const { data: salarySlip, error: insertError } = await supabase
-            .from('salary_slips')
-            .insert([{
-                employee_id,
-                month,
-                year,
-                basic_salary: basicSalary,
-                dt: dtDeduction,
-                overtime_hours: overtimeHrs,
-                overtime_amount: overtimeAmt,
-                net_salary: netSalary,
-                generated_date: new Date().toISOString(),
-                is_paid: false
-            }])
-            .select()
-            .single();
-
-        if (insertError) {
-            console.error('❌ Insert error:', insertError);
-            throw insertError;
+        // ── Count total working days (Mon-Fri) in cycle ──
+        let totalWorkingDays = 0;
+        let d = new Date(`${cycle.startDateStr}T00:00:00`);
+        const cycleEndDate = new Date(`${cycle.endDateStr}T00:00:00`);
+        while (d <= cycleEndDate) {
+            const dow = d.getDay();
+            if (dow !== 0 && dow !== 6) totalWorkingDays++;
+            d.setDate(d.getDate() + 1);
         }
 
-        // Mark overtime as paid if any
-        if (overtimeHrs > 0) {
-            const startDate = new Date(year, month - 1, 1);
-            const endDate = new Date(year, month, 0);
-            
-            const startDateStr = startDate.toISOString().split('T')[0];
-            const endDateStr = endDate.toISOString().split('T')[0];
+        // ── Get attendance records in cycle ──
+        const { data: attendanceRecords } = await supabase
+            .from('attendance')
+            .select('attendance_date, clock_in, clock_out, status, total_minutes')
+            .eq('employee_id', employee_id)
+            .gte('attendance_date', cycle.startDateStr)
+            .lte('attendance_date', cycle.endDateStr);
 
-            const { error: updateError } = await supabase
-                .from('overtime_earnings')
-                .update({ 
-                    is_paid: true, 
-                    paid_in_salary_id: salarySlip.id 
-                })
-                .eq('employee_id', employee_id)
-                .gte('attendance_date', startDateStr)
-                .lte('attendance_date', endDateStr);
+        // Count present days (has clock_in + clock_out)
+        const presentDays = (attendanceRecords || []).filter(a =>
+            a.clock_in && a.clock_out
+        ).length;
 
-            if (updateError) {
-                console.error('Error marking overtime as paid:', updateError);
+        // ── Get approved leaves in cycle ──
+        const { data: leaves } = await supabase
+            .from('leaves')
+            .select('leave_type, start_date, end_date, days_count, leave_duration')
+            .eq('employee_id', employee_id)
+            .eq('status', 'approved')
+            .lte('start_date', cycle.endDateStr)
+            .gte('end_date', cycle.startDateStr);
+
+        // Count unpaid leave days (Mon-Fri only within cycle)
+        let unpaidLeaveDays = 0;
+        let paidLeaveDays   = 0;
+        for (const leave of (leaves || [])) {
+            const isUnpaid = leave.leave_type === 'Unpaid';
+            const isHalfDay = leave.leave_duration === 'Half Day';
+
+            if (isHalfDay) {
+                if (isUnpaid) unpaidLeaveDays += 0.5;
+                else paidLeaveDays += 0.5;
+                continue;
+            }
+
+            // Count Mon-Fri days within cycle overlap
+            let ld = new Date(Math.max(new Date(`${leave.start_date}T00:00:00`), new Date(`${cycle.startDateStr}T00:00:00`)));
+            const leaveEnd = new Date(Math.min(new Date(`${leave.end_date}T00:00:00`), cycleEndDate));
+            while (ld <= leaveEnd) {
+                const dow = ld.getDay();
+                if (dow !== 0 && dow !== 6) {
+                    if (isUnpaid) unpaidLeaveDays++;
+                    else paidLeaveDays++;
+                }
+                ld.setDate(ld.getDate() + 1);
             }
         }
 
-        console.log('✅ Salary slip generated:', salarySlip);
+        // Absent days = working days - present - paid leave - unpaid leave
+        const absentDays = Math.max(0, totalWorkingDays - presentDays - paidLeaveDays - unpaidLeaveDays);
 
-        res.json({
-            success: true,
-            message: 'Salary slip generated successfully',
-            salarySlip
+        // ── Get OT for the cycle period ──
+        const { data: otRecords } = await supabase
+            .from('attendance')
+            .select('overtime_hours, overtime_amount, attendance_date')
+            .eq('employee_id', employee_id)
+            .gte('attendance_date', cycle.startDateStr)
+            .lte('attendance_date', cycle.endDateStr)
+            .gt('overtime_hours', 0);
+
+        const overtimeHrs = (otRecords || []).reduce((sum, r) => sum + (parseFloat(r.overtime_hours) || 0), 0);
+        const overtimeAmt = parseFloat((overtimeHrs * 150).toFixed(2));
+
+        // ── Salary calculation ──
+        const monthlySalary = parseFloat(employee.gross_salary || employee.salary || 0);
+        const perDaySalary  = totalWorkingDays > 0 ? monthlySalary / totalWorkingDays : 0;
+
+        // Deduct unpaid leave days only (paid leaves don't reduce salary)
+        const unpaidDeduction = parseFloat((unpaidLeaveDays * perDaySalary).toFixed(2));
+        const basicSalary     = parseFloat((monthlySalary - unpaidDeduction).toFixed(2));
+        const dtDeduction     = 200;
+        const netSalary       = parseFloat((basicSalary - dtDeduction + overtimeAmt).toFixed(2));
+
+        console.log('📊 Salary Calculation:', {
+            cycle: `${cycle.startDateStr} to ${cycle.endDateStr}`,
+            totalWorkingDays, presentDays, paidLeaveDays, unpaidLeaveDays, absentDays,
+            monthlySalary, perDaySalary, unpaidDeduction, basicSalary,
+            overtimeHrs, overtimeAmt, dtDeduction, netSalary
         });
+
+        const { data: salarySlip, error: insertError } = await supabase
+            .from('salary_slips')
+            .insert([{
+                employee_id, month, year,
+                cycle_start_date: cycle.startDateStr,
+                cycle_end_date:   cycle.endDateStr,
+                total_working_days: totalWorkingDays,
+                present_days:       presentDays,
+                paid_leave_days:    paidLeaveDays,
+                unpaid_leave_days:  unpaidLeaveDays,
+                absent_days:        absentDays,
+                per_day_salary:     parseFloat(perDaySalary.toFixed(2)),
+                unpaid_deduction:   unpaidDeduction,
+                monthly_salary:     monthlySalary,
+                basic_salary:       basicSalary,
+                dt:                 dtDeduction,
+                overtime_hours:     overtimeHrs,
+                overtime_amount:    overtimeAmt,
+                net_salary:         netSalary,
+                generated_date:     new Date().toISOString(),
+                is_paid:            false
+            }])
+            .select().single();
+
+        if (insertError) throw insertError;
+
+        res.json({ success: true, message: 'Salary slip generated successfully', salarySlip });
 
     } catch (error) {
         console.error('❌ Error generating salary slip:', error);
-        console.error('Error details:', error);
-        
-        res.status(500).json({
-            success: false,
-            message: 'Failed to generate salary slip',
-            error: error.message,
-            details: error.details || error.hint
-        });
+        res.status(500).json({ success: false, message: 'Failed to generate salary slip', error: error.message });
     }
 };
 
@@ -173,10 +286,10 @@ exports.getEmployeeSalarySlips = async (req, res) => {
         const joiningInfo = {
             year: joiningDate.getFullYear(),
             month: joiningDate.getMonth() + 1,
-            formattedDate: joiningDate.toLocaleDateString('en-US', { 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
+            formattedDate: joiningDate.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
             })
         };
 
@@ -393,7 +506,7 @@ exports.generateBulkSalarySlips = async (req, res) => {
                     // Generate salary slip for this employee
                     const rawSalary = String(emp.gross_salary || emp.salary || '0').replace(/[^0-9.]/g, '');
                     const basicSalary = parseFloat(rawSalary) || 0;
-                    
+
                     // SIMPLIFIED CALCULATIONS
                     const grossEarnings = basicSalary;
                     const dt = 200;

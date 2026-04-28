@@ -74,10 +74,10 @@ const Login = () => {
             <Card className="border-0 shadow-lg overflow-hidden">
               {/* Card Header with Gradient */}
               <Card.Header className="text-center py-3 py-sm-4 border-0" style={{
-                background: 'linear-gradient(135deg, #4158D0 0%, #C850C0 100%)',
+                background: 'linear-gradient(135deg, #e6e4f0, #f2d9cc)',
               }}>
-                <h1 className="h4 h3-sm mb-0 text-white fw-semibold">Welcome Back</h1>
-                <p className="mb-0 mt-2 text-white-50 small px-2 px-sm-0">
+                <h1 className="h4 h3-sm mb-0 fw-semibold" style={{ color: '#3d2c5e' }}>Welcome Back</h1>
+                <p className="mb-0 mt-2 small px-2 px-sm-0" style={{ color: '#7a6a9a' }}>
                   Employee Management System
                 </p>
               </Card.Header>
@@ -164,7 +164,8 @@ const Login = () => {
                     className="w-100 py-2 d-flex align-items-center justify-content-center gap-2 border-0 mb-4"
                     style={{
                       height: '48px',
-                      background: 'linear-gradient(135deg, #4158D0 0%, #C850C0 100%)',
+                      background: 'linear-gradient(135deg, #e6e4f0, #f2d9cc)',
+                      color: '#3d2c5e',
                       borderRadius: '10px',
                       fontSize: '1rem',
                       fontWeight: '600',

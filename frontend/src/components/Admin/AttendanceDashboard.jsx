@@ -185,9 +185,20 @@ const AttendanceReports = () => {
         record.late_minutes = Number(record.late_minutes) || 0;
         record.is_late = record.late_minutes > 0;
 
-        // FIX: Always calculate late_display if late_minutes exists
+        // FIXED: Always calculate late_display if late_minutes exists
         if (record.late_minutes > 0) {
-          record.late_display = formatLateDisplay(record.late_minutes);
+          // Calculate late display with proper formatting
+          const totalSeconds = Math.floor(record.late_minutes * 60);
+          const hours = Math.floor(totalSeconds / 3600);
+          const remainingSeconds = totalSeconds % 3600;
+          const minutes = Math.floor(remainingSeconds / 60);
+          const seconds = remainingSeconds % 60;
+
+          const parts = [];
+          if (hours > 0) parts.push(`${hours}h`);
+          if (minutes > 0) parts.push(`${minutes}m`);
+          if (seconds > 0 || (hours === 0 && minutes === 0)) parts.push(`${seconds}s`);
+          record.late_display = parts.join(' ');
         } else {
           record.late_display = null;
         }

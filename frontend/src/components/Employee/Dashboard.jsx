@@ -29,7 +29,9 @@ import axios from '../../config/axios';
 import API_ENDPOINTS from '../../config/api';
 import { useNavigate } from 'react-router-dom';
 import { Bar, Doughnut } from 'react-chartjs-2';
-import { holidays, getHolidaysByRegion } from '../../data/holidays';
+import { holidays, getHolidaysByRegion, isHoliday, getUpcomingHolidays } from '../../data/holidays';
+import EmployeeNotices from './EmployeeNotices';
+import AnnouncementBanner from './AnnouncementBanner';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -147,10 +149,57 @@ const EmployeeDashboard = () => {
     }
   }, [user]);
 
-  // Update charts when data changes
+  // ✅ Recalculate stats from attendance history whenever it changes
+  const recalculateAttendanceStats = () => {
+    if (!attendanceHistory || attendanceHistory.length === 0) return;
+
+    let presentDays = 0;
+    let absentDays = 0;
+    let halfDays = 0;
+    let weeklyOffDays = 0;
+    let totalWorkingHours = 0;
+
+    attendanceHistory.forEach(record => {
+      const dateObj = new Date(record.attendance_date);
+      const dayOfWeek = dateObj.getDay();
+      const isWeeklyOff = dayOfWeek === 0 || dayOfWeek === 6; // Sunday or Saturday
+
+      if (isWeeklyOff) {
+        weeklyOffDays++;
+      } else {
+        // Working day - check status
+        if (record.status === 'present' || record.status === 'working' || record.clock_in) {
+          presentDays++;
+          if (record.total_hours) {
+            totalWorkingHours += parseFloat(record.total_hours);
+          }
+        } else if (record.status === 'half_day') {
+          halfDays++;
+          presentDays++; // Half day counts as present
+          if (record.total_hours) {
+            totalWorkingHours += parseFloat(record.total_hours);
+          }
+        } else if (record.status === 'absent' || !record.clock_in) {
+          absentDays++;
+        }
+      }
+    });
+
+    setStats(prev => ({
+      ...prev,
+      presentDays,
+      absentDays,
+      halfDays,
+      weeklyOffDays,
+      totalWorkingHours: Math.round(totalWorkingHours * 10) / 10
+    }));
+  };
+
+  // Update charts and stats when data changes
   useEffect(() => {
     if (attendanceHistory.length > 0) {
       updateAttendanceChart();
+      recalculateAttendanceStats(); // ✅ Recalculate stats on every attendance change
     }
     if (leaveBalance) {
       updateLeaveChart();
@@ -222,6 +271,7 @@ const EmployeeDashboard = () => {
       setLoading(false);
     }
   };
+  
 
   const refreshData = async () => {
     setRefreshing(true);
@@ -345,115 +395,74 @@ const EmployeeDashboard = () => {
     }
   };
 
-
   const fetchAttendanceHistory = async () => {
     try {
       const today = new Date();
-      const currentYear = today.getFullYear();
-      const currentMonth = today.getMonth(); // 0-11
+      today.setHours(0, 0, 0, 0);
 
-      // Get first day of current month
-      const startDate = new Date(currentYear, currentMonth, 1);
-      // Get last day of current month
-      const endDate = new Date(currentYear, currentMonth + 1, 0);
+      // Salary cycle: prev month 26th → current month 25th
+      let cycleStartDate, cycleEndDate;
+      if (today.getDate() >= 26) {
+        cycleStartDate = new Date(today.getFullYear(), today.getMonth(), 26);
+        cycleEndDate = new Date(today.getFullYear(), today.getMonth() + 1, 25);
+      } else {
+        cycleStartDate = new Date(today.getFullYear(), today.getMonth() - 1, 26);
+        cycleEndDate = new Date(today.getFullYear(), today.getMonth(), 25);
+      }
 
-      const startDateStr = startDate.toISOString().split('T')[0];
-      const endDateStr = endDate.toISOString().split('T')[0];
+      const startDateStr = cycleStartDate.toISOString().split('T')[0];
+      // Fetch only up to today (not future dates)
+      const fetchEndDate = today < cycleEndDate ? today : cycleEndDate;
+      const endDateStr = fetchEndDate.toISOString().split('T')[0];
 
-      console.log('📅 Fetching attendance for current month:', {
-        start: startDateStr,
-        end: endDateStr,
-        month: currentMonth + 1,
-        year: currentYear
-      });
-
-      // ✅ FIX: Use employee-specific endpoint instead of admin report
-      const url = `${API_ENDPOINTS.ATTENDANCE_EMPLOYEE_REPORT(user.employeeId, startDateStr, endDateStr)}`;
-      console.log('📡 API URL:', url);
-
-      const response = await axios.get(url);
-      console.log('📊 API Response:', response.data);
+      const response = await axios.get(
+        API_ENDPOINTS.ATTENDANCE_EMPLOYEE_REPORT(user.employeeId, startDateStr, endDateStr)
+      );
 
       const attendance = response.data.attendance || [];
-      console.log('📊 Attendance records for current month:', attendance.length);
+      setAttendanceHistory(attendance);
 
-      // Calculate present days for current month only
-      let presentDays = 0;
-      let halfDays = 0;
-      let weeklyOff = 0;
-      let absent = 0;
-      let totalWorkingHours = 0;
+      // Count stats only for days from cycle start up to TODAY (not future)
+      let presentDays = 0, halfDays = 0, weeklyOff = 0, absent = 0;
+      let totalWorkingDaysCount = 0;
 
-      // Get all dates in current month
-      const daysInMonth = endDate.getDate();
-
-      for (let day = 1; day <= daysInMonth; day++) {
-        const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        const date = new Date(currentYear, currentMonth, day);
-        const dayOfWeek = date.getDay();
-        const isWeeklyOff = dayOfWeek === 0 || dayOfWeek === 6;
-
-        // Find attendance record for this date
-        const record = attendance.find(r => r.attendance_date === dateStr);
+      let d = new Date(cycleStartDate);
+      while (d <= today) {
+        const dateStr = d.toISOString().split('T')[0];
+        const dow = d.getDay();
+        const isWeeklyOff = dow === 0 || dow === 6;
 
         if (isWeeklyOff) {
           weeklyOff++;
-        } else if (record) {
-          // Check if present (status 'present' or 'working' or clock_in exists)
-          if (record.status === 'present' || record.status === 'working' || record.clock_in) {
-            presentDays++;
-            if (record.total_hours) {
-              totalWorkingHours += parseFloat(record.total_hours);
-            }
-          } else if (record.status === 'half_day') {
-            halfDays++;
-            presentDays++; // Half day is also counted as present
-            if (record.total_hours) {
-              totalWorkingHours += parseFloat(record.total_hours);
-            }
-          } else if (record.status === 'absent') {
+        } else {
+          totalWorkingDaysCount++;
+          const record = attendance.find(r => r.attendance_date === dateStr);
+          if (record && (record.clock_in || record.status === 'present')) {
+            if (record.status === 'half_day') { halfDays++; presentDays++; }
+            else { presentDays++; }
+          } else {
             absent++;
           }
-        } else {
-          // No record means absent
-          absent++;
         }
+        d.setDate(d.getDate() + 1);
       }
 
-      const totalWorkingDays = daysInMonth - weeklyOff;
-
-      console.log('📊 Monthly Stats:', {
-        presentDays: presentDays,
-        halfDays: halfDays,
-        absentDays: absent,
-        weeklyOff: weeklyOff,
-        totalWorkingDays: totalWorkingDays,
-        totalWorkingHours: Math.round(totalWorkingHours * 10) / 10
-      });
+      // Cycle label for display
+      const cycleLabel = `${cycleStartDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} - ${cycleEndDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`;
 
       setStats(prev => ({
         ...prev,
-        presentDays: presentDays,
+        presentDays,
         absentDays: absent,
-        halfDays: halfDays,
+        halfDays,
         weeklyOffDays: weeklyOff,
-        totalWorkingHours: Math.round(totalWorkingHours * 10) / 10,
-        totalWorkingDays: totalWorkingDays
+        totalWorkingDays: totalWorkingDaysCount,
+        cycleLabel
       }));
 
     } catch (error) {
-      console.error('❌ Error fetching attendance history:', error);
-      console.error('Error details:', error.response?.data);
-
-      setStats(prev => ({
-        ...prev,
-        presentDays: 0,
-        absentDays: 0,
-        halfDays: 0,
-        weeklyOffDays: 0,
-        totalWorkingHours: 0,
-        totalWorkingDays: 0
-      }));
+      console.error('Error fetching attendance history:', error);
+      setAttendanceHistory([]);
     }
   };
 
@@ -513,65 +522,57 @@ const EmployeeDashboard = () => {
   };
 
   const updateAttendanceChart = () => {
-    // Initialize hours for each day
-    const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    // Show hours for each day of current week (Mon-Sun)
+    const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat (W-OFF)', 'Sun (W-OFF)'];
     const hoursByDay = [0, 0, 0, 0, 0, 0, 0];
-    const workingDaysCount = [0, 0, 0, 0, 0, 0, 0];
-    const backgroundColor = [
-      'rgba(54, 162, 235, 0.6)',   // Monday - Blue
-      'rgba(54, 162, 235, 0.6)',   // Tuesday - Blue
-      'rgba(54, 162, 235, 0.6)',   // Wednesday - Blue
-      'rgba(54, 162, 235, 0.6)',   // Thursday - Blue
-      'rgba(54, 162, 235, 0.6)',   // Friday - Blue
-      'rgba(169, 169, 169, 0.6)',  // Saturday - Gray (W-OFF)
-      'rgba(169, 169, 169, 0.6)'   // Sunday - Gray (W-OFF)
-    ];
+
+    // Get current week's Monday
+    const today = new Date();
+    const dayOfWeek = today.getDay(); // 0=Sun, 1=Mon...
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+    monday.setHours(0, 0, 0, 0);
 
     attendanceHistory.forEach(record => {
-      if (record.clock_in && record.total_hours) {
-        const date = new Date(record.attendance_date);
-        const dayIndex = date.getDay(); // 0 = Sunday, 1 = Monday, etc.
-
-        // Adjust index for our array (Monday = 0)
-        let adjustedIndex = dayIndex === 0 ? 6 : dayIndex - 1;
-
-        hoursByDay[adjustedIndex] += parseFloat(record.total_hours);
-        workingDaysCount[adjustedIndex]++;
+      if (!record.clock_in) return;
+      const recDate = new Date(record.attendance_date);
+      recDate.setHours(0, 0, 0, 0);
+      const diffDays = Math.round((recDate - monday) / (1000 * 60 * 60 * 24));
+      if (diffDays >= 0 && diffDays <= 6) {
+        // diffDays 0=Mon,1=Tue,...,5=Sat,6=Sun
+        const hours = parseFloat(record.total_hours) || 0;
+        hoursByDay[diffDays] = Math.round(hours * 10) / 10;
       }
     });
 
-    // Calculate average hours per day
-    const avgHoursByDay = hoursByDay.map((total, index) =>
-      workingDaysCount[index] > 0 ? Math.round((total / workingDaysCount[index]) * 10) / 10 : 0
-    );
-
     setAttendanceChartData({
-      labels: daysOfWeek.map((day, index) => {
-        // Add W-OFF label for Saturday and Sunday
-        if (index === 5) return 'Sat (W-OFF)';
-        if (index === 6) return 'Sun (W-OFF)';
-        return day;
-      }),
-      datasets: [
-        {
-          label: 'Average Working Hours',
-          data: avgHoursByDay,
-          backgroundColor: backgroundColor,
-          borderColor: [
-            'rgb(54, 162, 235)',
-            'rgb(54, 162, 235)',
-            'rgb(54, 162, 235)',
-            'rgb(54, 162, 235)',
-            'rgb(54, 162, 235)',
-            'rgb(128, 128, 128)',
-            'rgb(128, 128, 128)'
-          ],
-          borderWidth: 1,
-          borderRadius: 5,
-          barPercentage: 0.7,
-          categoryPercentage: 0.8
-        }
-      ]
+      labels: daysOfWeek,
+      datasets: [{
+        label: 'Hours Worked',
+        data: hoursByDay,
+        backgroundColor: [
+          'rgba(54, 162, 235, 0.7)',
+          'rgba(54, 162, 235, 0.7)',
+          'rgba(54, 162, 235, 0.7)',
+          'rgba(54, 162, 235, 0.7)',
+          'rgba(54, 162, 235, 0.7)',
+          'rgba(169, 169, 169, 0.5)',
+          'rgba(169, 169, 169, 0.5)'
+        ],
+        borderColor: [
+          'rgb(54, 162, 235)',
+          'rgb(54, 162, 235)',
+          'rgb(54, 162, 235)',
+          'rgb(54, 162, 235)',
+          'rgb(54, 162, 235)',
+          'rgb(128, 128, 128)',
+          'rgb(128, 128, 128)'
+        ],
+        borderWidth: 1,
+        borderRadius: 5,
+        barPercentage: 0.7,
+        categoryPercentage: 0.8
+      }]
     });
   };
 
@@ -773,6 +774,12 @@ const EmployeeDashboard = () => {
         </div>
       </div>
 
+      {/* Announcements from Admin */}
+      <AnnouncementBanner />
+
+      {/* Notices / Warnings from Admin or Manager */}
+      <EmployeeNotices />
+
       {/* Error Alert */}
       {error && (
         <Alert variant="danger" onClose={() => setError('')} dismissible className="mb-3 py-2">
@@ -868,14 +875,16 @@ const EmployeeDashboard = () => {
             <Card.Body className="p-2 p-md-3">
               <div className="d-flex justify-content-between align-items-start">
                 <div className="overflow-hidden">
-                  <p className="text-muted small mb-1 text-truncate">
-                    {leaveBalance.is_probation_complete ? 'Leave Balance' : 'Accrued Leaves'}
-                  </p>
-                  <h4 className={`mb-0 fw-bold ${leaveBalance.is_probation_complete ? 'text-primary' : 'text-info'}`}>
-                    {leaveBalance.is_probation_complete ? leaveBalance.available : leaveBalance.total_accrued}
+                  <p className="text-muted small mb-1 text-truncate">Leave Balance</p>
+                  <h4 className="mb-0 fw-bold text-primary">
+                    {leaveBalance.is_probation_complete
+                      ? parseFloat(leaveBalance.available).toFixed(1)
+                      : parseFloat(leaveBalance.total_accrued).toFixed(1)}
                   </h4>
                   <small className="text-muted text-truncate d-block">
-                    {leaveBalance.is_probation_complete ? 'Available days' : 'Earned (usable after probation)'}
+                    {leaveBalance.is_probation_complete
+                      ? `Used: ${parseFloat(leaveBalance.used).toFixed(1)} | Pending: ${parseFloat(leaveBalance.pending).toFixed(1)}`
+                      : 'Earned (usable after probation)'}
                   </small>
                 </div>
                 <div className="bg-primary bg-opacity-10 p-2 rounded-circle flex-shrink-0">
@@ -893,17 +902,20 @@ const EmployeeDashboard = () => {
                 <div className="overflow-hidden">
                   <p className="text-muted small mb-1 text-truncate">Present Days</p>
                   <h4 className="mb-0 fw-bold text-success">{stats.presentDays || 0}</h4>
-                  <small className="text-muted text-truncate d-block">This month</small>
+                  <small className="text-muted text-truncate d-block">
+                    Absent: <span className="text-danger fw-semibold">{stats.absentDays || 0}</span>
+                    {stats.cycleLabel && <span className="ms-1">| {stats.cycleLabel}</span>}
+                  </small>
                 </div>
                 <div className="bg-success bg-opacity-10 p-2 rounded-circle flex-shrink-0">
                   <FaCheckCircle className="text-success" size={20} />
                 </div>
               </div>
-              {/* Optional: Show loading indicator while fetching */}
-              {loading && <Spinner size="sm" animation="border" className="mt-2" />}
             </Card.Body>
           </Card>
         </Col>
+
+       
 
         <Col xs={12} sm={6} md={3}>
           <Card className="border-0 shadow-sm h-100">
@@ -958,7 +970,7 @@ const EmployeeDashboard = () => {
                 <FaChartBar className="me-2 text-primary" />
                 Weekly Attendance Summary
               </h6>
-              <Badge bg="light" text="dark" className="ms-0 ms-sm-auto">Average hours per day</Badge>
+              <Badge bg="light" text="dark" className="ms-0 ms-sm-auto">This week's hours</Badge>
             </Card.Header>
             <Card.Body className="p-2 p-md-3">
               <div style={{ height: '280px', position: 'relative' }}>
@@ -1037,7 +1049,7 @@ const EmployeeDashboard = () => {
 
               <div className="mt-2 text-center text-muted small">
                 <FaInfoCircle className="me-1" size={8} />
-                Avg hours per day (last 30 days)
+                Current week hours per day
               </div>
             </Card.Body>
           </Card>

@@ -49,6 +49,7 @@ const EditEmployee = () => {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+    const [managers, setManagers] = useState([]);
 
     // Document states
     const [employeeDocuments, setEmployeeDocuments] = useState([]);
@@ -84,8 +85,26 @@ const EditEmployee = () => {
     useEffect(() => {
         if (id) {
             fetchEmployeeDetails();
+            fetchManagers();
         }
     }, [id]);
+
+    const fetchManagers = async () => {
+        try {
+            const res = await axios.get(API_ENDPOINTS.EMPLOYEES);
+            const all = Array.isArray(res.data) ? res.data : res.data?.data || res.data?.employees || [];
+            const isManagerDesignation = (d) => {
+                if (!d) return false;
+                const dl = d.toLowerCase();
+                return dl.includes('team leader') || dl.includes('team manager') ||
+                       dl.includes('tl') || dl.includes('lead') || dl.includes('manager') ||
+                       dl.includes('head') || dl.includes('supervisor');
+            };
+            setManagers(all.filter(e => isManagerDesignation(e.designation)));
+        } catch (err) {
+            console.error('Error fetching managers:', err);
+        }
+    };
 
     const fetchEmployeeDetails = async () => {
         try {
@@ -718,13 +737,22 @@ const EditEmployee = () => {
                             <Col xs={12} md={4}>
                                 <Form.Group>
                                     <Form.Label className="fw-semibold small">Reporting Manager</Form.Label>
-                                    <Form.Control
-                                        type="text"
+                                    <Form.Select
                                         name="reporting_manager"
-                                        value={formData.reporting_manager}
+                                        value={formData.reporting_manager || ''}
                                         onChange={handleChange}
                                         size="sm"
-                                    />
+                                    >
+                                        <option value="">-- No Manager --</option>
+                                        {managers.map(m => {
+                                            const fullName = `${m.first_name} ${m.last_name}`.trim();
+                                            return (
+                                                <option key={m.employee_id} value={fullName}>
+                                                    {fullName} ({m.designation})
+                                                </option>
+                                            );
+                                        })}
+                                    </Form.Select>
                                 </Form.Group>
                             </Col>
                         </Row>

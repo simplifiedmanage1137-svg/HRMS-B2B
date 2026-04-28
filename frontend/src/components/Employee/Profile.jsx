@@ -31,7 +31,8 @@ import {
     FaEdit,
     FaInfoCircle,
     FaExclamationTriangle,
-    FaTrophy
+    FaTrophy,
+      FaFileAlt 
 } from 'react-icons/fa';
 import axios from '../../config/axios';
 import API_ENDPOINTS from '../../config/api';
@@ -763,8 +764,6 @@ const Profile = () => {
                         </Row>
                     )}
 
-                    {/* Bank Tab */}
-                  // In Profile.jsx - Add Aadhar Card display in Bank Tab
 
                     {/* Bank Tab */}
                     {activeTab === 'bank' && (

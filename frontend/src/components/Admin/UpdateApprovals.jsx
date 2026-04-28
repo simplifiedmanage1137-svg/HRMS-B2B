@@ -443,48 +443,27 @@ const UpdateApprovals = () => {
 
               {/* Data Comparison - Only show for info updates */}
               {!selectedRequest.is_document_update && selectedRequest.employee_data && Object.keys(selectedRequest.employee_data).length > 0 && (
-                <Row className="g-2">
-                  <Col xs={12} md={6}>
-                    <Card className="border-0 shadow-sm h-100">
-                      <Card.Header className="bg-light py-2">
-                        <h6 className="mb-0 text-primary small fw-semibold">Current Data</h6>
-                      </Card.Header>
-                      <Card.Body className="p-2 p-md-3">
-                        <pre style={{ 
-                          background: '#f8f9fa', 
-                          padding: '8px', 
-                          borderRadius: '4px',
-                          overflow: 'auto',
-                          maxHeight: '250px',
-                          fontSize: '11px',
-                          margin: 0
-                        }}>
-                          {JSON.stringify(selectedRequest.employeeDetails || {}, null, 2)}
-                        </pre>
-                      </Card.Body>
-                    </Card>
-                  </Col>
-                  <Col xs={12} md={6}>
-                    <Card className="border-0 shadow-sm h-100">
-                      <Card.Header className="bg-light py-2">
-                        <h6 className="mb-0 text-success small fw-semibold">Updated Data</h6>
-                      </Card.Header>
-                      <Card.Body className="p-2 p-md-3">
-                        <pre style={{ 
-                          background: '#f8f9fa', 
-                          padding: '8px', 
-                          borderRadius: '4px',
-                          overflow: 'auto',
-                          maxHeight: '250px',
-                          fontSize: '11px',
-                          margin: 0
-                        }}>
-                          {JSON.stringify(selectedRequest.employee_data || {}, null, 2)}
-                        </pre>
-                      </Card.Body>
-                    </Card>
-                  </Col>
-                </Row>
+                <Card className="border-0 shadow-sm mt-3">
+                  <Card.Header className="bg-success bg-opacity-10 py-2">
+                    <h6 className="mb-0 text-success small fw-semibold">Employee Submitted Updates</h6>
+                  </Card.Header>
+                  <Card.Body className="p-2 p-md-3">
+                    <Row className="g-2">
+                      {Object.entries(selectedRequest.employee_data).map(([key, value]) => (
+                        <Col xs={12} sm={6} key={key}>
+                          <div className="p-2 bg-light rounded">
+                            <small className="text-muted d-block text-capitalize">
+                              {key.replace(/_/g, ' ')}
+                            </small>
+                            <span className="small fw-semibold text-success">
+                              {value !== null && value !== undefined && value !== '' ? String(value) : <em className="text-muted">empty</em>}
+                            </span>
+                          </div>
+                        </Col>
+                      ))}
+                    </Row>
+                  </Card.Body>
+                </Card>
               )}
 
               {/* Document Upload Info */}

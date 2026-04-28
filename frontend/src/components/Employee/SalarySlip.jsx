@@ -184,41 +184,67 @@ const SalarySlip = () => {
     try {
       setLoading(true);
       const response = await axios.get(API_ENDPOINTS.SALARY_EMPLOYEE(user.employeeId));
-      const allSlips = response.data.salarySlips || [];
 
-      setSalarySlips(allSlips);
-      setAllSalarySlips(allSlips);
-      const lastFive = getLastFiveSlips(allSlips);
-      setDisplaySlips(lastFive);
+      // Check if the response has the expected structure
+      if (response.data.success) {
+        const allSlips = response.data.salarySlips || [];
+        setSalarySlips(allSlips);
+        setAllSalarySlips(allSlips);
+        const lastFive = getLastFiveSlips(allSlips);
+        setDisplaySlips(lastFive);
 
-      if (response.data.joiningInfo) {
-        setJoiningInfo(response.data.joiningInfo);
-        generateEligibleMonths(response.data.joiningInfo);
-        setTimeout(() => generateYearOptions(), 100);
+        if (response.data.joiningInfo) {
+          setJoiningInfo(response.data.joiningInfo);
+          generateEligibleMonths(response.data.joiningInfo);
+          setTimeout(() => generateYearOptions(), 100);
+        }
+      } else {
+        // Show message if any
+        if (response.data.message) {
+          setMessage({
+            type: 'info',
+            text: response.data.message
+          });
+        }
       }
     } catch (error) {
       console.error('Error fetching salary slips:', error);
-      setMessage({
-        type: 'danger',
-        text: error.response?.data?.message || 'Failed to load salary slips'
-      });
+
+      // Check if it's a 404 or table not exists error
+      if (error.response?.status === 500 &&
+        error.response?.data?.error?.includes('does not exist')) {
+        setMessage({
+          type: 'info',
+          text: 'Salary slips feature is being set up. Please check back later.'
+        });
+      } else {
+        setMessage({
+          type: 'danger',
+          text: error.response?.data?.message || 'Failed to load salary slips'
+        });
+      }
     } finally {
       setLoading(false);
     }
   };
 
+
   const isMonthEligible = (month, year) => {
     if (!joiningInfo) return true;
 
     const requestedDate = new Date(year, month - 1, 1);
-    const joiningDate = new Date(joiningInfo.year, joiningInfo.month - 1, 1);
-    const currentDate = new Date();
-    const currentYear = currentDate.getFullYear();
-    const currentMonth = currentDate.getMonth() + 1;
-
+    const joiningDate   = new Date(joiningInfo.year, joiningInfo.month - 1, 1);
     if (requestedDate < joiningDate) return false;
-    if (year > currentYear) return false;
-    if (year === currentYear && month > currentMonth) return false;
+
+    const today = new Date();
+    const m = parseInt(month), y = parseInt(year);
+
+    // Future year
+    if (y > today.getFullYear()) return false;
+    // Future month in current year
+    if (y === today.getFullYear() && m > today.getMonth() + 1) return false;
+    // Current month: only allowed from 27th onwards
+    if (y === today.getFullYear() && m === today.getMonth() + 1 && today.getDate() < 27) return false;
 
     return true;
   };
@@ -380,7 +406,7 @@ const SalarySlip = () => {
       pdfContentDiv.style.padding = '20px';
       pdfContentDiv.style.fontFamily = 'Arial, sans-serif';
       pdfContentDiv.style.backgroundColor = 'white';
-      
+
       pdfContentDiv.innerHTML = `
         <div style="text-align: center; margin-bottom: 20px;">
           ${logoBase64 ? `<img src="data:image/png;base64,${logoBase64}" style="height: 60px; width: auto; margin-bottom: 10px; object-fit: contain;" />` : ''}
@@ -531,41 +557,44 @@ const SalarySlip = () => {
   };
 
   const getSlipAmounts = (slip) => {
-    if (!slip) {
-      return { basicSalary: 0, deduction: 0, netSalary: 0, overtimeAmount: 0, overtimeHours: 0 };
-    }
+    if (!slip) return { monthlySalary: 0, basicSalary: 0, deduction: 0, netSalary: 0, overtimeAmount: 0, overtimeHours: 0, unpaidLeaveDays: 0, paidLeaveDays: 0, absentDays: 0, presentDays: 0, unpaidDeduction: 0, perDaySalary: 0, totalWorkingDays: 0 };
 
-    const slipBase = Number(slip.basic_salary) || 0;
-    const employeeBase = Number(employee?.gross_salary || employee?.salary) || 0;
-    const basicSalary = slipBase > 0 ? slipBase : employeeBase;
+    const monthlySalary    = Number(slip.monthly_salary) || Number(slip.basic_salary) || Number(employee?.gross_salary || employee?.salary) || 0;
+    const basicSalary      = Number(slip.basic_salary) || monthlySalary;
+    const deduction        = Number(slip.dt) || 200;
+    const overtimeAmount   = Number(slip.overtime_amount) || 0;
+    const overtimeHours    = Number(slip.overtime_hours) || 0;
+    const unpaidLeaveDays  = Number(slip.unpaid_leave_days) || 0;
+    const paidLeaveDays    = Number(slip.paid_leave_days) || 0;
+    const absentDays       = Number(slip.absent_days) || 0;
+    const presentDays      = Number(slip.present_days) || 0;
+    const unpaidDeduction  = Number(slip.unpaid_deduction) || 0;
+    const perDaySalary     = Number(slip.per_day_salary) || 0;
+    const totalWorkingDays = Number(slip.total_working_days) || 0;
+    const netSalary        = basicSalary - deduction + overtimeAmount;
 
-    const deduction = Number(slip.dt) || 200;
-    const overtimeAmount = Number(slip.overtime_amount) || 0;
-    const overtimeHours = Number(slip.overtime_hours) || 0;
-
-    const netSalary = basicSalary - deduction + overtimeAmount;
-
-    console.log('💰 Slip amounts:', {
-      slip,
-      basicSalary,
-      deduction,
-      overtimeAmount,
-      overtimeHours,
-      netSalary
-    });
-
-    return {
-      basicSalary,
-      deduction,
-      netSalary: netSalary < 0 ? 0 : netSalary,
-      overtimeAmount,
-      overtimeHours
-    };
+    return { monthlySalary, basicSalary, deduction, netSalary: netSalary < 0 ? 0 : netSalary, overtimeAmount, overtimeHours, unpaidLeaveDays, paidLeaveDays, absentDays, presentDays, unpaidDeduction, perDaySalary, totalWorkingDays };
   };
 
   const getMonthName = (monthNumber) => {
     const month = months.find(m => m.value === parseInt(monthNumber));
     return month ? month.label : 'Unknown';
+  };
+
+  const formatCycleDates = (slip) => {
+    if (slip.cycle_start_date && slip.cycle_end_date) {
+      const fmt = (d) => new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+      return `${fmt(slip.cycle_start_date)} to ${fmt(slip.cycle_end_date)}`;
+    }
+    return `${getMonthName(slip.month)} ${slip.year}`;
+  };
+
+  const formatShortDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric'
+    });
   };
 
   const selectedSlipAmounts = selectedSlip ? getSlipAmounts(selectedSlip) : { basicSalary: 0, deduction: 0, netSalary: 0, overtimeAmount: 0, overtimeHours: 0 };
@@ -751,12 +780,12 @@ const SalarySlip = () => {
                       <FaInfoCircle className="me-1 flex-shrink-0 mt-1" size={10} />
                       <span className="text-wrap">
                         {(() => {
-                          const requestedDate = new Date(selectedYear, selectedMonth - 1, 1);
-                          const joiningDate = new Date(joiningInfo.year, joiningInfo.month - 1, 1);
-                          if (requestedDate < joiningDate) {
-                            return `Cannot generate: Before joining date (${joiningInfo.formattedDate})`;
+                          const m = parseInt(selectedMonth), y = parseInt(selectedYear);
+                          const today = new Date();
+                          if (y === today.getFullYear() && m === today.getMonth() + 1 && today.getDate() < 27) {
+                            return `Salary slip for this month will be available from 27 ${new Date(y, m-1).toLocaleString('en-IN',{month:'long'})} ${y}.`;
                           }
-                          return 'Cannot generate: Future month';
+                          return 'Cannot generate: Before joining date or future month.';
                         })()}
                       </span>
                     </div>
@@ -813,7 +842,7 @@ const SalarySlip = () => {
             <Card.Header className="bg-light text-dark py-2 d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-2">
               <h6 className="mb-0 fw-semibold small d-flex align-items-center">
                 <FaHistory className="me-2" size={14} />
-                Salary Slip History 
+                Salary Slip History
               </h6>
               <div className="d-flex flex-wrap gap-2 ms-0 ms-sm-auto">
                 <Badge bg="light" text="dark" className="px-2 py-1 small text-nowrap">
@@ -824,6 +853,104 @@ const SalarySlip = () => {
                 </Badge>
               </div>
             </Card.Header>
+
+            <Card.Body className="p-0">
+              <div className="table-responsive" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                <Table hover className="mb-0 table-sm">
+                  {/* REPLACE THIS ENTIRE THEAD SECTION */}
+                  <thead className="bg-light sticky-top" style={{ top: 0, zIndex: 10 }}>
+                    <tr className="small">
+                      <th className="fw-normal text-center" style={{ width: '50px' }}>#</th>
+                      <th className="fw-normal">Month</th>
+                      <th className="fw-normal d-none d-md-table-cell">Cycle</th>  {/* NEW COLUMN */}
+                      <th className="fw-normal text-end d-none d-md-table-cell">Basic</th>
+                      <th className="fw-normal text-end">OT Hrs</th>
+                      <th className="fw-normal text-end d-none d-lg-table-cell">OT Amt</th>
+                      <th className="fw-normal text-end">DT</th>
+                      <th className="fw-normal text-end">Net</th>
+                      <th className="fw-normal text-center">Action</th>
+                    </tr>
+                  </thead>
+
+                  {/* REPLACE THE TBODY SECTION */}
+                  <tbody>
+                    {displaySlips.length > 0 ? (
+                      displaySlips.map((slip, index) => {
+                        const isCurrentMonth = slip.month === currentMonth && slip.year === currentYear;
+                        const { basicSalary, deduction, netSalary, overtimeAmount, overtimeHours } = getSlipAmounts(slip);
+
+                        // ADD THIS LINE - Format cycle text
+                        const cycleText = slip.cycle_start_date && slip.cycle_end_date
+                          ? `${formatShortDate(slip.cycle_start_date)} - ${formatShortDate(slip.cycle_end_date)}`
+                          : `${getMonthName(slip.month)} ${slip.year}`;
+
+                        return (
+                          <tr key={slip.id} className={isCurrentMonth ? 'table-primary' : ''}>
+                            <td className="text-center small">{index + 1}</td>
+                            <td className="small">
+                              <Badge bg="primary" className="px-2 py-1 small text-nowrap">
+                                {getMonthName(slip.month).substring(0, 3)}
+                                {isCurrentMonth && ' (C)'}
+                              </Badge>
+                            </td>
+                            {/* ADD THIS NEW COLUMN - Cycle Info */}
+                            <td className="small d-none d-md-table-cell text-truncate" style={{ maxWidth: '120px' }}>
+                              <small className="text-muted">{cycleText}</small>
+                            </td>
+                            <td className="text-primary fw-bold small text-end d-none d-md-table-cell">
+                              ₹{formatCurrency(basicSalary)}
+                            </td>
+                            <td className="small text-end">
+                              <Badge bg={overtimeHours > 0 ? "success" : "secondary"} pill className="text-nowrap">
+                                {overtimeHours || 0}h
+                              </Badge>
+                            </td>
+                            <td className="small text-end d-none d-lg-table-cell">
+                              <span className={overtimeAmount > 0 ? "text-success text-nowrap" : "text-nowrap"}>
+                                {overtimeAmount > 0 ? '+' : ''}₹{formatCurrency(overtimeAmount)}
+                              </span>
+                            </td>
+                            <td className="text-danger small text-end">₹{formatCurrency(deduction)}</td>
+                            <td className="small text-end text-nowrap">
+                              <span className="text-success fw-bold">₹{formatCurrency(netSalary)}</span>
+                            </td>
+                            <td className="text-center">
+                              <div className="d-flex gap-1 justify-content-center">
+                                <Button
+                                  variant="outline-primary"
+                                  size="sm"
+                                  onClick={() => handleViewSlip(slip)}
+                                  className="p-1"
+                                  title="View Slip"
+                                >
+                                  <FaEye size={10} />
+                                </Button>
+                                <Button
+                                  variant="outline-success"
+                                  size="sm"
+                                  onClick={() => handleDownloadPDF(slip)}
+                                  title="Download PDF"
+                                  className="p-1"
+                                >
+                                  <FaDownload size={10} />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan="9" className="text-center py-4">
+                          {/* ... existing empty state code ... */}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </Table>
+              </div>
+            </Card.Body>
+
             <Card.Body className="p-0">
               {/* Table with Vertical Scroll */}
               <div className="table-responsive" style={{ maxHeight: '300px', overflowY: 'auto' }}>
@@ -979,6 +1106,7 @@ const SalarySlip = () => {
       </Row>
 
       {/* Salary Slip Modal - Responsive */}
+      {/* Salary Slip Modal - Responsive */}
       <Modal
         show={showSlipModal}
         onHide={() => setShowSlipModal(false)}
@@ -1052,6 +1180,17 @@ const SalarySlip = () => {
                 </tbody>
               </table>
 
+              {/* Cycle Info */}
+              <div className="mb-3 p-2 bg-light rounded small">
+                <strong>Salary Cycle:</strong> {formatCycleDates(selectedSlip)}<br />
+                <strong>Total Working Days (Mon-Fri):</strong> {selectedSlipAmounts.totalWorkingDays} days<br />
+                <strong>Present Days:</strong> <span className="text-success">{selectedSlipAmounts.presentDays} days</span><br />
+                {selectedSlipAmounts.paidLeaveDays > 0 && <><strong>Paid Leave:</strong> <span className="text-info">{selectedSlipAmounts.paidLeaveDays} day{selectedSlipAmounts.paidLeaveDays > 1 ? 's' : ''}</span><br /></>}
+                {selectedSlipAmounts.unpaidLeaveDays > 0 && <><strong>Unpaid Leave:</strong> <span className="text-danger">{selectedSlipAmounts.unpaidLeaveDays} day{selectedSlipAmounts.unpaidLeaveDays > 1 ? 's' : ''}</span><br /></>}
+                {selectedSlipAmounts.absentDays > 0 && <><strong>Absent:</strong> <span className="text-danger">{selectedSlipAmounts.absentDays} days</span><br /></>}
+                <strong>Per Day Salary:</strong> ₹{formatCurrency(selectedSlipAmounts.perDaySalary)}
+              </div>
+
               {/* Earnings Table */}
               <div className="table-responsive">
                 <table className="w-100 mb-3" style={{ fontSize: '12px', borderCollapse: 'collapse' }}>
@@ -1063,28 +1202,39 @@ const SalarySlip = () => {
                   </thead>
                   <tbody>
                     <tr>
-                      <td className="py-1 ps-2">Basic Salary</td>
-                      <td className="text-end py-1 pe-2">
-                        {formatCurrency(selectedSlipAmounts.basicSalary)}
-                      </td>
+                      <td className="py-1 ps-2">Monthly Gross Salary</td>
+                      <td className="text-end py-1 pe-2">{formatCurrency(selectedSlipAmounts.monthlySalary)}</td>
                     </tr>
-                    {/* Overtime row - ALWAYS SHOW, even if 0 */}
+                    {selectedSlipAmounts.unpaidLeaveDays > 0 && (
+                      <tr style={{ backgroundColor: '#fff3cd' }}>
+                        <td className="py-1 ps-2">
+                          <span className="text-danger">
+                            Unpaid Leave Deduction ({selectedSlipAmounts.unpaidLeaveDays} day{selectedSlipAmounts.unpaidLeaveDays > 1 ? 's' : ''} × ₹{formatCurrency(selectedSlipAmounts.perDaySalary)}/day)
+                          </span>
+                          <div className="text-muted" style={{ fontSize: '10px' }}>
+                            Based on {selectedSlipAmounts.totalWorkingDays} working days (Mon–Fri)
+                          </div>
+                        </td>
+                        <td className="text-end py-1 pe-2 text-danger fw-bold">- {formatCurrency(selectedSlipAmounts.unpaidDeduction)}</td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td className="py-1 ps-2 fw-semibold">Basic Salary (After Unpaid Leave)</td>
+                      <td className="text-end py-1 pe-2 fw-semibold">{formatCurrency(selectedSlipAmounts.basicSalary)}</td>
+                    </tr>
                     <tr style={selectedSlipAmounts.overtimeAmount > 0 ? { backgroundColor: '#d4edda' } : {}}>
                       <td className="py-1 ps-2">
                         <span style={selectedSlipAmounts.overtimeAmount > 0 ? { color: '#28a745' } : {}}>
                           Overtime ({selectedSlipAmounts.overtimeHours || 0} hrs @ ₹150/hr)
                         </span>
                       </td>
-                      <td className="text-end py-1 pe-2" 
-                          style={selectedSlipAmounts.overtimeAmount > 0 ? { color: '#28a745', fontWeight: 'bold' } : {}}>
+                      <td className="text-end py-1 pe-2" style={selectedSlipAmounts.overtimeAmount > 0 ? { color: '#28a745', fontWeight: 'bold' } : {}}>
                         {selectedSlipAmounts.overtimeAmount > 0 ? '+ ' : ''}{formatCurrency(selectedSlipAmounts.overtimeAmount)}
                       </td>
                     </tr>
                     <tr style={{ backgroundColor: '#f2f2f2' }}>
                       <td className="fw-bold py-1 ps-2">Gross Earnings</td>
-                      <td className="text-end fw-bold py-1 pe-2">
-                        {formatCurrency(selectedSlipAmounts.basicSalary + selectedSlipAmounts.overtimeAmount)}
-                      </td>
+                      <td className="text-end fw-bold py-1 pe-2">{formatCurrency(selectedSlipAmounts.basicSalary + selectedSlipAmounts.overtimeAmount)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -1125,11 +1275,16 @@ const SalarySlip = () => {
                 </table>
               </div>
 
-              {/* Calculation - Always show Overtime term */}
+              {/* Calculation */}
               <div className="bg-light p-2 mb-3 rounded small">
-                <strong>Calculation:</strong> Basic Salary (₹{formatCurrency(selectedSlipAmounts.basicSalary)}) 
-                + Overtime (₹{formatCurrency(selectedSlipAmounts.overtimeAmount)}) 
-                - DT Deduction (₹{formatCurrency(selectedSlipAmounts.deduction)}) = Net Salary (₹{formatCurrency(selectedSlipAmounts.netSalary)})
+                <strong>Calculation:</strong> Monthly Salary (₹{formatCurrency(selectedSlipAmounts.monthlySalary)})
+                {selectedSlipAmounts.unpaidLeaveDays > 0 && (
+                  <span className="text-danger"> - Unpaid Leave (₹{formatCurrency(selectedSlipAmounts.unpaidDeduction)})</span>
+                )}
+                {selectedSlipAmounts.overtimeAmount > 0 && (
+                  <span className="text-success"> + Overtime (₹{formatCurrency(selectedSlipAmounts.overtimeAmount)})</span>
+                )}
+                <span> - DT (₹{formatCurrency(selectedSlipAmounts.deduction)}) = Net Salary (₹{formatCurrency(selectedSlipAmounts.netSalary)})</span>
               </div>
 
               {/* Amount in Words */}

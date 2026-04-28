@@ -85,27 +85,16 @@ const PendingApprovals = () => {
     
     setProcessing(true);
     try {
-      if (modalAction === 'approve') {
-        await axios.put(API_ENDPOINTS.ADMIN_UPDATES_HANDLE, {
-          request_id: selectedRequest.id,
-          action: 'approve',
-          comments: adminComments
-        });
-        setMessage({ type: 'success', text: `Request approved successfully` });
-      } else {
-        await axios.put(API_ENDPOINTS.ADMIN_UPDATES_HANDLE, {
-          request_id: selectedRequest.id,
-          action: 'reject',
-          comments: adminComments
-        });
-        setMessage({ type: 'success', text: `Request rejected successfully` });
-      }
-      
+      await axios.post(API_ENDPOINTS.ADMIN_UPDATES_HANDLE, {
+        request_id: selectedRequest.id,
+        action: modalAction,
+        comments: adminComments
+      });
+      setMessage({ type: 'success', text: `Request ${modalAction}d successfully` });
       await fetchRequests();
       setShowModal(false);
       setAdminComments('');
       setSelectedRequest(null);
-      
       setTimeout(() => setMessage({ type: '', text: '' }), 3000);
     } catch (error) {
       console.error('Error processing request:', error);
@@ -295,7 +284,27 @@ const PendingApprovals = () => {
                         </Button>
                       </div>
                     )}
-                    {(request.status === 'completed' || request.status === 'in_progress') && (
+                    {request.status === 'completed' && (
+                      <div className="d-flex gap-1">
+                        <Button 
+                          size="sm" 
+                          variant="success" 
+                          onClick={() => handleApprove(request)}
+                          title="Approve"
+                        >
+                          <FaCheckCircle />
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          variant="danger" 
+                          onClick={() => handleReject(request)}
+                          title="Reject"
+                        >
+                          <FaTimesCircle />
+                        </Button>
+                      </div>
+                    )}
+                    {request.status === 'in_progress' && (
                       <Button 
                         size="sm" 
                         variant="info" 
@@ -374,13 +383,28 @@ const PendingApprovals = () => {
                 </div>
               )}
               
-              {selectedRequest.employee_data && (
+              {selectedRequest.employee_data && Object.keys(selectedRequest.employee_data).length > 0 && (
                 <div className="mb-3">
-                  <small className="text-muted">Updated Data</small>
-                  <div className="bg-light p-2 rounded">
-                    <pre className="small mb-0" style={{ whiteSpace: 'pre-wrap' }}>
-                      {JSON.stringify(selectedRequest.employee_data, null, 2)}
-                    </pre>
+                  <small className="text-muted fw-semibold d-block mb-2">Employee Submitted Updates</small>
+                  <div className="bg-success bg-opacity-10 p-2 rounded border border-success border-opacity-25">
+                    <Row className="g-2">
+                      {Object.entries(selectedRequest.employee_data)
+                        .filter(([k]) => !['documents_uploaded_at', 'uploaded_documents'].includes(k))
+                        .map(([key, value]) => (
+                          <Col xs={12} sm={6} key={key}>
+                            <div className="p-2 bg-white rounded">
+                              <small className="text-muted d-block text-capitalize">
+                                {key.replace(/_/g, ' ')}
+                              </small>
+                              <span className="small fw-semibold text-success">
+                                {value !== null && value !== undefined && value !== '' 
+                                  ? String(value) 
+                                  : <em className="text-muted">empty</em>}
+                              </span>
+                            </div>
+                          </Col>
+                        ))}
+                    </Row>
                   </div>
                 </div>
               )}

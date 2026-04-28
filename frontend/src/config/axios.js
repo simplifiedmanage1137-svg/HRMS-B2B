@@ -1,20 +1,18 @@
 // src/config/axios.js
 import axios from 'axios';
 
-// ============== LOCAL DEVELOPMENT (COMMENTED OLD) ==============
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-
-// ============== PRODUCTION (COMMENTED FOR NOW) ==============
-// const API_URL = 'https://employee-management-system-brvo.onrender.com';
+// Local: empty string → Vite proxy handles /api/* → localhost:5000
+// Production: set VITE_API_URL=https://hrms-b2bindemand-backend.onrender.com in Vercel env vars
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 const axiosInstance = axios.create({
-    baseURL: `${API_URL}/api`,
+    baseURL: API_URL,  // No /api suffix - each endpoint already has /api in its path
     timeout: 30000,
     headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json'
     },
-    withCredentials: true // Important for sending cookies
+    withCredentials: true
 });
 
 // Request interceptor
@@ -24,27 +22,19 @@ axiosInstance.interceptors.request.use(
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
-        console.log(`📤 ${config.method.toUpperCase()} ${config.url}`, config.data);
         return config;
     },
-    (error) => {
-        return Promise.reject(error);
-    }
+    (error) => Promise.reject(error)
 );
 
 // Response interceptor
 axiosInstance.interceptors.response.use(
-    (response) => {
-        console.log(`📥 ${response.config.method.toUpperCase()} ${response.config.url} - Status: ${response.status}`);
-        return response;
-    },
+    (response) => response,
     (error) => {
-        console.error('❌ API Error:', error.message);
         if (error.response) {
+            console.error('❌ API Error:', error.message);
             console.error('Response data:', error.response.data);
             console.error('Response status:', error.response.status);
-        } else if (error.request) {
-            console.error('No response received:', error.request);
         }
         return Promise.reject(error);
     }

@@ -117,28 +117,33 @@ const Attendance = () => {
   const formatTimeIST = (datetime) => {
     if (!datetime) return '--:--';
     try {
+      let hourNum, minute;
       if (typeof datetime === 'string') {
-        if (datetime.includes(' ') && !datetime.includes('T')) {
-          const timePart = datetime.split(' ')[1];
-          const [hour, minute] = timePart.split(':');
-          const hourNum = parseInt(hour);
-          const ampm = hourNum >= 12 ? 'PM' : 'AM';
-          const hour12 = hourNum % 12 || 12;
-          return `${hour12}:${minute.padStart(2, '0')} ${ampm}`;
+        // "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD HH:MM"
+        const spaceIdx = datetime.indexOf(' ');
+        if (spaceIdx !== -1 && !datetime.includes('T')) {
+          const timePart = datetime.substring(spaceIdx + 1);
+          const parts = timePart.split(':');
+          hourNum = parseInt(parts[0], 10);
+          minute = parts[1] ? parts[1].padStart(2, '0') : '00';
+        } else if (datetime.includes('T')) {
+          // ISO format
+          const tIdx = datetime.indexOf('T');
+          const timePart = datetime.substring(tIdx + 1, tIdx + 6);
+          const parts = timePart.split(':');
+          hourNum = parseInt(parts[0], 10);
+          minute = parts[1] ? parts[1].padStart(2, '0') : '00';
+        } else {
+          return '--:--';
         }
-        if (datetime.includes('T')) {
-          const match = datetime.match(/T(\d{2}):(\d{2}):(\d{2})/);
-          if (match) {
-            const hour = parseInt(match[1]);
-            const minute = match[2];
-            const ampm = hour >= 12 ? 'PM' : 'AM';
-            const hour12 = hour % 12 || 12;
-            return `${hour12}:${minute} ${ampm}`;
-          }
-        }
+      } else {
+        return '--:--';
       }
-      return '--:--';
-    } catch (error) {
+      if (isNaN(hourNum)) return '--:--';
+      const ampm = hourNum >= 12 ? 'PM' : 'AM';
+      const hour12 = hourNum % 12 === 0 ? 12 : hourNum % 12;
+      return `${hour12}:${minute} ${ampm}`;
+    } catch {
       return '--:--';
     }
   };
@@ -188,17 +193,29 @@ const Attendance = () => {
     return `${year}-${month}-${day}`;
   };
 
+  // src/components/Employee/Attendance.jsx
+  // Replace the existing formatLateTime function with this:
+
   const formatLateTime = (lateMinutes) => {
     if (!lateMinutes || lateMinutes <= 0) return null;
+
+    // Parse if it's a string
     let minutes = typeof lateMinutes === 'string' ? parseFloat(lateMinutes) : lateMinutes;
     if (isNaN(minutes) || minutes <= 0) return null;
-    const hours = Math.floor(minutes / 60);
-    const remainingMinutes = Math.floor(minutes % 60);
-    const seconds = Math.round((minutes - Math.floor(minutes)) * 60);
-    let result = `${hours}h`;
-    if (remainingMinutes > 0 || seconds > 0) result += ` ${remainingMinutes}m`;
-    if (seconds > 0) result += ` ${seconds}s`;
-    return `Late ${result}`;
+
+    // Calculate hours, minutes, seconds
+    const totalSeconds = Math.floor(minutes * 60);
+    const hours = Math.floor(totalSeconds / 3600);
+    const remainingSeconds = totalSeconds % 3600;
+    const mins = Math.floor(remainingSeconds / 60);
+    const secs = remainingSeconds % 60;
+
+    const parts = [];
+    if (hours > 0) parts.push(`${hours}h`);
+    if (mins > 0) parts.push(`${mins}m`);
+    if (secs > 0 || (hours === 0 && mins === 0)) parts.push(`${secs}s`);
+
+    return parts.join(' ');
   };
 
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
@@ -218,6 +235,10 @@ const Attendance = () => {
     const today = new Date().toISOString().split('T')[0];
     const isToday = record.attendance_date === today;
 
+    // Get formatted late time
+    const lateFormatted = record.late_display || (record.late_minutes > 0 ? formatLateTime(record.late_minutes) : null);
+    const lateText = lateFormatted ? ` (Late ${lateFormatted})` : '';
+
     if (record.isWeeklyOff) {
       return <Badge bg="secondary" className="px-2 py-1"><FaMoon className="me-1" size={10} /> W-OFF</Badge>;
     }
@@ -226,22 +247,33 @@ const Attendance = () => {
       return <Badge bg="secondary" className="px-2 py-1"><FaClock className="me-1" size={10} /> Not Clocked</Badge>;
     }
 
+    // ✅ If they have BOTH clock_in AND clock_out, they completed their shift
+    if (record.clock_in && record.clock_out) {
+      if (record.status === 'half_day') {
+        return <Badge bg="warning" className="text-dark px-2 py-1"><FaCloudSun className="me-1" size={10} /> Half Day{lateText}</Badge>;
+      }
+      if (record.late_minutes > 0) {
+        return <Badge bg="warning" className="px-2 py-1 text-dark"><FaExclamationTriangle className="me-1" size={10} /> Late{lateText}</Badge>;
+      }
+      return <Badge bg="success" className="px-2 py-1"><FaCheckCircle className="me-1" size={10} /> Present</Badge>;
+    }
+
     if (isToday && record.clock_in && !record.clock_out) {
       if (record.late_minutes > 0) {
-        return <Badge bg="warning" className="px-2 py-1 text-dark"><FaExclamationTriangle className="me-1" size={10} /> Late ({formatLateTime(record.late_minutes)})</Badge>;
+        return <Badge bg="warning" className="px-2 py-1 text-dark"><FaExclamationTriangle className="me-1" size={10} /> Late{lateText}</Badge>;
       }
       return <Badge bg="info" className="px-2 py-1"><FaClock className="me-1" size={10} /> Working</Badge>;
     }
 
     if (record.status === 'present') {
       if (record.late_minutes > 0) {
-        return <Badge bg="warning" className="px-2 py-1 text-dark"><FaExclamationTriangle className="me-1" size={10} /> Late ({formatLateTime(record.late_minutes)})</Badge>;
+        return <Badge bg="warning" className="px-2 py-1 text-dark"><FaExclamationTriangle className="me-1" size={10} /> Late{lateText}</Badge>;
       }
       return <Badge bg="success" className="px-2 py-1"><FaCheckCircle className="me-1" size={10} /> Present</Badge>;
     }
 
     if (record.status === 'half_day') {
-      return <Badge bg="warning" className="text-dark px-2 py-1"><FaCloudSun className="me-1" size={10} /> Half Day</Badge>;
+      return <Badge bg="warning" className="text-dark px-2 py-1"><FaCloudSun className="me-1" size={10} /> Half Day{lateText}</Badge>;
     }
 
     if (record.status === 'absent') {
@@ -404,16 +436,6 @@ const Attendance = () => {
       return;
     }
 
-    if (!selectedMissedRecord.can_regularize) {
-      setMessage({
-        type: 'danger',
-        text: `Cannot request regularization. You have only completed ${selectedMissedRecord.total_hours_worked} out of ${selectedMissedRecord.expected_hours} required hours.`
-      });
-      setShowRegularizationModal(false);
-      setSelectedMissedRecord(null);
-      return;
-    }
-
     setSubmittingRequest(true);
 
     try {
@@ -428,7 +450,7 @@ const Attendance = () => {
         attendance_id: String(selectedMissedRecord.id),
         requested_clock_out_time: localDateTimeStr,
         attendance_date: selectedMissedRecord.attendance_date,
-        reason: regularizationReason || 'Missed clock-out after completing full shift'
+        reason: regularizationReason || 'Missed clock-out'
       };
 
       const url = API_ENDPOINTS.ATTENDANCE_REGULARIZATION_REQUEST(user.employeeId);
@@ -560,10 +582,12 @@ const Attendance = () => {
           const clockOutTime = parseLocalTime(clockOutValue);
 
           if (clockInTime && clockOutTime && !isNaN(clockInTime.getTime()) && !isNaN(clockOutTime.getTime())) {
-            const diffMs = clockOutTime - clockInTime;
+            let diffMs = clockOutTime - clockInTime;
+            // midnight crossing: clock_out is next day
+            if (diffMs < 0) diffMs += 24 * 60 * 60 * 1000;
             const diffMinutes = diffMs / (1000 * 60);
-            const hours = Math.floor(Math.abs(diffMinutes) / 60);
-            const minutes = Math.round(Math.abs(diffMinutes) % 60);
+            const hours = Math.floor(diffMinutes / 60);
+            const minutes = Math.round(diffMinutes % 60);
 
             totalHoursDisplay = `${hours}h ${minutes}m`;
             totalHours = diffMinutes / 60;
@@ -746,16 +770,26 @@ const Attendance = () => {
       let history = response.data.attendance || [];
       const completeHistory = generateLast30DaysAttendance(history);
 
+      // Filter for period stats
+      const currentYear = today.getFullYear();
+      const currentMonth = today.getMonth();
+      const periodStart = new Date(currentYear, currentMonth, 26);
+      const periodEnd = new Date(currentYear, currentMonth + 1, 25);
+      const periodHistory = completeHistory.filter(record => {
+        const recordDate = new Date(record.date);
+        return recordDate >= periodStart && recordDate <= periodEnd;
+      });
+
       setAttendanceHistory(completeHistory);
-      calculateMonthlyStats(completeHistory);
-      updateChartData(completeHistory);
+      calculateMonthlyStats(periodHistory);
+      updateChartData(periodHistory);
 
     } catch (error) {
       console.error('❌ Error fetching attendance history:', error);
       const emptyHistory = generateLast30DaysAttendance([]);
       setAttendanceHistory(emptyHistory);
-      calculateMonthlyStats(emptyHistory);
-      updateChartData(emptyHistory);
+      calculateMonthlyStats([]);
+      updateChartData([]);
     }
   };
 
@@ -933,43 +967,21 @@ const Attendance = () => {
 
   const handleOpenRegularizationModal = (record) => {
     if (record.has_clock_out) {
-      setMessage({
-        type: 'info',
-        text: `Attendance for ${record.attendance_date} already has a clock-out time. No regularization needed.`
-      });
+      setMessage({ type: 'info', text: `Attendance for ${record.attendance_date} already has a clock-out time.` });
       return;
     }
-
     if (record.is_regularized) {
-      setMessage({
-        type: 'info',
-        text: `Attendance for ${record.attendance_date} has already been regularized.`
-      });
+      setMessage({ type: 'info', text: `Attendance for ${record.attendance_date} has already been regularized.` });
       return;
     }
-
     if (record.regularization_requested) {
-      setMessage({
-        type: 'warning',
-        text: `You have already requested regularization for ${record.attendance_date}. Please wait for admin approval.`
-      });
-      return;
-    }
-
-    if (!record.can_regularize) {
-      setMessage({
-        type: 'danger',
-        text: `You need to complete ${record.hours_needed} more hours before requesting regularization.`
-      });
+      setMessage({ type: 'warning', text: `Regularization already requested for ${record.attendance_date}. Please wait for admin approval.` });
       return;
     }
 
     setSelectedMissedRecord(record);
-
     const [year, month, day] = record.attendance_date.split('-');
-    const defaultDateTime = `${year}-${month}-${day}T18:00`;
-
-    setRegularizationTime(defaultDateTime);
+    setRegularizationTime(`${year}-${month}-${day}T18:00`);
     setShowRegularizationModal(true);
   };
 
@@ -1032,33 +1044,11 @@ const Attendance = () => {
     const initializeSession = async () => {
       const stored = loadSessionFromStorage();
 
-      if (stored && stored.session_id) {
-        try {
-          const { data: session, error } = await supabase
-            .from('attendance_sessions')
-            .select('is_active')
-            .eq('session_id', stored.session_id)
-            .eq('employee_id', user.employeeId)
-            .single();
-
-          if (error || !session || !session.is_active) {
-            console.log('Stored session is invalid, clearing...');
-            setActiveSession(null);
-            clearSessionFromStorage();
-            setHasClockedOutToday(false);
-          } else {
-            setActiveSession(stored);
-          }
-        } catch (error) {
-          console.error('Error validating session:', error);
-        }
-      }
-
       // Also check today's attendance to determine if we should have active session
       try {
         const response = await axios.get(API_ENDPOINTS.ATTENDANCE_TODAY(user.employeeId));
         const todayAttendance = response.data.attendance;
-        
+
         // If today has clock_out, ensure no active session
         if (todayAttendance && todayAttendance.clock_out) {
           setHasClockedOutToday(true);
@@ -1086,7 +1076,7 @@ const Attendance = () => {
       }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
-    
+
     return () => {
       clearInterval(timer);
       if (heartbeatInterval) clearInterval(heartbeatInterval);
@@ -1098,6 +1088,16 @@ const Attendance = () => {
     if (user?.employeeId) fetchAttendanceHistory();
   }, [user?.employeeId, attendance]);
 
+  // Poll attendance history every 60s to catch regularization approvals
+  useEffect(() => {
+    if (!user?.employeeId) return;
+    const interval = setInterval(() => {
+      fetchAttendanceHistory();
+      fetchMissedClockOuts();
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [user?.employeeId]);
+
   useEffect(() => {
     if (activeSession && location) {
       const interval = setInterval(sendHeartbeat, 30000);
@@ -1108,23 +1108,18 @@ const Attendance = () => {
 
   // Listen for regularization approved events
   useEffect(() => {
-    const handleRegularizationEvent = () => {
-      console.log('Regularization approved, refreshing session...');
-      fetchTodayAttendance();
-      fetchMissedClockOuts();
-      fetchAttendanceHistory();
-      // Clear any stale session
+    const handleRegularizationEvent = async () => {
+      await fetchTodayAttendance();
+      await fetchMissedClockOuts();
+      await fetchAttendanceHistory();
       setActiveSession(null);
       clearSessionFromStorage();
       setHasClockedOutToday(false);
     };
-    
+
     window.addEventListener('regularizationApproved', handleRegularizationEvent);
-    
-    return () => {
-      window.removeEventListener('regularizationApproved', handleRegularizationEvent);
-    };
-  }, []);
+    return () => window.removeEventListener('regularizationApproved', handleRegularizationEvent);
+  }, [user?.employeeId]);
 
   return (
     <div className="p-2 p-md-3 p-lg-4" style={{ backgroundColor: '#f8f9fc', minHeight: '100vh' }}>

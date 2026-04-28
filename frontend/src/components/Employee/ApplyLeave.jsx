@@ -145,39 +145,63 @@ const ApplyLeave = () => {
     }
   }, [leaveBalance.is_eligible, leaveBalance.is_probation_complete, leaveBalance.comp_off_balance]);
 
+  // In ApplyLeave.jsx - Add this helper function
+  const calculateMonthsFromJoining = (joiningDate, currentDate = new Date()) => {
+    const join = new Date(joiningDate);
+    const today = new Date(currentDate);
+
+    if (today < join) {
+      return 0;
+    }
+
+    let totalMonths = (today.getFullYear() - join.getFullYear()) * 12 +
+      (today.getMonth() - join.getMonth());
+
+    if (today.getDate() < join.getDate()) {
+      totalMonths = Math.max(0, totalMonths - 1);
+    }
+
+    return totalMonths;
+  };
+
+  // In ApplyLeave.jsx - Replace the fetchEmployeeDetails function with this:
+
   const fetchEmployeeDetails = async () => {
     try {
       const response = await axios.get(API_ENDPOINTS.EMPLOYEE_PROFILE(user.employeeId));
 
-      // Calculate months completed from joining date
       const joiningDate = new Date(response.data.joining_date);
       const today = new Date();
-      let months = (today.getFullYear() - joiningDate.getFullYear()) * 12 +
-        (today.getMonth() - joiningDate.getMonth());
 
-      // Adjust for day of month
-      if (today.getDate() < joiningDate.getDate()) {
-        months -= 1;
-      }
+      // LOCAL CALCULATION FUNCTION - Don't rely on backend service
+      const calculateMonthsFromJoining = (joiningDate, currentDate = new Date()) => {
+        const join = new Date(joiningDate);
+        const today = new Date(currentDate);
 
-      // Ensure not negative
-      months = Math.max(0, months);
+        if (today < join) {
+          return 0;
+        }
+
+        let totalMonths = (today.getFullYear() - join.getFullYear()) * 12 +
+          (today.getMonth() - join.getMonth());
+
+        if (today.getDate() < join.getDate()) {
+          totalMonths = Math.max(0, totalMonths - 1);
+        }
+
+        return totalMonths;
+      };
+
+      const monthsCompleted = calculateMonthsFromJoining(joiningDate, today);
 
       setEmployeeDetails({
         joining_date: response.data.joining_date,
         reporting_manager: response.data.reporting_manager || '',
-        months_completed: months
+        months_completed: monthsCompleted
       });
 
-      if (response.data.reporting_manager) {
-        setFormData(prev => ({
-          ...prev,
-          reporting_manager: response.data.reporting_manager
-        }));
-      }
     } catch (error) {
       console.error('Error fetching employee details:', error);
-      showNotification('Failed to load employee details', 'danger');
       // Set default values on error
       setEmployeeDetails({
         joining_date: '',
@@ -195,21 +219,22 @@ const ApplyLeave = () => {
       const response = await axios.get(API_ENDPOINTS.LEAVE_BALANCE(user?.employeeId));
       console.log('📊 Leave balance response:', response.data);
 
-      // ✅ FIX: Use correct field names from API response with proper fallbacks
+      // The API already returns months_completed
       const isProbationComplete = response.data.is_probation_complete === true || response.data.is_eligible === true;
-
       setLeaveBalance({
         available: parseFloat(response.data.available) || 0,
         total_accrued: parseFloat(response.data.total_accrued) || 0,
         used: parseFloat(response.data.used) || 0,
         pending: parseFloat(response.data.pending) || 0,
+        unpaid_used: parseFloat(response.data.unpaid_used) || 0,
+        unpaid_pending: parseFloat(response.data.unpaid_pending) || 0,
         comp_off_balance: parseFloat(response.data.comp_off_balance) || 0,
         total_comp_off_earned: parseFloat(response.data.total_comp_off_earned) || 0,
         total_comp_off_used: parseFloat(response.data.total_comp_off_used) || 0,
         completed_months_in_year: response.data.accrual_info?.months_this_year || 0,
         message: response.data.message || '',
         is_eligible: isProbationComplete,
-        months_completed: response.data.months_completed || 0,
+        months_completed: response.data.months_completed || 0,  // ✅ This comes from API
         is_probation_complete: isProbationComplete,
         eligible_from_date: response.data.eligible_from_date || ''
       });
@@ -334,6 +359,10 @@ const ApplyLeave = () => {
       newErrors.reason = 'Reason is required';
     } else if (formData.reason.length < 10) {
       newErrors.reason = 'Reason must be at least 10 characters';
+    }
+
+    if (!formData.reporting_manager || !formData.reporting_manager.trim()) {
+      newErrors.reporting_manager = 'Reporting manager is required';
     }
 
     // Check leave balance
@@ -713,7 +742,7 @@ const ApplyLeave = () => {
                 {/* Reporting Manager */}
                 <Form.Group className="mb-4">
                   <Form.Label className="small fw-semibold text-muted">
-                    Reporting Manager
+                    Reporting Manager <span className="text-danger">*</span>
                   </Form.Label>
                   <Form.Control
                     type="text"
@@ -721,10 +750,17 @@ const ApplyLeave = () => {
                     value={formData.reporting_manager}
                     onChange={handleChange}
                     size="sm"
-                    placeholder="Your reporting manager"
-                    readOnly
-                    className="bg-light"
+                    placeholder="Enter reporting manager name"
+                    isInvalid={!!errors.reporting_manager}
                   />
+                  {errors.reporting_manager && (
+                    <Form.Control.Feedback type="invalid">
+                      {errors.reporting_manager}
+                    </Form.Control.Feedback>
+                  )}
+                  <Form.Text className="text-muted small">
+                    Leave request will be sent to this manager for approval
+                  </Form.Text>
                 </Form.Group>
 
                 {/* Balance Error */}
@@ -847,13 +883,27 @@ const ApplyLeave = () => {
                   <span className="fw-semibold">{leaveBalance.total_accrued} days</span>
                 </div>
                 <div className="d-flex justify-content-between mb-1 small">
-                  <span className="text-muted">Used:</span>
+                  <span className="text-muted">Used (Paid):</span>
                   <span className="fw-semibold">{leaveBalance.used} days</span>
                 </div>
-                <div className="d-flex justify-content-between mb-2 small">
-                  <span className="text-muted">Pending:</span>
+                <div className="d-flex justify-content-between mb-1 small">
+                  <span className="text-muted">Pending (Paid):</span>
                   <span className="fw-semibold">{leaveBalance.pending} days</span>
                 </div>
+                {(leaveBalance.unpaid_used > 0 || leaveBalance.unpaid_pending > 0) && (
+                  <>
+                    <div className="d-flex justify-content-between mb-1 small">
+                      <span className="text-danger">Unpaid Used:</span>
+                      <span className="fw-semibold text-danger">{leaveBalance.unpaid_used} days</span>
+                    </div>
+                    {leaveBalance.unpaid_pending > 0 && (
+                      <div className="d-flex justify-content-between mb-1 small">
+                        <span className="text-warning">Unpaid Pending:</span>
+                        <span className="fw-semibold text-warning">{leaveBalance.unpaid_pending} days</span>
+                      </div>
+                    )}
+                  </>
+                )}
 
                 {/* Progress Bar - Only show if eligible or for display */}
                 {leaveBalance.total_accrued > 0 && (

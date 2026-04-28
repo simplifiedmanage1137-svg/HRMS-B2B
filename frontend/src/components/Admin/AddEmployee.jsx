@@ -70,6 +70,7 @@ const AddEmployee = () => {
   const [acceptPolicy, setAcceptPolicy] = useState(false);
   const [debugInfo, setDebugInfo] = useState(null);
   const [employeeId, setEmployeeId] = useState('');
+  const [managers, setManagers] = useState([]);
 
   // Track completed tabs
   const [completedTabs, setCompletedTabs] = useState({
@@ -138,15 +139,31 @@ const AddEmployee = () => {
   // Set default contract policy when checkbox is checked
   useEffect(() => {
     if (acceptPolicy) {
-      setTempPolicyData({
-        contract_policy: DEFAULT_CONTRACT_POLICY
-      });
+      setTempPolicyData({ contract_policy: DEFAULT_CONTRACT_POLICY });
     } else {
-      setTempPolicyData({
-        contract_policy: ''
-      });
+      setTempPolicyData({ contract_policy: '' });
     }
   }, [acceptPolicy]);
+
+  useEffect(() => {
+    const fetchManagers = async () => {
+      try {
+        const res = await axios.get(API_ENDPOINTS.EMPLOYEES);
+        const all = Array.isArray(res.data) ? res.data : res.data?.data || res.data?.employees || [];
+        const isMgr = (d) => {
+          if (!d) return false;
+          const dl = d.toLowerCase();
+          return dl.includes('team leader') || dl.includes('team manager') ||
+                 dl.includes('tl') || dl.includes('lead') || dl.includes('manager') ||
+                 dl.includes('head') || dl.includes('supervisor');
+        };
+        setManagers(all.filter(e => isMgr(e.designation)));
+      } catch (err) {
+        console.error('Error fetching managers:', err);
+      }
+    };
+    fetchManagers();
+  }, []);
 
   // Calculate in-hand salary whenever gross salary changes
   useEffect(() => {
@@ -899,13 +916,22 @@ const AddEmployee = () => {
                       <Form.Label className="small fw-semibold text-muted">
                         Reporting Manager
                       </Form.Label>
-                      <Form.Control
-                        type="text"
+                      <Form.Select
                         name="reporting_manager"
                         value={tempPersonalData.reporting_manager}
                         onChange={handlePersonalChange}
                         size="sm"
-                      />
+                      >
+                        <option value="">-- No Manager --</option>
+                        {managers.map(m => {
+                          const fullName = `${m.first_name} ${m.last_name}`.trim();
+                          return (
+                            <option key={m.employee_id} value={fullName}>
+                              {fullName} ({m.designation})
+                            </option>
+                          );
+                        })}
+                      </Form.Select>
                     </Form.Group>
                   </Col>
                   <Col xs={12} md={4}>

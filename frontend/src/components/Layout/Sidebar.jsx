@@ -21,7 +21,10 @@ import {
   FaEdit,
   FaCheckCircle,
   FaHourglassHalf,
-  FaTrophy
+  FaTrophy,
+  FaExclamationTriangle,
+  FaUserTie,
+  FaBullhorn
 } from 'react-icons/fa';
 import axios from '../../config/axios';
 import API_ENDPOINTS from '../../config/api';
@@ -35,6 +38,7 @@ const Sidebar = () => {
   const [isMobile, setIsMobile] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [employeeDesignation, setEmployeeDesignation] = useState('');
   const [overtimeStats, setOvertimeStats] = useState({
     hasOvertime: false,
     totalHours: 0
@@ -117,6 +121,7 @@ const Sidebar = () => {
       if (response.data) {
         const fullName = `${response.data.first_name || ''} ${response.data.last_name || ''}`.trim();
         setEmployeeName(fullName || 'Employee');
+        setEmployeeDesignation(response.data.designation || '');
       }
     } catch (error) {
       console.error('Error fetching employee name:', error);
@@ -190,7 +195,7 @@ const Sidebar = () => {
       to={to}
       end={end}
       onClick={onClick}
-      className="text-white text-decoration-none w-100 position-relative"
+      className="text-decoration-none w-100 position-relative"
       style={({ isActive }) => ({
         padding: isOpen ? '12px 15px' : '12px 0',
         borderRadius: '8px',
@@ -199,7 +204,8 @@ const Sidebar = () => {
         alignItems: 'center',
         justifyContent: isOpen ? 'flex-start' : 'center',
         gap: isOpen ? '10px' : '0',
-        backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
+        backgroundColor: isActive ? 'rgba(61,44,94,0.15)' : 'transparent',
+        color: '#3d2c5e',
         transition: 'all 0.2s ease',
         boxSizing: 'border-box'
       })}
@@ -258,8 +264,8 @@ const Sidebar = () => {
             height: '40px',
             padding: '0',
             boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
-            background: 'linear-gradient(180deg, #d53f8c 0%, #97266d 100%)',
-            color: 'white',
+            background: 'linear-gradient(135deg, #e6e4f0, #f2d9cc)',
+            color: '#3d2c5e',
             cursor: 'pointer'
           }}
         >
@@ -310,8 +316,8 @@ const Sidebar = () => {
         className="sidebar position-fixed top-0 start-0 vh-100 overflow-hidden"
         style={{
           width: getSidebarWidth(),
-          background: 'linear-gradient(180deg, #d53f8c 0%, #97266d 100%)',
-          color: 'white',
+          background: 'linear-gradient(135deg, #e6e4f0, #f2d9cc)',
+          color: '#3d2c5e',
           transition: 'width 0.3s ease, left 0.3s ease',
           zIndex: 1000,
           boxShadow: isOpen ? '2px 0 10px rgba(0,0,0,0.3)' : 'none',
@@ -389,6 +395,14 @@ const Sidebar = () => {
                     markNotificationsAsRead();
                   }}
                 />
+
+                {/* BROADCAST CENTER LINK */}
+                <NavItem
+                  to="/admin/broadcast"
+                  icon={<FaBullhorn size={18} />}
+                  label="Broadcast"
+                  onClick={closeSidebar}
+                />
               </>
             ) : (
               // ✅ EMPLOYEE MENU ITEMS
@@ -428,13 +442,29 @@ const Sidebar = () => {
                   label="Update Requests"
                   onClick={closeSidebar}
                 />
+
+                {/* My Team - sirf Team Leader/Manager ko dikhega */}
+                {(() => {
+                  const d = (employeeDesignation || '').toLowerCase();
+                  const isTL = d.includes('team leader') || d.includes('team manager') ||
+                               d.includes('tl') || d.includes('lead') || d.includes('manager') ||
+                               d.includes('head') || d.includes('supervisor');
+                  return isTL ? (
+                    <NavItem
+                      to="/manager/panel"
+                      icon={<FaUserTie size={18} />}
+                      label="My Team"
+                      onClick={closeSidebar}
+                    />
+                  ) : null;
+                })()}
               </>
             )}
           </nav>
 
           {/* User Info */}
           <div className={`mt-auto pt-3 border-top ${isOpen ? 'text-start' : 'text-center'}`} 
-            style={{ borderTopColor: 'rgba(255,255,255,0.2)' }}>
+            style={{ borderTopColor: 'rgba(61,44,94,0.2)' }}>
             {isOpen ? (
               <>
                 <div className="d-flex align-items-center mb-2 w-100 overflow-hidden">
@@ -453,8 +483,8 @@ const Sidebar = () => {
                     padding: '8px',
                     border: '1px solid rgba(255,255,255,0.3)',
                     borderRadius: '6px',
-                    background: 'rgba(255,255,255,0.1)',
-                    color: 'white',
+                    background: 'rgba(61,44,94,0.1)',
+                    color: '#3d2c5e',
                     cursor: 'pointer',
                     fontSize: '13px',
                     transition: 'all 0.2s ease'
@@ -475,8 +505,8 @@ const Sidebar = () => {
                     height: '32px',
                     border: '1px solid rgba(255,255,255,0.3)',
                     borderRadius: '50%',
-                    background: 'rgba(255,255,255,0.1)',
-                    color: 'white',
+                    background: 'rgba(61,44,94,0.1)',
+                    color: '#3d2c5e',
                     cursor: 'pointer',
                     transition: 'all 0.2s ease'
                   }}

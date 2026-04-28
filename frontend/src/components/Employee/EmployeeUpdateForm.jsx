@@ -1,5 +1,5 @@
 // src/components/Employee/EmployeeUpdateForm.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Form, Button, Card, Alert, Spinner, Row, Col } from 'react-bootstrap';
 import axios from '../../config/axios';
@@ -22,6 +22,22 @@ const EmployeeUpdateForm = () => {
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('info'); // 'info' or 'documents'
 
+
+const isTeamLeaderDesignation = (designation) => {
+  if (!designation) return false;
+  const d = designation.toLowerCase();
+  return d.includes('team leader') || d.includes('team manager') ||
+         d.includes('tl') || d.includes('lead') || d.includes('manager') ||
+         d.includes('head') || d.includes('supervisor');
+};
+
+const BASE_EMPLOYMENT_FIELDS = [
+    { name: 'designation', label: 'Designation', type: 'text' },
+    { name: 'department', label: 'Department', type: 'text' },
+    { name: 'employment_type', label: 'Employment Type', type: 'select', options: ['Full Time', 'Part Time', 'Contract', 'Intern', 'Probation'] },
+    { name: 'shift_timing', label: 'Shift Timing', type: 'text', placeholder: 'e.g., 9:00 AM - 6:00 PM' },
+    { name: 'reporting_manager', label: 'Reporting Manager', type: 'text' }
+];
 
 const fieldGroups = {
   personal: [
@@ -47,15 +63,9 @@ const fieldGroups = {
     { name: 'ifsc_code', label: 'IFSC Code', type: 'text' },
     { name: 'branch_name', label: 'Branch Name', type: 'text' },
     { name: 'pan_number', label: 'PAN Number', type: 'text' },
-    { name: 'aadhar_number', label: 'Aadhar Card Number', type: 'text', placeholder: '12-digit Aadhar number' }  // ✅ Added aadhar_number
+    { name: 'aadhar_number', label: 'Aadhar Card Number', type: 'text', placeholder: '12-digit Aadhar number' }
   ],
-  employment: [
-    { name: 'designation', label: 'Designation', type: 'text' },
-    { name: 'department', label: 'Department', type: 'text' },
-    { name: 'employment_type', label: 'Employment Type', type: 'select', options: ['Full Time', 'Part Time', 'Contract', 'Intern', 'Probation'] },
-    { name: 'shift_timing', label: 'Shift Timing', type: 'text', placeholder: 'e.g., 9:00 AM - 6:00 PM' },
-    { name: 'reporting_manager', label: 'Reporting Manager', type: 'text' }
-  ],
+  employment: BASE_EMPLOYMENT_FIELDS,
   emergency: [
     { name: 'emergency_contact', label: 'Emergency Contact Number', type: 'tel' }
   ],
@@ -132,7 +142,7 @@ const fieldGroups = {
       if (requestDetails?.requested_fields) {
         requestDetails.requested_fields.forEach(category => {
           if (category !== 'documents') {
-            const fields = fieldGroups[category] || [];
+            const fields = dynamicFieldGroups[category] || [];
             fields.forEach(field => {
               if (formData[field.name] !== undefined) {
                 updatedData[field.name] = formData[field.name];
@@ -161,6 +171,17 @@ const fieldGroups = {
     setMessage('Documents uploaded successfully! Waiting for admin approval.');
     setTimeout(() => navigate('/employee/update-requests'), 2000);
   };
+
+  // Dynamic fieldGroups: shift_timing only for team leaders
+  const dynamicFieldGroups = useMemo(() => {
+    const isTL = isTeamLeaderDesignation(formData.designation);
+    return {
+      ...fieldGroups,
+      employment: isTL
+        ? BASE_EMPLOYMENT_FIELDS
+        : BASE_EMPLOYMENT_FIELDS.filter(f => f.name !== 'shift_timing')
+    };
+  }, [formData.designation]);
 
   const isDocumentRequest = requestDetails?.is_document_update || false;
   const documentTypes = requestDetails?.document_types || [];
@@ -248,7 +269,7 @@ const fieldGroups = {
                     </Card.Header>
                     <Card.Body className="p-2 p-md-3">
                       <Row className="g-2">
-                        {fieldGroups[category]?.map(field => (
+                        {dynamicFieldGroups[category]?.map(field => (
                           <Col key={field.name} xs={12} md={6} className="mb-2">
                             <Form.Group>
                               <Form.Label className="small fw-semibold">

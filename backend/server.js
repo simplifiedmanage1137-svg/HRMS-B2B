@@ -25,9 +25,14 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const adminUpdateRoutes = require('./routes/adminUpdateRoutes');
 const employeeUpdateRoutes = require('./routes/employeeUpdateRoutes');
 const updateResponseRoutes = require('./routes/updateResponseRoutes');
+const noticeRoutes = require('./routes/noticeRoutes');
+const announcementRoutes = require('./routes/announcementRoutes');
 
 // Import attendance controller for cron jobs
 const attendanceController = require('./controllers/attendanceController');
+
+// Import absent employee check cron job
+const { scheduleAbsentCheck } = require('./cron/absentEmployeeCheck');
 
 // Initialize Express app
 const app = express();
@@ -43,7 +48,6 @@ console.log(`Port: ${PORT}`);
 console.log('='.repeat(70));
 
 // ============== CORS CONFIGURATION ==============
-// Read allowed origins from environment variable or use defaults
 const allowedOriginsFromEnv = process.env.ALLOWED_ORIGINS 
     ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
     : [];
@@ -71,39 +75,36 @@ uniqueAllowedOrigins.forEach(origin => {
     console.log(`   - ${origin}`);
 });
 
-// Apply CORS middleware - this handles OPTIONS automatically
 app.use(cors({
     origin: function(origin, callback) {
-        // Allow requests with no origin (like mobile apps, curl, Postman)
-        if (!origin) {
-            console.log('✅ No origin header, allowing request');
+        // Allow requests with no origin (mobile apps, curl, Postman, same-origin)
+        if (!origin) return callback(null, true);
+
+        // Allow all localhost/127.0.0.1 ports (any machine running locally)
+        if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
             return callback(null, true);
         }
-        
-        // Check if origin is allowed
+
+        // Allow local network IPs (192.168.x.x, 10.x.x.x) for LAN access
+        if (/^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(origin)) {
+            return callback(null, true);
+        }
+
+        // Allow explicitly listed origins from env
         if (uniqueAllowedOrigins.includes(origin)) {
-            console.log(`✅ CORS allowed: ${origin}`);
             return callback(null, true);
         }
-        
-        // For debugging - log blocked origins
+
         console.log(`❌ CORS blocked: ${origin}`);
-        console.log(`   Allowed origins:`, uniqueAllowedOrigins);
         return callback(new Error(`Not allowed by CORS: ${origin}`));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: [
-        'Content-Type',
-        'Authorization',
-        'X-Requested-With',
-        'Accept',
-        'Origin',
-        'employee-id',
-        'X-Employee-Id'
+        'Content-Type', 'Authorization', 'X-Requested-With',
+        'Accept', 'Origin', 'employee-id', 'X-Employee-Id'
     ],
-    exposedHeaders: ['Content-Length', 'X-Request-Id'],
-    maxAge: 86400 // 24 hours - cache preflight results
+    maxAge: 86400
 }));
 
 
@@ -140,6 +141,7 @@ const { uploadsDir } = createUploadDirectories();
 
 // Serve static files
 app.use('/uploads', express.static(uploadsDir));
+app.use('/uploads/announcements', express.static(path.join(__dirname, 'uploads/announcements')));
 
 // ============== MULTER CONFIGURATION ==============
 const documentStorage = multer.diskStorage({
@@ -227,6 +229,8 @@ app.use('/api/notifications', authenticateToken, notificationRoutes);
 app.use('/api/admin-updates', authenticateToken, adminUpdateRoutes);
 app.use('/api/employee-updates', authenticateToken, employeeUpdateRoutes);
 app.use('/api/update-responses', authenticateToken, updateResponseRoutes);
+app.use('/api/notices', authenticateToken, noticeRoutes);
+app.use('/api/announcements', authenticateToken, announcementRoutes);
 
 // Make uploadDocuments available to routes
 app.locals.uploadDocuments = uploadDocuments;
@@ -391,6 +395,9 @@ cron.schedule('59 23 * * *', async () => {
     }
 });
 
+// Initialize absent employee check cron job
+scheduleAbsentCheck();
+
 // Run database cleanup weekly (Sunday at 2 AM)
 cron.schedule('0 2 * * 0', async () => {
     console.log('\n🧹 Running weekly database cleanup...');
@@ -432,10 +439,10 @@ cron.schedule('0 2 * * 0', async () => {
 console.log('✅ Cron jobs configured:');
 console.log('   - Hourly: Auto-close stale sessions');
 console.log('   - Daily at 23:59: End-of-day absent marking');
+console.log('   - Daily at 23:59: Mark absent employees as leave');
 console.log('   - Weekly on Sunday at 02:00: Database cleanup');
 
 // ============== ERROR HANDLING MIDDLEWARE ==============
-// 404 handler
 app.use((req, res) => {
     res.status(404).json({
         success: false,

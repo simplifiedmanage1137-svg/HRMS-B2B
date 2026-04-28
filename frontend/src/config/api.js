@@ -1,17 +1,14 @@
 // src/config/api.js
 
-// ============== LOCAL DEVELOPMENT (COMMENTED OLD) ==============
-// For local development (uncomment for development)
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-
-// ============== PRODUCTION (COMMENTED FOR NOW) ==============
-// const API_BASE_URL = 'https://employee-management-system-brvo.onrender.com';
-
-// Add this debug log
-console.log('🔧 API Base URL:', API_BASE_URL);
-console.log('🔧 Environment:', import.meta.env.MODE);
+// In production (Vercel/Render): use the deployed backend URL from env
+// In local development: use empty string so Vite proxy handles /api/* → localhost:5000
+// This way the app works on ANY machine without changing any config
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 export const API_ENDPOINTS = {
+    MANAGER_TEAM: `${API_BASE_URL}/api/employees/manager/team`,
+    MANAGER_UPDATE_SHIFT: (employeeId) => `${API_BASE_URL}/api/employees/manager/shift/${employeeId}`,
+
     // Auth endpoints
     LOGIN: `${API_BASE_URL}/api/auth/login`,
     VERIFY: `${API_BASE_URL}/api/auth/verify`,
@@ -67,10 +64,22 @@ export const API_ENDPOINTS = {
     ATTENDANCE_APPROVE_REGULARIZATION: (request_id) => `${API_BASE_URL}/api/attendance/regularization/${request_id}/approve`,
     ATTENDANCE_REJECT_REGULARIZATION: (request_id) => `${API_BASE_URL}/api/attendance/regularization/${request_id}/reject`,
     ATTENDANCE_AUTO_CLOSE_STALE: `${API_BASE_URL}/api/attendance/auto-close-stale`,
+    ATTENDANCE_UPDATE_HISTORICAL_LATE_MARKS: `${API_BASE_URL}/api/attendance/update-historical-late-marks`,
     
     // Overtime endpoints
     OVERTIME_SUMMARY: (employeeId, month, year) => 
         `${API_BASE_URL}/api/attendance/overtime/${employeeId}/${month}/${year}`,
+
+    // Announcement endpoints
+    ANNOUNCEMENTS: `${API_BASE_URL}/api/announcements`,
+    ANNOUNCEMENT_DELETE: (id) => `${API_BASE_URL}/api/announcements/${id}`,
+
+    // Notice/Warning endpoints
+    NOTICES: `${API_BASE_URL}/api/notices`,
+    NOTICE_BY_ID: (id) => `${API_BASE_URL}/api/notices/${id}`,
+    NOTICES_FOR_EMPLOYEE: (employeeId) => `${API_BASE_URL}/api/notices/employee/${employeeId}`,
+    NOTICE_READ: (id) => `${API_BASE_URL}/api/notices/${id}/read`,
+    NOTICE_DELETE: (id) => `${API_BASE_URL}/api/notices/${id}`,
 
     // Notification endpoints
     NOTIFICATIONS: `${API_BASE_URL}/api/notifications`,
@@ -211,14 +220,5 @@ export const API_ENDPOINTS = {
     SYSTEM_CLEAR_CACHE: `${API_BASE_URL}/api/system/clear-cache`
 };
 
-// Log all endpoints for debugging
-console.log('🔧 API Endpoints loaded:', {
-    LOGIN: API_ENDPOINTS.LOGIN,
-    TODAY_EVENTS: API_ENDPOINTS.TODAY_EVENTS,
-    ATTENDANCE_MISSED_CLOCKOUTS: API_ENDPOINTS.ATTENDANCE_MISSED_CLOCKOUTS,
-    ATTENDANCE_REGULARIZATION_REQUEST: API_ENDPOINTS.ATTENDANCE_REGULARIZATION_REQUEST,
-    ATTENDANCE_PENDING_REGULARIZATIONS: API_ENDPOINTS.ATTENDANCE_PENDING_REGULARIZATIONS,
-    BASE_URL: API_BASE_URL
-});
 
 export default API_ENDPOINTS;

@@ -81,17 +81,17 @@ const LeaveRequests = () => {
   const fetchLeaveRequests = async () => {
     try {
       setLoading(true);
+      console.log('🔍 Fetching all leave requests for admin...');
+      // Admin sees all leave requests (not just team leaders)
       const response = await axios.get(`${API_ENDPOINTS.LEAVES}?all=true`);
-      console.log('Leave requests fetched:', response.data);
+      console.log('✅ Leave requests fetched:', response.data.length, 'records');
       setLeaveRequests(response.data);
       setFilteredRequests(response.data);
       setMessage({ type: '', text: '' });
     } catch (error) {
-      console.error('Error fetching leave requests:', error);
-      setMessage({
-        type: 'danger',
-        text: error.response?.data?.message || 'Failed to load leave requests'
-      });
+      console.error('❌ Error fetching leave requests:', error);
+      console.error('Error response:', error.response?.data);
+      setMessage({ type: 'danger', text: error.response?.data?.message || 'Failed to load leave requests' });
     } finally {
       setLoading(false);
     }
@@ -137,10 +137,10 @@ const LeaveRequests = () => {
     setProcessing(true);
 
     try {
-      // Only send status and comments - no extra fields
+      // Only send status and remarks - no extra fields
       const response = await axios.put(API_ENDPOINTS.LEAVE_STATUS(id), {
         status,
-        comments: comments || null
+        remarks: comments || null
       });
 
       console.log('Update response:', response.data);
@@ -220,6 +220,27 @@ const LeaveRequests = () => {
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
   };
 
+  const formatDateTime = (dateString) => {
+    if (!dateString) return 'N/A';
+    // Handle IST string "YYYY-MM-DD HH:MM:SS"
+    if (typeof dateString === 'string' && dateString.includes(' ') && !dateString.includes('T')) {
+      const [datePart, timePart] = dateString.split(' ');
+      const [y, mo, d] = datePart.split('-');
+      const [h, mi] = timePart.split(':');
+      const hourNum = parseInt(h);
+      const ampm = hourNum >= 12 ? 'PM' : 'AM';
+      const hour12 = hourNum % 12 === 0 ? 12 : hourNum % 12;
+      return `${d}/${mo}/${y} ${hour12}:${mi} ${ampm} IST`;
+    }
+    // UTC ISO string - convert to IST
+    const d = new Date(dateString);
+    const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+    const h = ist.getUTCHours();
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const hour12 = h % 12 === 0 ? 12 : h % 12;
+    return `${String(ist.getUTCDate()).padStart(2,'0')}/${String(ist.getUTCMonth()+1).padStart(2,'0')}/${ist.getUTCFullYear()} ${hour12}:${String(ist.getUTCMinutes()).padStart(2,'0')} ${ampm} IST`;
+  };
+
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -286,7 +307,7 @@ const LeaveRequests = () => {
       <div className="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center mb-4 gap-3">
         <h2 className="h4 mb-0 d-flex align-items-center">
           <FaCalendarAlt className="me-2 text-dark" />
-          Leave Requests Management
+          Leave Requests List
         </h2>
         <Button
           variant="dark"
@@ -499,7 +520,8 @@ const LeaveRequests = () => {
                   <th className="small fw-normal text-dark d-none d-md-table-cell">Duration</th>
                   <th className="small fw-normal text-dark d-none d-lg-table-cell">Date Range</th>
                   <th className="small fw-normal text-dark d-none d-xl-table-cell">Days</th>
-                  <th className="small fw-normal text-dark">Reason</th>
+                  <th className="small fw-normal text-dark">Reason / Manager</th>
+                  <th className="small fw-normal text-dark d-none d-md-table-cell">Applied At (IST)</th>
                   <th className="small fw-normal text-dark">Status</th>
                   <th className="small fw-normal text-dark text-center">Actions</th>
                 </tr>
@@ -561,41 +583,41 @@ const LeaveRequests = () => {
                         </div>
                       </td>
 
+                      {/* Applied At IST */}
+                      <td className="small d-none d-md-table-cell text-nowrap">
+                        {formatDateTime(leave.created_at)}
+                      </td>
+
                       {/* Status Column */}
                       <td className="small">
                         {getStatusBadge(leave.status)}
                       </td>
 
-                      {/* Actions Column */}
+                      {/* Actions - Admin can approve/reject any pending leave */}
                       <td className="text-center">
-                        <div className="d-flex justify-content-center gap-2 gap-sm-3 align-items-center">
-                          {/* View */}
+                        <div className="d-flex align-items-center justify-content-center gap-1">
                           <FaEye
                             size={16}
                             className="text-primary"
                             onClick={() => handleViewDetails(leave)}
                             title="View Details"
-                            style={{ cursor: "pointer" }}
+                            style={{ cursor: 'pointer' }}
                           />
-
-                          {leave.status === "pending" && (
+                          {leave.status === 'pending' && (
                             <>
-                              {/* Approve */}
                               <FaCheck
-                                size={16}
-                                className="text-success"
-                                onClick={() => handleAction(leave, "approve")}
-                                title="Approve Leave"
-                                style={{ cursor: "pointer" }}
+                                size={14}
+                                className="text-success ms-1"
+                                onClick={() => handleAction(leave, 'approve')}
+                                title="Approve"
+                                style={{ cursor: 'pointer' }}
                               />
-
-                              {/* Reject */}
                               <FaTimes
-                                size={16}
-                                className="text-danger"
-                                onClick={() => handleAction(leave, "reject")}
-                                title="Reject Leave"
-                                style={{ cursor: "pointer" }}
+                                size={14}
+                                className="text-danger ms-1"
+                                onClick={() => handleAction(leave, 'reject')}
+                                title="Reject"
+                                style={{ cursor: 'pointer' }}
                               />
                             </>
                           )}
@@ -790,10 +812,10 @@ const LeaveRequests = () => {
                     <Card.Body className="p-2 p-md-3">
                       <h6 className="text-primary mb-2 small fw-semibold">Status</h6>
                       <p className="mb-2">{getStatusBadge(selectedLeave.status)}</p>
-                      {selectedLeave.admin_comments && (
+                      {selectedLeave.remarks && (
                         <div className="mt-2 p-2 bg-white rounded">
                           <small className="text-muted d-block">Admin Comments:</small>
-                          <p className="mb-0 small">{selectedLeave.admin_comments}</p>
+                          <p className="mb-0 small">{selectedLeave.remarks}</p>
                         </div>
                       )}
                     </Card.Body>

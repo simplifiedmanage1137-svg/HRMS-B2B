@@ -116,8 +116,80 @@ const generateEmployeeIdBasedOnJoiningDate = async (joiningDate) => {
         return `B2B${year}${month}${fallbackSeq}`;
     }
 };
+
+// ============== REPORTING MANAGER: GET TEAM MEMBERS ==============
+router.get('/manager/team', verifyToken, async (req, res) => {
+    try {
+        const managerEmployeeId = req.user?.employeeId;
+        const { data: manager, error: mErr } = await supabase
+            .from('employees').select('first_name, last_name')
+            .eq('employee_id', managerEmployeeId).single();
+        if (mErr || !manager) return res.status(404).json({ success: false, message: 'Manager not found' });
+
+        const managerName = `${manager.first_name} ${manager.last_name}`.trim();
+
+        // Fetch team members - trim stored values to handle any whitespace issues
+        const { data: allEmps, error } = await supabase
+            .from('employees')
+            .select('id, employee_id, first_name, last_name, department, designation, shift_timing, reporting_manager')
+            .order('first_name', { ascending: true });
+
+        if (error) throw error;
+
+        // Filter in JS: trim + lowercase compare to handle any DB whitespace/case issues
+        const team = (allEmps || []).filter(e =>
+            e.reporting_manager?.trim().toLowerCase() === managerName.toLowerCase()
+        );
+
+        res.json({ success: true, team, manager_name: managerName });
+    } catch (error) {
+        console.error('Error fetching team:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch team', error: error.message });
+    }
+});
+
+// ============== REPORTING MANAGER: UPDATE TEAM MEMBER SHIFT ==============
+router.put('/manager/shift/:employee_id', verifyToken, async (req, res) => {
+    try {
+        const { employee_id } = req.params;
+        const { shift_timing } = req.body;
+        const managerEmployeeId = req.user?.employeeId;
+
+        if (!shift_timing || !shift_timing.trim()) {
+            return res.status(400).json({ success: false, message: 'Shift timing is required' });
+        }
+
+        const { data: manager, error: mErr } = await supabase
+            .from('employees').select('first_name, last_name')
+            .eq('employee_id', managerEmployeeId).single();
+        if (mErr || !manager) return res.status(403).json({ success: false, message: 'Manager not found' });
+
+        const managerName = `${manager.first_name} ${manager.last_name}`.trim();
+
+        const { data: emp, error: empErr } = await supabase
+            .from('employees').select('employee_id, first_name, last_name, reporting_manager')
+            .eq('employee_id', employee_id).single();
+        if (empErr || !emp) return res.status(404).json({ success: false, message: 'Employee not found' });
+
+        if (emp.reporting_manager?.trim().toLowerCase() !== managerName.toLowerCase()) {
+            return res.status(403).json({ success: false, message: 'You can only update shift for employees who report to you' });
+        }
+
+        const { data, error } = await supabase
+            .from('employees')
+            .update({ shift_timing: shift_timing.trim(), updated_at: new Date().toISOString() })
+            .eq('employee_id', employee_id)
+            .select('employee_id, first_name, last_name, shift_timing');
+
+        if (error) throw error;
+        res.json({ success: true, message: `Shift updated for ${emp.first_name} ${emp.last_name}`, employee: data[0] });
+    } catch (error) {
+        console.error('Error updating shift:', error);
+        res.status(500).json({ success: false, message: 'Failed to update shift', error: error.message });
+    }
+});
+
 // ============== TODAY'S EVENTS ROUTE (BIRTHDAYS & ANNIVERSARIES) ==============
-// Get today's birthdays and work anniversaries
 router.get('/today-events', async (req, res) => {
     try {
         const today = new Date();
@@ -203,7 +275,6 @@ router.get('/today-events', async (req, res) => {
 
 // ============== EMPLOYEE CRUD OPERATIONS ==============
 
-// Create new employee (Admin only)
 router.post('/', verifyToken, isAdmin, async (req, res) => {
     try {
         const employeeData = req.body;
@@ -503,8 +574,6 @@ router.get('/', async (req, res) => {
         });
     }
 });
-
-// routes/employeeRoutes.js - Hard Delete (Permanent)
 
 // Delete employee (Admin only - HARD DELETE)
 router.delete('/:id', verifyToken, isAdmin, async (req, res) => {
