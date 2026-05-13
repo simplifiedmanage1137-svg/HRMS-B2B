@@ -243,8 +243,12 @@ const SalarySlip = () => {
     if (y > today.getFullYear()) return false;
     // Future month in current year
     if (y === today.getFullYear() && m > today.getMonth() + 1) return false;
-    // Current month: only allowed from 27th onwards
-    if (y === today.getFullYear() && m === today.getMonth() + 1 && today.getDate() < 27) return false;
+
+    // Cycle for selected month ends on 25th of that month.
+    // Allow generation only 2 days after cycle end date (i.e., from 27th of that month).
+    const cycleEndDate = new Date(y, m - 1, 25); // 25th of selected month
+    const allowFrom = new Date(y, m - 1, 27);    // 27th of selected month
+    if (today < allowFrom) return false;
 
     return true;
   };
@@ -307,9 +311,7 @@ const SalarySlip = () => {
       const response = await axios.post(API_ENDPOINTS.SALARY_GENERATE, {
         employee_id: user.employeeId,
         month: parseInt(selectedMonth),
-        year: parseInt(selectedYear),
-        overtime_amount: overtimeSummary.total_amount,
-        overtime_hours: overtimeSummary.total_hours
+        year: parseInt(selectedYear)
       });
 
       console.log('✅ Salary slip generated:', response.data);
@@ -559,21 +561,22 @@ const SalarySlip = () => {
   const getSlipAmounts = (slip) => {
     if (!slip) return { monthlySalary: 0, basicSalary: 0, deduction: 0, netSalary: 0, overtimeAmount: 0, overtimeHours: 0, unpaidLeaveDays: 0, paidLeaveDays: 0, absentDays: 0, presentDays: 0, unpaidDeduction: 0, perDaySalary: 0, totalWorkingDays: 0 };
 
-    const monthlySalary    = Number(slip.monthly_salary) || Number(slip.basic_salary) || Number(employee?.gross_salary || employee?.salary) || 0;
-    const basicSalary      = Number(slip.basic_salary) || monthlySalary;
-    const deduction        = Number(slip.dt) || 200;
-    const overtimeAmount   = Number(slip.overtime_amount) || 0;
-    const overtimeHours    = Number(slip.overtime_hours) || 0;
+    const monthlySalary    = Number(slip.monthly_salary) || Number(employee?.gross_salary || employee?.salary) || 0;
+    // Use null check instead of || to preserve 0 values correctly
+    const basicSalary      = slip.basic_salary != null ? Number(slip.basic_salary) : monthlySalary;
+    const deduction        = slip.basic_salary != null && Number(slip.basic_salary) === 0 ? 0 : (Number(slip.dt) || 200);
+    const netSalary        = slip.net_salary   != null ? Number(slip.net_salary)   : Math.max(0, basicSalary - deduction);
+    const overtimeAmount   = Number(slip.overtime_amount)   || 0;
+    const overtimeHours    = Number(slip.overtime_hours)    || 0;
     const unpaidLeaveDays  = Number(slip.unpaid_leave_days) || 0;
-    const paidLeaveDays    = Number(slip.paid_leave_days) || 0;
-    const absentDays       = Number(slip.absent_days) || 0;
-    const presentDays      = Number(slip.present_days) || 0;
-    const unpaidDeduction  = Number(slip.unpaid_deduction) || 0;
-    const perDaySalary     = Number(slip.per_day_salary) || 0;
-    const totalWorkingDays = Number(slip.total_working_days) || 0;
-    const netSalary        = basicSalary - deduction + overtimeAmount;
+    const paidLeaveDays    = Number(slip.paid_leave_days)   || 0;
+    const absentDays       = Number(slip.absent_days)       || 0;
+    const presentDays      = Number(slip.present_days)      || 0;
+    const unpaidDeduction  = Number(slip.unpaid_deduction)  || 0;
+    const perDaySalary     = Number(slip.per_day_salary)    || 0;
+    const totalWorkingDays = Number(slip.total_working_days)|| 0;
 
-    return { monthlySalary, basicSalary, deduction, netSalary: netSalary < 0 ? 0 : netSalary, overtimeAmount, overtimeHours, unpaidLeaveDays, paidLeaveDays, absentDays, presentDays, unpaidDeduction, perDaySalary, totalWorkingDays };
+    return { monthlySalary, basicSalary, deduction, netSalary, overtimeAmount, overtimeHours, unpaidLeaveDays, paidLeaveDays, absentDays, presentDays, unpaidDeduction, perDaySalary, totalWorkingDays };
   };
 
   const getMonthName = (monthNumber) => {
@@ -782,8 +785,9 @@ const SalarySlip = () => {
                         {(() => {
                           const m = parseInt(selectedMonth), y = parseInt(selectedYear);
                           const today = new Date();
-                          if (y === today.getFullYear() && m === today.getMonth() + 1 && today.getDate() < 27) {
-                            return `Salary slip for this month will be available from 27 ${new Date(y, m-1).toLocaleString('en-IN',{month:'long'})} ${y}.`;
+                    const allowFrom = new Date(y, m - 1, 27);
+                          if (today < allowFrom) {
+                            return `Salary slip for ${new Date(y, m-1).toLocaleString('en-IN',{month:'long'})} ${y} will be available from 27 ${new Date(y, m-1).toLocaleString('en-IN',{month:'long'})} ${y} (2 days after cycle end).`;
                           }
                           return 'Cannot generate: Before joining date or future month.';
                         })()}
@@ -853,103 +857,6 @@ const SalarySlip = () => {
                 </Badge>
               </div>
             </Card.Header>
-
-            <Card.Body className="p-0">
-              <div className="table-responsive" style={{ maxHeight: '300px', overflowY: 'auto' }}>
-                <Table hover className="mb-0 table-sm">
-                  {/* REPLACE THIS ENTIRE THEAD SECTION */}
-                  <thead className="bg-light sticky-top" style={{ top: 0, zIndex: 10 }}>
-                    <tr className="small">
-                      <th className="fw-normal text-center" style={{ width: '50px' }}>#</th>
-                      <th className="fw-normal">Month</th>
-                      <th className="fw-normal d-none d-md-table-cell">Cycle</th>
-                      <th className="fw-normal text-end d-none d-md-table-cell">Basic</th>
-                      <th className="fw-normal text-end">OT Hrs</th>
-                      <th className="fw-normal text-end d-none d-lg-table-cell">OT Amt</th>
-                      <th className="fw-normal text-end">DT</th>
-                      <th className="fw-normal text-end">Net</th>
-                      <th className="fw-normal text-center">Action</th>
-                    </tr>
-                  </thead>
-
-                  {/* REPLACE THE TBODY SECTION */}
-                  <tbody>
-                    {displaySlips.length > 0 ? (
-                      displaySlips.map((slip, index) => {
-                        const isCurrentMonth = slip.month === currentMonth && slip.year === currentYear;
-                        const { basicSalary, deduction, netSalary, overtimeAmount, overtimeHours } = getSlipAmounts(slip);
-
-                        // ADD THIS LINE - Format cycle text
-                        const cycleText = slip.cycle_start_date && slip.cycle_end_date
-                          ? `${formatShortDate(slip.cycle_start_date)} - ${formatShortDate(slip.cycle_end_date)}`
-                          : `${getMonthName(slip.month)} ${slip.year}`;
-
-                        return (
-                          <tr key={slip.id} className={isCurrentMonth ? 'table-primary' : ''}>
-                            <td className="text-center small">{index + 1}</td>
-                            <td className="small">
-                              <Badge bg="primary" className="px-2 py-1 small text-nowrap">
-                                {getMonthName(slip.month).substring(0, 3)}
-                                {isCurrentMonth && ' (C)'}
-                              </Badge>
-                            </td>
-                            {/* ADD THIS NEW COLUMN - Cycle Info */}
-                            <td className="small d-none d-md-table-cell text-truncate" style={{ maxWidth: '120px' }}>
-                              <small className="text-muted">{cycleText}</small>
-                            </td>
-                            <td className="text-primary fw-bold small text-end d-none d-md-table-cell">
-                              ₹{formatCurrency(basicSalary)}
-                            </td>
-                            <td className="small text-end">
-                              <Badge bg={overtimeHours > 0 ? "success" : "secondary"} pill className="text-nowrap">
-                                {overtimeHours || 0}h
-                              </Badge>
-                            </td>
-                            <td className="small text-end d-none d-lg-table-cell">
-                              <span className={overtimeAmount > 0 ? "text-success text-nowrap" : "text-nowrap"}>
-                                {overtimeAmount > 0 ? '+' : ''}₹{formatCurrency(overtimeAmount)}
-                              </span>
-                            </td>
-                            <td className="text-danger small text-end">₹{formatCurrency(deduction)}</td>
-                            <td className="small text-end text-nowrap">
-                              <span className="text-success fw-bold">₹{formatCurrency(netSalary)}</span>
-                            </td>
-                            <td className="text-center">
-                              <div className="d-flex gap-1 justify-content-center">
-                                <Button
-                                  variant="outline-primary"
-                                  size="sm"
-                                  onClick={() => handleViewSlip(slip)}
-                                  className="p-1"
-                                  title="View Slip"
-                                >
-                                  <FaEye size={10} />
-                                </Button>
-                                <Button
-                                  variant="outline-success"
-                                  size="sm"
-                                  onClick={() => handleDownloadPDF(slip)}
-                                  title="Download PDF"
-                                  className="p-1"
-                                >
-                                  <FaDownload size={10} />
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    ) : (
-                      <tr>
-                        <td colSpan="9" className="text-center py-4">
-                          {/* ... existing empty state code ... */}
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </Table>
-              </div>
-            </Card.Body>
 
             <Card.Body className="p-0">
               {/* Table with Vertical Scroll */}
