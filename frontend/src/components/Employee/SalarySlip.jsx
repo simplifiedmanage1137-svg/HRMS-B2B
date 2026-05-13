@@ -281,21 +281,6 @@ const SalarySlip = () => {
       return;
     }
 
-    // Check if slip already exists
-    const existingSlip = allSalarySlips.find(
-      slip => slip.month === parseInt(selectedMonth) && slip.year === parseInt(selectedYear)
-    );
-
-    if (existingSlip) {
-      setMessage({
-        type: 'info',
-        text: 'Salary slip already exists for this month'
-      });
-      setSelectedSlip(existingSlip);
-      setShowSlipModal(true);
-      return;
-    }
-
     setGenerating(true);
     setMessage({ type: '', text: '' });
 
