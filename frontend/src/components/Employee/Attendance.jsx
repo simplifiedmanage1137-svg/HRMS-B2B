@@ -622,39 +622,45 @@ const Attendance = () => {
 
   // Add this function after fetchTodayAttendance and before return
 
+  // In Attendance.jsx - Update fetchMissedClockOuts
+
   const fetchMissedClockOuts = async () => {
     try {
       const response = await axios.get(API_ENDPOINTS.ATTENDANCE_MISSED_CLOCKOUTS(user.employeeId));
       const missedRecords = response.data.missed_clockouts || [];
+      const hasActiveSession = response.data.has_active_session;
 
-      console.log('📋 Missed clockouts with hours:', missedRecords);
+      console.log('📋 Missed clockouts:', missedRecords);
+      console.log('📋 Has active session from API:', hasActiveSession);
 
       setMissedClockOuts(missedRecords);
 
-      const incompleteRecord = missedRecords.find(r => !r.has_clock_out && !r.is_regularized && !r.regularization_requested && r.regularization_status !== 'rejected' && !r.can_regularize);
-
-      if (incompleteRecord && !activeSession) {
-        console.log('🔄 Creating virtual session for incomplete record:', incompleteRecord.attendance_date);
-        const virtualSession = {
-          session_id: `virtual-${incompleteRecord.id}-${Date.now()}`,
-          clock_in_time: incompleteRecord.clock_in_ist || incompleteRecord.clock_in,
-          is_virtual: true,
-          attendance_id: incompleteRecord.id,
-          attendance_date: incompleteRecord.attendance_date
-        };
-        setActiveSession(virtualSession);
-        saveSessionToStorage(virtualSession);
-        setHasClockedOutToday(false);
+      // ✅ If there's an active session from API, sync it
+      if (hasActiveSession && !activeSession) {
+        // Try to get session from storage or fetch it
+        const stored = loadSessionFromStorage();
+        if (stored) {
+          setActiveSession(stored);
+        }
       }
 
-      const eligibleRecords = missedRecords.filter(record => record.can_regularize === true);
-      const pendingRecords = missedRecords.filter(record => record.regularization_requested && record.regularization_status === 'pending');
+      // ✅ Show regularization messages only for PAST dates
+      const nowISTDate = new Date().toISOString().split('T')[0];
+      const eligibleRecords = missedRecords.filter(r =>
+        r.can_regularize === true &&
+        !r.is_regularized &&
+        r.attendance_date !== nowISTDate
+      );
+      const pendingRecords = missedRecords.filter(r =>
+        r.regularization_requested &&
+        r.regularization_status === 'pending'
+      );
 
       if (eligibleRecords.length > 0 && !sessionStorage.getItem('eligible_regularization_shown')) {
         sessionStorage.setItem('eligible_regularization_shown', 'true');
         setMessage({
           type: 'warning',
-          text: `You have ${eligibleRecords.length} day(s) with completed ${eligibleRecords[0]?.expected_hours || 9}+ hours that need clock-out. Please request regularization.`
+          text: `You have ${eligibleRecords.length} day(s) that need clock-out. Please request regularization.`
         });
         setTimeout(() => setMessage({ type: '', text: '' }), 5000);
       }
@@ -1260,26 +1266,36 @@ const Attendance = () => {
     }
   };
 
+  // In Attendance.jsx - Update handleClockOut function
+
   const handleClockOut = async () => {
     setLoading(true);
     try {
-      const missedResponse = await axios.get(API_ENDPOINTS.ATTENDANCE_MISSED_CLOCKOUTS(user.employeeId));
-      const missedRecords = missedResponse.data.missed_clockouts || [];
-      const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-      const todayIST = (() => { const ist = new Date(Date.now() + IST_OFFSET_MS); return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth()+1).padStart(2,'0')}-${String(ist.getUTCDate()).padStart(2,'0')}`; })();
-      const incompleteRecord = missedRecords.find(r => !r.has_clock_out && !r.is_regularized && r.attendance_date === todayIST);
+      // ✅ FIRST: Check for active session (should be the primary way)
+      let sessionId = activeSession?.session_id || loadSessionFromStorage()?.session_id;
 
-      if (incompleteRecord) {
-        console.log('🔄 Found incomplete record, clocking out for:', incompleteRecord.attendance_date);
+      if (sessionId) {
+        console.log('🔄 Using active session for clock-out:', sessionId);
 
-        const response = await axios.post(`${API_ENDPOINTS.ATTENDANCE}/clock-out-missed`, {
+        const response = await axios.post(API_ENDPOINTS.ATTENDANCE_CLOCK_OUT, {
           employee_id: user.employeeId,
-          attendance_id: incompleteRecord.id,
-          attendance_date: incompleteRecord.attendance_date
+          session_id: sessionId,
+          latitude: null,
+          longitude: null,
+          accuracy: null
         });
 
         console.log('✅ Clock-out response:', response.data);
-        setMessage({ type: 'success', text: `Successfully clocked out for ${incompleteRecord.attendance_date}!` });
+        setMessage({ type: 'success', text: response.data.message });
+
+        setAttendance(prev => ({
+          ...prev,
+          clock_out: response.data.clock_out_ist || response.data.clock_out,
+          total_hours: response.data.total_hours,
+          total_minutes: response.data.total_minutes,
+          total_hours_display: response.data.total_hours_display,
+          status: response.data.status
+        }));
 
         setActiveSession(null);
         clearSessionFromStorage();
@@ -1292,57 +1308,45 @@ const Attendance = () => {
         return;
       }
 
-      let sessionId = activeSession?.session_id || loadSessionFromStorage()?.session_id;
+      // ✅ SECOND: Check for today's incomplete record (missed clock-out for today)
+      const nowISTDate = new Date().toISOString().split('T')[0];
+      const todayIncompleteRecord = missedClockOuts.find(r =>
+        !r.has_clock_out &&
+        !r.is_regularized &&
+        r.attendance_date === nowISTDate &&
+        (!r.regularization_requested || r.regularization_status === 'rejected')
+      );
 
-      if (!sessionId) {
-        try {
-          const attendanceResponse = await axios.get(API_ENDPOINTS.ATTENDANCE_TODAY(user.employeeId));
-          const todayAttendance = attendanceResponse.data.attendance;
-          if (todayAttendance && todayAttendance.session_id) {
-            sessionId = todayAttendance.session_id;
-          }
-        } catch (error) {
-          console.error('Error fetching today attendance:', error);
-        }
-      }
+      if (todayIncompleteRecord) {
+        console.log('🔄 Found today\'s incomplete record, clocking out for:', todayIncompleteRecord.attendance_date);
 
-      if (!sessionId) {
-        setMessage({ type: 'warning', text: 'No active session found. Please clock in first.' });
+        const response = await axios.post(`${API_ENDPOINTS.ATTENDANCE}/clock-out-missed`, {
+          employee_id: user.employeeId,
+          attendance_id: todayIncompleteRecord.id,
+          attendance_date: todayIncompleteRecord.attendance_date
+        });
+
+        console.log('✅ Clock-out response:', response.data);
+        setMessage({ type: 'success', text: response.data.message });
+
+        setActiveSession(null);
+        clearSessionFromStorage();
+
+        await fetchTodayAttendance();
+        await fetchAttendanceHistory();
+        await fetchMissedClockOuts();
+
         setLoading(false);
         return;
       }
 
-      const response = await axios.post(API_ENDPOINTS.ATTENDANCE_CLOCK_OUT, {
-        employee_id: user.employeeId,
-        session_id: sessionId,
-        latitude: null,
-        longitude: null,
-        accuracy: null
-      });
-
-      console.log('✅ Clock-out response:', response.data);
-      setMessage({ type: 'success', text: response.data.message });
-
-      setAttendance(prev => ({
-        ...prev,
-        clock_out: response.data.clock_out_ist || response.data.clock_out,
-        total_hours: response.data.total_hours,
-        total_minutes: response.data.total_minutes,
-        total_hours_display: response.data.total_hours_display,
-        status: response.data.status
-      }));
-
-      setActiveSession(null);
-      clearSessionFromStorage();
-
-      await fetchTodayAttendance();
-      await fetchAttendanceHistory();
-      await fetchMissedClockOuts();
+      // ✅ If no session found
+      setMessage({ type: 'warning', text: 'No active session found. Please clock in first.' });
+      setLoading(false);
 
     } catch (error) {
       console.error('❌ Clock-out error:', error);
       setMessage({ type: 'danger', text: error.response?.data?.message || 'Failed to clock out' });
-    } finally {
       setLoading(false);
     }
   };
@@ -1478,23 +1482,41 @@ const Attendance = () => {
     );
   };
 
+  // In Attendance.jsx - Replace renderClockButton function
+
   const renderClockButton = () => {
-    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-    const nowISTStr = (() => {
-      const ist = new Date(Date.now() + IST_OFFSET_MS);
-      return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth()+1).padStart(2,'0')}-${String(ist.getUTCDate()).padStart(2,'0')}`;
-    })();
+    const nowISTDate = new Date().toISOString().split('T')[0];
 
-    // Only count incomplete records from TODAY as active session (not previous days)
-    const hasTodayIncompleteRecord = missedClockOuts.some(r =>
-      !r.has_clock_out && !r.is_regularized &&
-      !r.regularization_requested && r.regularization_status !== 'rejected' &&
-      r.attendance_date === nowISTStr
-    );
-
+    // ✅ Check for active session (regardless of date)
     const hasActiveSession = activeSession !== null;
+
+    // ✅ Check if today's attendance has clock_in without clock_out
     const hasTodayClockInWithoutClockOut = attendance?.clock_in && !attendance?.clock_out;
 
+    // ✅ Check for today's incomplete record (NOT previous days)
+    const hasTodayIncompleteRecord = missedClockOuts.some(r =>
+      !r.has_clock_out &&
+      !r.is_regularized &&
+      r.attendance_date === nowISTDate &&
+      (!r.regularization_requested || r.regularization_status === 'rejected')
+    );
+
+    // ✅ Check for eligible regularization (PAST dates only, NOT today)
+    const eligibleRegularization = missedClockOuts.some(r =>
+      r.can_regularize === true &&
+      !r.is_regularized &&
+      r.attendance_date !== nowISTDate &&  // NOT today
+      (!r.regularization_requested || r.regularization_status === 'rejected')
+    );
+
+    // ✅ Check for pending regularization requests
+    const hasPendingRegularization = missedClockOuts.some(r =>
+      r.regularization_requested &&
+      r.regularization_status === 'pending' &&
+      r.attendance_date !== nowISTDate
+    );
+
+    // ✅ PRIORITY 1: If there's an active session or today's incomplete record, show CLOCK OUT
     if (hasActiveSession || hasTodayClockInWithoutClockOut || hasTodayIncompleteRecord) {
       return (
         <Button variant="warning" size="lg" className="w-100 py-3" onClick={handleClockOut} disabled={loading}>
@@ -1513,6 +1535,64 @@ const Attendance = () => {
       );
     }
 
+    // ✅ PRIORITY 2: If there's pending regularization (past dates), show message but keep CLOCK IN for today
+    if (hasPendingRegularization) {
+      return (
+        <div className="text-center">
+          <Button variant="warning" size="lg" className="w-100 py-3" onClick={handleClockIn} disabled={loading}>
+            {loading ? (
+              <>
+                <Spinner size="sm" animation="border" className="me-2" />
+                Processing...
+              </>
+            ) : (
+              <>
+                <FaMapMarkerAlt className="me-2" />
+                Clock In
+              </>
+            )}
+          </Button>
+          <small className="text-info d-block mt-2">
+            You have pending regularization requests for previous days.
+          </small>
+        </div>
+      );
+    }
+
+    // ✅ PRIORITY 3: If eligible for regularization (past dates only), show REGULARIZATION button
+    if (eligibleRegularization) {
+      const eligibleRecord = missedClockOuts.find(r =>
+        r.can_regularize === true &&
+        !r.is_regularized &&
+        r.attendance_date !== nowISTDate &&
+        (!r.regularization_requested || r.regularization_status === 'rejected')
+      );
+      return (
+        <div className="text-center">
+          <Button
+            variant="warning"
+            size="lg"
+            className="w-100 py-3"
+            onClick={() => handleOpenRegularizationModal(eligibleRecord)}
+            disabled={loading || submittingRequest}
+          >
+            {loading || submittingRequest ? (
+              <>
+                <Spinner size="sm" animation="border" className="me-2" />
+                Processing...
+              </>
+            ) : (
+              <>
+                <FaRegClock className="me-2" />
+                Request Regularization for {eligibleRecord?.attendance_date}
+              </>
+            )}
+          </Button>
+        </div>
+      );
+    }
+
+    // ✅ PRIORITY 4: If already clocked out today
     if (hasClockedOutToday) {
       return (
         <Button variant="secondary" size="lg" className="w-100 py-2" disabled>
@@ -1522,6 +1602,7 @@ const Attendance = () => {
       );
     }
 
+    // ✅ DEFAULT: Show Clock In button
     return (
       <Button variant="success" size="lg" className="w-100 py-3" onClick={handleClockIn} disabled={loading}>
         {loading ? (
