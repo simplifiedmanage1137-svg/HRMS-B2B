@@ -1452,12 +1452,7 @@ const AdminDashboard = () => {
             <FaChartBar className="me-2" />
             Overview
           </Button>
-          <Button
-            variant={activeTab === 'ratings' ? 'primary' : 'outline-secondary'}
-            onClick={() => setActiveTab('ratings')}
-          >
-            <FaStar className="me-2" /> Employee Ratings
-          </Button>
+        
           <Button
             variant={activeTab === 'birthdays' ? 'info' : 'outline-secondary'}
             onClick={() => setActiveTab('birthdays')}
