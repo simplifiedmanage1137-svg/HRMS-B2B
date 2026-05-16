@@ -585,12 +585,6 @@ const Attendance = () => {
         clearSessionFromStorage();
         setHasClockedOutToday(false);
       }
-      else if (!serverSession && attendanceData?.clock_out) {
-        setActiveSession(null);
-        clearSessionFromStorage();
-        setHasClockedOutToday(true);
-        fetchMissedClockOuts();
-      }
 
       // Set up real-time interval for updating working hours every minute
       if (attendanceData?.clock_in && !attendanceData?.clock_out) {
@@ -1255,6 +1249,12 @@ const Attendance = () => {
 
       // ✅ CRITICAL FIX: Set attendance and session correctly
       const clockInIST = response.data.clock_in_ist || response.data.clock_in;
+      const newSessionId = response.data.session_id;
+      const newAttendanceDate = response.data.attendance_date || nowIST().split(' ')[0];
+
+      // ✅ Clear old session FIRST before setting new one
+      clearSessionFromStorage();
+      setActiveSession(null);
 
       const newAttendance = {
         clock_in: clockInIST,
@@ -1263,13 +1263,14 @@ const Attendance = () => {
         late_minutes: response.data.late_minutes || 0,
         late_display: response.data.late_display || formatLateTime(response.data.late_minutes),
         status: 'working',
-        attendance_date: new Date().toISOString().split('T')[0]
+        attendance_date: newAttendanceDate,
+        session_id: newSessionId
       };
       setAttendance(newAttendance);
 
-      // ✅ CRITICAL FIX: Set active session properly
+      // ✅ Set new session
       const session = {
-        session_id: response.data.session_id,
+        session_id: newSessionId,
         clock_in_time: clockInIST,
         is_virtual: false
       };
@@ -1340,95 +1341,74 @@ const Attendance = () => {
       const serverSession = preCheckResponse.data.active_session;
       const todayAtt = preCheckResponse.data.attendance;
 
-      // If no active server session AND today's attendance is complete → show Clock In
-      if (!serverSession && todayAtt?.clock_out) {
+      // If no active server session at all → nothing to clock out
+      if (!serverSession) {
         setActiveSession(null);
         clearSessionFromStorage();
-        setHasClockedOutToday(true);
-        setMissedClockOuts([]);
-        setLoading(false);
-        return;
-      }
-
-      // Get session ID - prefer server session, then local state, then storage
-      let sessionId = serverSession?.session_id
-        || activeSession?.session_id
-        || loadSessionFromStorage()?.session_id;
-
-      // If no session found from above, try from today's attendance
-      if (!sessionId && todayAtt && todayAtt.session_id && !todayAtt.clock_out) {
-        sessionId = todayAtt.session_id;
-        const newSession = {
-          session_id: sessionId,
-          clock_in_time: todayAtt.clock_in_ist || todayAtt.clock_in,
-          is_virtual: false
-        };
-        setActiveSession(newSession);
-        saveSessionToStorage(newSession);
-      }
-
-      // If still no session, check missed clockouts for any active session record
-      if (!sessionId) {
-        const missedRes = await axios.get(API_ENDPOINTS.ATTENDANCE_MISSED_CLOCKOUTS(user.employeeId));
-        const activeRecord = (missedRes.data.missed_clockouts || []).find(r =>
-          !r.has_clock_out && r.has_active_session
-        );
-        if (activeRecord) {
-          // Use the stored session from localStorage or activeSession state
-          const stored = loadSessionFromStorage();
-          sessionId = stored?.session_id || activeSession?.session_id;
+        if (todayAtt?.clock_out) {
+          setHasClockedOutToday(true);
         }
-      }
-
-      // Proceed with clock-out
-      if (sessionId) {
-        const response = await axios.post(API_ENDPOINTS.ATTENDANCE_CLOCK_OUT, {
-          employee_id: user.employeeId,
-          session_id: sessionId,
-          latitude: null,
-          longitude: null,
-          accuracy: null
-        });
-
-        setMessage({ type: 'success', text: response.data.message });
-
-        // ✅ CRITICAL: Update attendance state to show clock_out
-        setAttendance(prev => ({
-          ...prev,
-          clock_out: response.data.clock_out_ist || response.data.clock_out,
-          clock_out_display: response.data.clock_out_ist ? formatTimeIST(response.data.clock_out_ist) : null,
-          total_hours: response.data.total_hours,
-          total_minutes: response.data.total_minutes,
-          total_hours_display: response.data.total_hours_display,
-          status: response.data.status
-        }));
-
-        // ✅ Clear session and set hasClockedOutToday = true
-        setActiveSession(null);
-        clearSessionFromStorage();
-        setHasClockedOutToday(true);
         setMissedClockOuts([]);
-
-        // ✅ Force refresh to get fresh state
-        await fetchTodayAttendance();
-        await fetchAttendanceHistory();
-        await fetchMissedClockOuts();
-
         setLoading(false);
         return;
       }
 
-      setMessage({ type: 'warning', text: 'No active session found. Please clock in first.' });
+      // Session ID comes from server (always trust server)
+      const sessionId = serverSession.session_id;
+
+      // Proceed with clock-out using server session
+      const response = await axios.post(API_ENDPOINTS.ATTENDANCE_CLOCK_OUT, {
+        employee_id: user.employeeId,
+        session_id: sessionId,
+        latitude: null,
+        longitude: null,
+        accuracy: null
+      });
+
+      setMessage({ type: 'success', text: response.data.message });
+
+      // ✅ CRITICAL: Update attendance state to show clock_out
+      setAttendance(prev => ({
+        ...prev,
+        clock_out: response.data.clock_out_ist || response.data.clock_out,
+        clock_out_display: response.data.clock_out_ist ? formatTimeIST(response.data.clock_out_ist) : null,
+        total_hours: response.data.total_hours,
+        total_minutes: response.data.total_minutes,
+        total_hours_display: response.data.total_hours_display,
+        status: response.data.status
+      }));
+
+      // ✅ Clear session and set hasClockedOutToday = true
+      setActiveSession(null);
+      clearSessionFromStorage();
+      setHasClockedOutToday(true);
+      setMissedClockOuts([]);
+
+      // ✅ Force refresh to get fresh state
+      await fetchTodayAttendance();
+      await fetchAttendanceHistory();
+      await fetchMissedClockOuts();
+
       setLoading(false);
+      return;
 
     } catch (error) {
       console.error('❌ Clock-out error:', error);
       const errData = error.response?.data;
       if (errData?.already_clocked_out || error.response?.status === 404) {
+        // Stale session was fixed by backend — clear local state and show Clock In
         setActiveSession(null);
         clearSessionFromStorage();
-        setHasClockedOutToday(true);
+        setHasClockedOutToday(false);
+        setAttendance(null);
         setMissedClockOuts([]);
+        await fetchTodayAttendance();
+        await fetchMissedClockOuts();
+        await fetchAttendanceHistory();
+      } else if (error.response?.status === 400 && errData?.message?.includes('No active session')) {
+        setActiveSession(null);
+        clearSessionFromStorage();
+        setHasClockedOutToday(false);
         await fetchTodayAttendance();
         await fetchMissedClockOuts();
       } else {
@@ -1629,44 +1609,45 @@ const Attendance = () => {
     // ✅ Check if there's an active session from server
     const hasActiveSession = !!activeSession;
 
-    // ✅ For night shift: If clocked in AND hours >= 15 → Show Regularization
-    if (isClockedIn && currentHours >= REGULARIZATION_THRESHOLD) {
-      return (
-        <div className="text-center">
-          <Button
-            variant="warning"
-            size="lg"
-            className="w-100 py-3"
-            onClick={() => {
-              const pseudoRecord = {
-                id: attendance?.id,
-                attendance_date: attendance?.attendance_date,
-                clock_in: attendance?.clock_in,
-                clock_in_ist: attendance?.clock_in_ist,
-                clock_in_display: attendance?.clock_in_display,
-                has_clock_out: false,
-                is_regularized: false,
-                regularization_requested: false
-              };
-              handleOpenRegularizationModal(pseudoRecord);
-            }}
-            disabled={loading || submittingRequest}
-          >
-            {loading || submittingRequest ? (
-              <><Spinner size="sm" animation="border" className="me-2" />Processing...</>
-            ) : (
-              <><FaRegClock className="me-2" />Request Regularization</>
-            )}
-          </Button>
-          <small className="text-muted d-block mt-2">
-            Working {currentHours.toFixed(1)}h — Exceeded {REGULARIZATION_THRESHOLD}h limit
-          </small>
-        </div>
-      );
-    }
+    // ✅ If active session exists (regardless of attendance date) → Show Clock Out
+    // This handles cross-midnight case where attendance_date is previous day
+    if (hasActiveSession) {
+      // But first check if hours >= 15 for regularization
+      if (currentHours >= REGULARIZATION_THRESHOLD) {
+        return (
+          <div className="text-center">
+            <Button
+              variant="warning"
+              size="lg"
+              className="w-100 py-3"
+              onClick={() => {
+                const pseudoRecord = {
+                  id: attendance?.id,
+                  attendance_date: attendance?.attendance_date,
+                  clock_in: attendance?.clock_in,
+                  clock_in_ist: attendance?.clock_in_ist,
+                  clock_in_display: attendance?.clock_in_display,
+                  has_clock_out: false,
+                  is_regularized: false,
+                  regularization_requested: false
+                };
+                handleOpenRegularizationModal(pseudoRecord);
+              }}
+              disabled={loading || submittingRequest}
+            >
+              {loading || submittingRequest ? (
+                <><Spinner size="sm" animation="border" className="me-2" />Processing...</>
+              ) : (
+                <><FaRegClock className="me-2" />Request Regularization</>
+              )}
+            </Button>
+            <small className="text-muted d-block mt-2">
+              Working {currentHours.toFixed(1)}h — Exceeded {REGULARIZATION_THRESHOLD}h limit
+            </small>
+          </div>
+        );
+      }
 
-    // ✅ If clocked in (under 15h) → Show Clock Out button
-    if ((isClockedIn && hasActiveSession) || (!isClockedIn && !isClockedOut && hasActiveSession)) {
       return (
         <div className="text-center">
           <Button variant="warning" size="lg" className="w-100 py-3" onClick={handleClockOut} disabled={loading}>
@@ -1685,7 +1666,7 @@ const Attendance = () => {
       );
     }
 
-    // ✅ If clocked out today (or has clock_out) → Show Clock In button
+    // ✅ If clocked out today (attendance today with clock_out) → Show Clock In
     if (isClockedOut || hasClockedOutToday) {
       return (
         <div className="text-center">
