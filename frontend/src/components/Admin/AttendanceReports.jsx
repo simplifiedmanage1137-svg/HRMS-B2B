@@ -243,45 +243,78 @@ const AttendanceReports = () => {
         }
       });
 
+      // ✅ FIX: Real-time calculation for active sessions
       const processedAttendance = Object.values(dedupedMap).map(record => {
-        // Use total_hours_display from backend if available
-        // Only recalculate for active sessions (no clock_out)
-        if (record.clock_in && !record.clock_out) {
-          // Parse IST string manually to avoid UTC offset issue
-          const clockInStr = record.clock_in_ist || record.clock_in;
-          let clockInTime = null;
-          if (typeof clockInStr === 'string' && clockInStr.includes(' ')) {
-            const [dp, tp] = clockInStr.split(' ');
-            const [y, mo, d] = dp.split('-').map(Number);
-            const [h, mi, s = 0] = tp.split(':').map(Number);
-            clockInTime = new Date(y, mo - 1, d, h, mi, s);
-          } else {
-            clockInTime = new Date(clockInStr);
-          }
+        // Parse clock in time
+        const clockInStr = record.clock_in_ist || record.clock_in;
+        let clockInTime = null;
+
+        if (clockInStr && typeof clockInStr === 'string' && clockInStr.includes(' ')) {
+          const [dp, tp] = clockInStr.split(' ');
+          const [y, mo, d] = dp.split('-').map(Number);
+          const [h, mi, s = 0] = tp.split(':').map(Number);
+          clockInTime = new Date(y, mo - 1, d, h, mi, s);
+        } else if (clockInStr) {
+          clockInTime = new Date(clockInStr);
+        }
+
+        // ✅ CRITICAL FIX: Calculate real-time hours for active sessions (no clock_out)
+        let totalMinutes = record.total_minutes || 0;
+        let totalHours = record.total_hours || 0;
+        let totalHoursDisplay = record.total_hours_display || '0h 0m';
+
+        if (clockInTime && !record.clock_out && !record.clock_out_ist) {
+          // Employee is still working - calculate real-time hours
           const now = new Date();
-          const totalMinutes = clockInTime ? Math.round((now - clockInTime) / (1000 * 60)) : 0;
-          record.total_hours = (totalMinutes / 60).toFixed(2);
+          let diffMinutes = Math.round((now - clockInTime) / (1000 * 60));
+
+          // Handle negative (should not happen, but safe)
+          if (diffMinutes < 0) diffMinutes += 24 * 60;
+
+          totalMinutes = diffMinutes;
+          totalHours = diffMinutes / 60;
+
+          // Format display
+          const hrs = Math.floor(diffMinutes / 60);
+          const mins = diffMinutes % 60;
+          totalHoursDisplay = `${hrs}h ${mins}m`;
+
+          // Update record with real-time values
+          record.total_hours = parseFloat(totalHours.toFixed(2));
           record.total_minutes = totalMinutes;
+          record.total_hours_display = totalHoursDisplay;
           record.status = 'working';
+
+          // Add debug log
+          console.log(`🔄 Real-time update for ${record.employee_id}: ${totalHoursDisplay}`);
+        } else if (record.total_minutes) {
+          // Already clocked out - use stored values
+          const hrs = Math.floor(record.total_minutes / 60);
+          const mins = record.total_minutes % 60;
+          totalHoursDisplay = `${hrs}h ${mins}m`;
+          record.total_hours_display = totalHoursDisplay;
         }
 
         record.late_minutes = Number(record.late_minutes) || 0;
         record.is_late = record.late_minutes > 0;
 
-        if (record.clock_in && record.clock_out) {
-          const totalMinutes = Number(record.total_minutes) || Math.round((parseDateTime(record.clock_out) - parseDateTime(record.clock_in)) / (1000 * 60));
-          if (totalMinutes >= 540) {
-            record.status = 'present';
-          } else if (totalMinutes >= 300) {
-            record.status = 'half_day';
-          } else {
-            record.status = 'absent';
+        // Determine status
+        if (!record.status) {
+          if (record.clock_in && !record.clock_out) {
+            record.status = 'working';
+          } else if (record.clock_in && record.clock_out) {
+            if (totalMinutes >= 540) {
+              record.status = 'present';
+            } else if (totalMinutes >= 300) {
+              record.status = 'half_day';
+            } else {
+              record.status = 'absent';
+            }
           }
         }
 
-        // FIXED: Always calculate late_display if late_minutes exists
+        // Calculate late display
         if (record.late_minutes > 0) {
-          // Calculate late display with proper formatting
           const totalSeconds = Math.floor(record.late_minutes * 60);
           const hours = Math.floor(totalSeconds / 3600);
           const remainingSeconds = totalSeconds % 3600;
@@ -567,7 +600,7 @@ const AttendanceReports = () => {
               status = 'present';
               statusBadge = 'success';
               statusIcon = '✓';
-              } else if (totalMinutes >= 300) {
+            } else if (totalMinutes >= 300) {
               statusBadge = 'danger';
               statusIcon = '✗';
             }
@@ -1467,45 +1500,6 @@ const AttendanceReports = () => {
                               const dayRecord = empRecords.find(r => r.day === dayNum);
                               const isCurrent = isCurrentDate(dayNum);
 
-                              let statusIcon = '-';
-                              let iconClass = 'text-muted';
-                              let iconStyle = {};
-
-                              if (dayRecord) {
-                                if (dayRecord.overtime_hours > 0) {
-                                  statusIcon = '⏰';
-                                  iconClass = 'text-success fw-bold';
-                                  iconStyle = { fontSize: '14px' };
-                                } else if (dayRecord.comp_off_awarded) {
-                                  statusIcon = '🎉';
-                                  iconClass = 'text-purple';
-                                  iconStyle = { fontSize: '14px', color: '#9b59b6' };
-                                } else if (dayRecord.status === 'present' || dayRecord.status === 'working') {
-                                  statusIcon = '✓';
-                                  iconClass = 'text-success fw-bold';
-                                  iconStyle = { fontSize: '14px' };
-                                } else if (dayRecord.status === 'half_day') {
-                                  statusIcon = '½';
-                                  iconClass = 'text-warning fw-bold';
-                                  iconStyle = { fontSize: '14px' };
-                                } else if (dayRecord.status === 'on_leave') {
-                                  statusIcon = '🏖️';
-                                  iconClass = 'text-purple';
-                                  iconStyle = { fontSize: '14px' };
-                                } else if (dayRecord.status === 'holiday') {
-                                  statusIcon = '🎉';
-                                  iconClass = 'text-warning';
-                                  iconStyle = { fontSize: '14px' };
-                                } else if (dayRecord.status === 'weekend') {
-                                  statusIcon = <FaMoon size={12} />;
-                                  iconClass = 'text-secondary';
-                                } else if (dayRecord.status === 'absent') {
-                                  statusIcon = '✗';
-                                  iconClass = 'text-danger fw-bold';
-                                  iconStyle = { fontSize: '14px' };
-                                }
-                              }
-
                               return (
                                 <td key={day} className={`small text-center align-middle ${isCurrent ? 'bg-primary bg-opacity-10' : ''}`}
                                   style={{ backgroundColor: dayRecord?.is_late ? '#fff3cd' : 'transparent' }}>
@@ -1518,7 +1512,18 @@ const AttendanceReports = () => {
                                         let iconColor = 'text-secondary';
                                         let iconTooltip = dayRecord.tooltip || 'No data';
 
-                                        if (dayRecord.status === 'present' || dayRecord.status === 'working') {
+                                        // ⭐ Overtime takes priority - show distinct ⏰ symbol
+                                        if ((dayRecord.status === 'present' || dayRecord.status === 'working') && dayRecord.overtime_hours > 0) {
+                                          icon = '⏰';
+                                          iconColor = 'text-success';
+                                          iconTooltip = `Present + Overtime: +${dayRecord.overtime_hours}h`;
+                                          if (dayRecord.total_hours) {
+                                            iconTooltip += ` (${dayRecord.total_hours}h total)`;
+                                          }
+                                          if (dayRecord.is_late) {
+                                            iconTooltip += ` [Late ${dayRecord.late_display || ''}]`;
+                                          }
+                                        } else if (dayRecord.status === 'present' || dayRecord.status === 'working') {
                                           icon = '✓';
                                           iconColor = dayRecord.is_late ? 'text-warning' : 'text-success';
                                           iconTooltip = dayRecord.is_late ? `Present (Late ${dayRecord.late_display || ''})` : 'Present';
@@ -1550,11 +1555,6 @@ const AttendanceReports = () => {
                                           iconTooltip = 'Absent';
                                         }
 
-                                        // Add overtime indicator if applicable
-                                        if (dayRecord.overtime_hours > 0) {
-                                          iconTooltip += ` | Overtime: +${dayRecord.overtime_hours}h`;
-                                        }
-
                                         return (
                                           <span
                                             title={iconTooltip}
@@ -1562,7 +1562,7 @@ const AttendanceReports = () => {
                                             style={{ cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}
                                           >
                                             {typeof icon === 'string' ? icon : icon}
-                                            {dayRecord.is_late && dayRecord.status !== 'on_leave' && dayRecord.status !== 'holiday' && dayRecord.status !== 'weekend' && (
+                                            {dayRecord.is_late && dayRecord.status !== 'on_leave' && dayRecord.status !== 'holiday' && dayRecord.status !== 'weekend' && dayRecord.overtime_hours <= 0 && (
                                               <sup className="text-warning fw-bold">*</sup>
                                             )}
                                           </span>

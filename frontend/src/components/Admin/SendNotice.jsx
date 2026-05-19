@@ -6,7 +6,8 @@ import {
 } from 'react-bootstrap';
 import {
   FaExclamationTriangle, FaBell, FaSearch, FaTimes, FaTrash,
-  FaUser, FaUsers, FaCheckCircle, FaTimesCircle, FaEye
+  FaUser, FaUsers, FaCheckCircle, FaTimesCircle, FaEye,
+  FaEnvelope, FaCheckDouble
 } from 'react-icons/fa';
 import axios from '../../config/axios';
 import API_ENDPOINTS from '../../config/api';
@@ -31,35 +32,37 @@ const SendNotice = ({ embedded = false }) => {
   const [message, setMessage] = useState({ type: '', text: '' });
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('all');
-  const [selectedId, setSelectedId] = useState('');
+  
+  // ✅ Changed: Multiple selection using Set
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [selectAll, setSelectAll] = useState(false);
+  
   const [title, setTitle] = useState('');
   const [noticeMessage, setNoticeMessage] = useState('');
   const [type, setType] = useState('notice');
   const [viewNotice, setViewNotice] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  const [sendingTo, setSendingTo] = useState(null);
 
   useEffect(() => { fetchData(); }, []);
 
   const fetchData = async () => {
     setFetching(true);
     try {
-      // Admin uses admin-only endpoint; team manager uses general employees endpoint
       const empEndpoint = isAdmin
         ? API_ENDPOINTS.ADMIN_UPDATES_EMPLOYEES
         : API_ENDPOINTS.EMPLOYEES;
 
       const [empRes, noticeRes] = await Promise.all([
         axios.get(empEndpoint),
-        axios.get(`${API_ENDPOINTS.NOTICES}?type=sent`)  // Only fetch notices sent by this user
+        axios.get(`${API_ENDPOINTS.NOTICES}?type=sent`)
       ]);
 
       let emps = Array.isArray(empRes.data) ? empRes.data
         : empRes.data?.data || empRes.data?.employees || [];
 
-      // Team leader: only show their own team members
       if (!isAdmin) {
         const myName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim();
-        // Fetch own profile to get full name for matching
         try {
           const profileRes = await axios.get(API_ENDPOINTS.EMPLOYEE_PROFILE(user?.employeeId));
           const profile = profileRes.data;
@@ -72,6 +75,9 @@ const SendNotice = ({ embedded = false }) => {
 
       setEmployees(emps);
       setSentNotices(noticeRes.data?.notices || []);
+      // Reset selections when data loads
+      setSelectedIds(new Set());
+      setSelectAll(false);
     } catch (err) {
       setMessage({ type: 'danger', text: 'Failed to load data' });
     } finally {
@@ -98,31 +104,87 @@ const SendNotice = ({ embedded = false }) => {
     [employees]
   );
 
+  // ✅ Handle single checkbox toggle
+  const handleSelectEmployee = (employeeId) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(employeeId)) {
+      newSelected.delete(employeeId);
+    } else {
+      newSelected.add(employeeId);
+    }
+    setSelectedIds(newSelected);
+    setSelectAll(newSelected.size === filtered.length && filtered.length > 0);
+  };
+
+  // ✅ Handle select all
+  const handleSelectAll = () => {
+    if (selectAll) {
+      setSelectedIds(new Set());
+      setSelectAll(false);
+    } else {
+      const allIds = filtered.map(emp => emp.employee_id);
+      setSelectedIds(new Set(allIds));
+      setSelectAll(true);
+    }
+  };
+
+  // ✅ Handle bulk send
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!selectedId) return showMsg('danger', 'Please select an employee.');
-    if (!title.trim()) return showMsg('danger', 'Title is required.');
-    if (!noticeMessage.trim()) return showMsg('danger', 'Message is required.');
+    
+    if (selectedIds.size === 0) {
+      return showMsg('danger', 'Please select at least one employee.');
+    }
+    if (!title.trim()) {
+      return showMsg('danger', 'Title is required.');
+    }
+    if (!noticeMessage.trim()) {
+      return showMsg('danger', 'Message is required.');
+    }
 
     setLoading(true);
-    try {
-      await axios.post(API_ENDPOINTS.NOTICES, {
-        employee_id: selectedId,
-        title: title.trim(),
-        message: noticeMessage.trim(),
-        type
-      });
-      showMsg('success', `${type === 'warning' ? 'Warning' : 'Notice'} sent successfully!`);
-      setSelectedId('');
+    setSendingTo(selectedIds.size);
+    
+    let successCount = 0;
+    let failCount = 0;
+    const errors = [];
+
+    // Send to each selected employee
+    for (const employeeId of selectedIds) {
+      try {
+        await axios.post(API_ENDPOINTS.NOTICES, {
+          employee_id: employeeId,
+          title: title.trim(),
+          message: noticeMessage.trim(),
+          type
+        });
+        successCount++;
+      } catch (err) {
+        failCount++;
+        errors.push(`${employeeId}: ${err.response?.data?.message || err.message}`);
+      }
+    }
+
+    if (successCount > 0) {
+      showMsg('success', 
+        `${type === 'warning' ? 'Warning' : 'Notice'} sent successfully to ${successCount} employee(s)! ${failCount > 0 ? `Failed: ${failCount}` : ''}`
+      );
+      
+      // Reset form
+      setSelectedIds(new Set());
+      setSelectAll(false);
       setTitle('');
       setNoticeMessage('');
       setType('notice');
+      
+      // Refresh notices list
       fetchData();
-    } catch (err) {
-      showMsg('danger', err.response?.data?.message || 'Failed to send notice');
-    } finally {
-      setLoading(false);
+    } else {
+      showMsg('danger', `Failed to send. ${errors[0] || 'Unknown error'}`);
     }
+    
+    setLoading(false);
+    setSendingTo(null);
   };
 
   const handleDelete = async (id) => {
@@ -143,8 +205,8 @@ const SendNotice = ({ embedded = false }) => {
     setTimeout(() => setMessage({ type: '', text: '' }), 4000);
   };
 
-  const selectedEmp = employees.find(e => e.employee_id === selectedId);
-  const mySentNotices = sentNotices; // backend already returns only sent notices
+  const selectedEmployees = employees.filter(e => selectedIds.has(e.employee_id));
+  const selectedNames = selectedEmployees.map(e => `${e.first_name} ${e.last_name}`).join(', ');
 
   return (
     <div className={embedded ? '' : 'p-2 p-md-3 p-lg-4'} style={embedded ? {} : { backgroundColor: '#f8f9fc', minHeight: '100vh' }}>
@@ -152,8 +214,11 @@ const SendNotice = ({ embedded = false }) => {
         <div className="d-flex justify-content-between align-items-center mb-4">
           <h5 className="mb-0 d-flex align-items-center">
             <FaExclamationTriangle className="me-2 text-warning" />
-            Send Notice / Warning
+            Send Notice / Warning (Bulk)
           </h5>
+          <Badge bg="primary" pill className="px-3 py-2">
+            <FaUsers className="me-1" /> {selectedIds.size} Selected
+          </Badge>
         </div>
       )}
 
@@ -165,14 +230,29 @@ const SendNotice = ({ embedded = false }) => {
       )}
 
       <Row className="g-3">
-        {/* LEFT: Employee selection */}
+        {/* LEFT: Employee selection with checkboxes */}
         <Col lg={6}>
           <Card className="border-0 shadow-sm h-100">
             <Card.Header className="bg-light py-2">
-              <h6 className="mb-0 small fw-semibold">
-                <FaUser className="me-2" size={13} />
-                Select Employee
-              </h6>
+              <div className="d-flex justify-content-between align-items-center">
+                <h6 className="mb-0 small fw-semibold">
+                  <FaUsers className="me-2" size={13} />
+                  Select Employees
+                </h6>
+                {selectedIds.size > 0 && (
+                  <Button 
+                    variant="link" 
+                    size="sm" 
+                    className="p-0 text-danger small"
+                    onClick={() => {
+                      setSelectedIds(new Set());
+                      setSelectAll(false);
+                    }}
+                  >
+                    Clear All
+                  </Button>
+                )}
+              </div>
             </Card.Header>
             <Card.Body className="p-2 p-md-3">
               <Row className="g-2 mb-2">
@@ -212,7 +292,14 @@ const SendNotice = ({ embedded = false }) => {
                   <Table hover size="sm" className="mb-0">
                     <thead className="bg-light sticky-top" style={{ top: 0, zIndex: 10 }}>
                       <tr className="small">
-                        <th style={{ width: '36px' }} className="text-center">Sel</th>
+                        <th style={{ width: '40px' }} className="text-center">
+                          <Form.Check
+                            type="checkbox"
+                            checked={selectAll && filtered.length > 0}
+                            onChange={handleSelectAll}
+                            title={selectAll ? "Deselect all" : "Select all"}
+                          />
+                        </th>
                         <th className="fw-normal">Employee</th>
                         <th className="fw-normal d-none d-sm-table-cell">Dept / Designation</th>
                       </tr>
@@ -223,16 +310,15 @@ const SendNotice = ({ embedded = false }) => {
                       ) : filtered.map(emp => (
                         <tr
                           key={emp.employee_id}
-                          className={selectedId === emp.employee_id ? 'table-primary' : ''}
+                          className={selectedIds.has(emp.employee_id) ? 'table-primary' : ''}
                           style={{ cursor: 'pointer' }}
-                          onClick={() => setSelectedId(emp.employee_id)}
+                          onClick={() => handleSelectEmployee(emp.employee_id)}
                         >
-                          <td className="text-center">
+                          <td className="text-center" onClick={e => e.stopPropagation()}>
                             <Form.Check
-                              type="radio"
-                              checked={selectedId === emp.employee_id}
-                              onChange={() => setSelectedId(emp.employee_id)}
-                              onClick={e => e.stopPropagation()}
+                              type="checkbox"
+                              checked={selectedIds.has(emp.employee_id)}
+                              onChange={() => handleSelectEmployee(emp.employee_id)}
                             />
                           </td>
                           <td className="small">
@@ -249,11 +335,19 @@ const SendNotice = ({ embedded = false }) => {
                   </Table>
                 </div>
               )}
+              
+              {/* Selected summary */}
+              {selectedIds.size > 0 && (
+                <div className="mt-2 p-2 bg-light rounded small">
+                  <strong className="text-primary">✓ {selectedIds.size} employee(s) selected:</strong>
+                  <div className="text-muted text-truncate" title={selectedNames}>
+                    {selectedNames.substring(0, 60)}{selectedNames.length > 60 ? '...' : ''}
+                  </div>
+                </div>
+              )}
+              
               <div className="mt-1 small text-muted">
-                {filtered.length} employees
-                {selectedEmp && (
-                  <> · <strong className="text-primary">Selected: {selectedEmp.first_name} {selectedEmp.last_name}</strong></>
-                )}
+                Total: {filtered.length} employees
               </div>
             </Card.Body>
           </Card>
@@ -291,7 +385,12 @@ const SendNotice = ({ embedded = false }) => {
                 </Form.Group>
 
                 <Form.Group className="mb-3">
-                  <Form.Label className="small fw-semibold">Title <span className="text-danger">*</span></Form.Label>
+                  <Form.Label className="small fw-semibold">
+                    Title <span className="text-danger">*</span>
+                    {selectedIds.size > 0 && (
+                      <Badge bg="info" pill className="ms-2 small">To: {selectedIds.size} recipient(s)</Badge>
+                    )}
+                  </Form.Label>
                   <Form.Control
                     size="sm"
                     type="text"
@@ -319,17 +418,23 @@ const SendNotice = ({ embedded = false }) => {
                   type="submit"
                   variant={type === 'warning' ? 'warning' : 'primary'}
                   className="w-100 d-flex align-items-center justify-content-center gap-2"
-                  disabled={loading || !selectedId || !title.trim() || !noticeMessage.trim()}
+                  disabled={loading || selectedIds.size === 0 || !title.trim() || !noticeMessage.trim()}
                 >
                   {loading ? (
-                    <><Spinner size="sm" animation="border" />Sending...</>
+                    <><Spinner size="sm" animation="border" />Sending to {sendingTo} employee(s)...</>
                   ) : (
-                    <>{type === 'warning' ? <FaExclamationTriangle size={13} /> : <FaBell size={13} />}
-                      Send {type === 'warning' ? 'Warning' : 'Notice'}
-                      {selectedEmp && ` to ${selectedEmp.first_name}`}
+                    <><FaEnvelope size={13} />
+                      Send {type === 'warning' ? 'Warning' : 'Notice'} 
+                      {selectedIds.size > 0 && ` to ${selectedIds.size} employee(s)`}
                     </>
                   )}
                 </Button>
+                
+                {selectedIds.size === 0 && (
+                  <div className="text-center mt-2">
+                    <small className="text-muted">Please select at least one employee from the list</small>
+                  </div>
+                )}
               </Form>
             </Card.Body>
           </Card>
@@ -343,7 +448,7 @@ const SendNotice = ({ embedded = false }) => {
                 <FaUsers className="me-2" size={13} />
                 Sent Notices / Warnings
               </h6>
-              <Badge bg="secondary" pill>{mySentNotices.length}</Badge>
+              <Badge bg="secondary" pill>{sentNotices.length}</Badge>
             </Card.Header>
             <Card.Body className="p-0">
               <div className="table-responsive" style={{ maxHeight: '300px', overflowY: 'auto' }}>
@@ -360,9 +465,9 @@ const SendNotice = ({ embedded = false }) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {mySentNotices.length === 0 ? (
+                    {sentNotices.length === 0 ? (
                       <tr><td colSpan="7" className="text-center py-4 text-muted small">No notices sent yet</td></tr>
-                    ) : mySentNotices.map((n, i) => {
+                    ) : sentNotices.map((n, i) => {
                       const emp = employees.find(e => e.employee_id === n.employee_id);
                       return (
                         <tr key={n.id}>
