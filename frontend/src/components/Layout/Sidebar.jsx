@@ -3,76 +3,40 @@ import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
-  FaTachometerAlt,
-  FaUsers,
-  FaCalendarAlt,
-  FaMoneyBill,
-  FaUserCircle,
-  FaSignOutAlt,
-  FaFingerprint,
-  FaClock,
-  FaBars,
-  FaChevronLeft,
-  FaChevronRight,
-  FaBell,
-  FaPaperPlane,
-  FaFileAlt,
-  FaChartBar,
-  FaEdit,
-  FaCheckCircle,
-  FaHourglassHalf,
-  FaTrophy,
-  FaExclamationTriangle,
-  FaUserTie,
-  FaBullhorn,
-  FaStar
+  FaTachometerAlt, FaUsers, FaCalendarAlt, FaMoneyBill,
+  FaUserCircle, FaSignOutAlt, FaFingerprint, FaClock,
+  FaBars, FaChevronLeft, FaChevronRight, FaBell,
+  FaPaperPlane, FaEdit, FaCheckCircle, FaUserTie,
+  FaBullhorn, FaStar
 } from 'react-icons/fa';
 import axios from '../../config/axios';
 import API_ENDPOINTS from '../../config/api';
-import { Badge, Spinner } from 'react-bootstrap';
+import { Badge } from 'react-bootstrap';
+
+const SIDEBAR_OPEN = '260px';
+const SIDEBAR_CLOSED = '72px';
 
 const Sidebar = () => {
   const { user, logout } = useAuth();
   const location = useLocation();
   const [employeeName, setEmployeeName] = useState('');
+  const [employeeDesignation, setEmployeeDesignation] = useState('');
   const [isOpen, setIsOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [employeeDesignation, setEmployeeDesignation] = useState('');
-  const [overtimeStats, setOvertimeStats] = useState({
-    hasOvertime: false,
-    totalHours: 0
-  });
-
-  // Sidebar widths
-  const SIDEBAR_WIDTH_OPEN = '200px';
-  const SIDEBAR_WIDTH_CLOSED = '80px';
 
   useEffect(() => {
     if (user) {
       fetchEmployeeName();
-      if (user?.role === 'admin') {
-        fetchPendingCount();
-      } else if (user?.role === 'employee') {
-        fetchOvertimeStats();
-      }
+      if (user?.role === 'admin') fetchPendingCount();
     }
   }, [user]);
 
-  // 👇 Add event listener for approval/rejection updates
   useEffect(() => {
     if (user?.role === 'admin') {
-      const handleUpdateApprovals = () => {
-        console.log('📢 Update approvals changed, refreshing count...');
-        fetchPendingCount();
-      };
-      
-      window.addEventListener('updateApprovalsChanged', handleUpdateApprovals);
-      
-      return () => {
-        window.removeEventListener('updateApprovalsChanged', handleUpdateApprovals);
-      };
+      const handler = () => fetchPendingCount();
+      window.addEventListener('updateApprovalsChanged', handler);
+      return () => window.removeEventListener('updateApprovalsChanged', handler);
     }
   }, [user]);
 
@@ -87,143 +51,109 @@ const Sidebar = () => {
     const handleResize = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
-      if (mobile) {
-        setIsOpen(false);
-      } else {
-        setIsOpen(true);
-      }
+      if (!mobile) setIsOpen(true);
+      else setIsOpen(false);
     };
-
     handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   useEffect(() => {
-    const mainContentWrapper = document.getElementById('main-content-wrapper');
-    if (mainContentWrapper) {
-      if (!isMobile) {
-        const marginLeft = isOpen ? SIDEBAR_WIDTH_OPEN : SIDEBAR_WIDTH_CLOSED;
-        mainContentWrapper.style.marginLeft = marginLeft;
-      } else {
-        mainContentWrapper.style.marginLeft = '0';
-      }
+    const mainContent = document.getElementById('main-content-wrapper');
+    if (mainContent) {
+      mainContent.style.marginLeft = isMobile ? '0' : (isOpen ? SIDEBAR_OPEN : SIDEBAR_CLOSED);
+      mainContent.style.transition = 'margin-left 0.25s ease';
     }
   }, [isOpen, isMobile]);
 
   const fetchEmployeeName = async () => {
     try {
-      if (user?.role === 'admin') {
-        setEmployeeName('Administrator');
-        return;
+      if (user?.role === 'admin') { setEmployeeName('Administrator'); return; }
+      const res = await axios.get(API_ENDPOINTS.EMPLOYEE_PROFILE(user?.employeeId));
+      if (res.data) {
+        setEmployeeName(`${res.data.first_name || ''} ${res.data.last_name || ''}`.trim() || 'Employee');
+        setEmployeeDesignation(res.data.designation || '');
       }
-
-      const response = await axios.get(API_ENDPOINTS.EMPLOYEE_PROFILE(user?.employeeId));
-      if (response.data) {
-        const fullName = `${response.data.first_name || ''} ${response.data.last_name || ''}`.trim();
-        setEmployeeName(fullName || 'Employee');
-        setEmployeeDesignation(response.data.designation || '');
-      }
-    } catch (error) {
-      console.error('Error fetching employee name:', error);
+    } catch {
       setEmployeeName(user?.role === 'admin' ? 'Administrator' : 'Employee');
-    }
-  };
-
-  const fetchOvertimeStats = async () => {
-    try {
-      const today = new Date();
-      const currentMonth = today.getMonth() + 1;
-      const currentYear = today.getFullYear();
-      
-      const response = await axios.get(
-        `${API_ENDPOINTS.ATTENDANCE}/overtime/${user?.employeeId}/${currentMonth}/${currentYear}`
-      );
-      
-      if (response.data.success) {
-        const totalHours = response.data.summary?.total_hours || 0;
-        setOvertimeStats({
-          hasOvertime: totalHours > 0,
-          totalHours: totalHours
-        });
-      }
-    } catch (error) {
-      console.error('Error fetching overtime stats:', error);
     }
   };
 
   const fetchPendingCount = async () => {
     try {
-      setLoading(true);
-      const response = await axios.get(API_ENDPOINTS.ADMIN_UPDATES_PENDING_COUNT);
-      const count = response.data.count || 0;
-      setPendingCount(count);
-      console.log('📊 Updated pending count:', count);
-    } catch (error) {
-      console.error('Error fetching pending count:', error);
-    } finally {
-      setLoading(false);
-    }
+      const res = await axios.get(API_ENDPOINTS.ADMIN_UPDATES_PENDING_COUNT);
+      setPendingCount(res.data.count || 0);
+    } catch { /* silent */ }
   };
 
   const markNotificationsAsRead = async () => {
-    try {
-      await axios.post(API_ENDPOINTS.ADMIN_UPDATES_MARK_READ);
-    } catch (error) {
-      console.error('Error marking notifications as read:', error);
-    }
+    try { await axios.post(API_ENDPOINTS.ADMIN_UPDATES_MARK_READ); } catch { /* silent */ }
   };
 
-  const toggleSidebar = () => {
-    setIsOpen(!isOpen);
+  const closeSidebar = () => { if (isMobile) setIsOpen(false); };
+
+  const getInitials = (name) => {
+    if (!name) return 'U';
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
-  const closeSidebar = () => {
-    if (isMobile) {
-      setIsOpen(false);
-    }
-  };
-
-  const getSidebarWidth = () => {
-    if (isMobile) {
-      return isOpen ? SIDEBAR_WIDTH_OPEN : '0';
-    }
-    return isOpen ? SIDEBAR_WIDTH_OPEN : SIDEBAR_WIDTH_CLOSED;
-  };
-
+  // ✅ FIXED: NavItem with proper horizontal alignment
   const NavItem = ({ to, icon, label, badge, onClick, end = false }) => (
     <NavLink
       to={to}
       end={end}
-      onClick={onClick}
-      className="text-decoration-none w-100 position-relative"
+      onClick={() => { if (onClick) onClick(); closeSidebar(); }}
+      className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
       style={({ isActive }) => ({
-        padding: isOpen ? '12px 15px' : '12px 0',
-        borderRadius: '8px',
-        marginBottom: '5px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: isOpen ? 'flex-start' : 'center',
-        gap: isOpen ? '10px' : '0',
-        backgroundColor: isActive ? 'rgba(61,44,94,0.15)' : 'transparent',
-        color: '#3d2c5e',
+        gap: '12px',
+        padding: isOpen ? '10px 12px' : '10px',
+        margin: '2px 0',
+        borderRadius: '8px',
+        backgroundColor: isActive ? 'var(--keka-primary-light, #e8f0fe)' : 'transparent',
+        color: isActive ? 'var(--keka-primary, #0d6efd)' : 'var(--keka-sidebar-text, #5a626e)',
+        fontWeight: isActive ? '600' : '400',
+        fontSize: '13px',
+        textDecoration: 'none',
         transition: 'all 0.2s ease',
-        boxSizing: 'border-box'
+        position: 'relative',
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
       })}
       title={!isOpen ? label : ''}
     >
-      <span className="flex-shrink-0">{icon}</span>
+      <span style={{ 
+        flexShrink: 0, 
+        fontSize: '16px', 
+        width: '20px', 
+        display: 'inline-flex', 
+        alignItems: 'center', 
+        justifyContent: 'center' 
+      }}>
+        {icon}
+      </span>
       {isOpen && (
         <>
-          <span className="flex-grow-1 text-truncate">{label}</span>
+          <span style={{ 
+            flex: 1, 
+            overflow: 'hidden', 
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap' 
+          }}>
+            {label}
+          </span>
           {badge > 0 && (
-            <Badge
-              bg="danger"
-              pill
-              className="ms-2"
-              style={{
-                fontSize: '10px',
-                padding: '2px 6px'
+            <Badge 
+              bg="danger" 
+              pill 
+              style={{ 
+                fontSize: '10px', 
+                padding: '2px 6px',
+                flexShrink: 0,
+                marginLeft: '4px'
               }}
             >
               {badge}
@@ -235,12 +165,13 @@ const Sidebar = () => {
         <Badge
           bg="danger"
           pill
-          className="position-absolute"
           style={{
-            top: '2px',
-            right: '2px',
-            fontSize: '8px',
-            padding: '2px 4px'
+            position: 'absolute',
+            top: '-2px',
+            right: '-2px',
+            fontSize: '9px',
+            padding: '2px 5px',
+            minWidth: '18px'
           }}
         >
           {badge}
@@ -249,283 +180,318 @@ const Sidebar = () => {
     </NavLink>
   );
 
+  const SectionLabel = ({ label }) => (
+    isOpen ? (
+      <div style={{
+        fontSize: '10px',
+        fontWeight: '600',
+        color: 'var(--keka-text-muted, #8a94a6)',
+        textTransform: 'uppercase',
+        letterSpacing: '0.5px',
+        padding: '16px 12px 6px',
+        marginTop: '4px'
+      }}>
+        {label}
+      </div>
+    ) : (
+      <div style={{ height: '20px' }} />
+    )
+  );
+
   return (
     <>
       {/* Mobile Menu Button */}
       {isMobile && !isOpen && (
         <button
-          onClick={toggleSidebar}
-          className="btn position-fixed d-flex align-items-center justify-content-center border-0"
+          onClick={() => setIsOpen(true)}
           style={{
-            top: '70px',
-            left: '10px',
+            position: 'fixed',
+            top: '12px',
+            left: '16px',
             zIndex: 1000,
-            borderRadius: '50%',
             width: '40px',
             height: '40px',
-            padding: '0',
-            boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
-            background: 'linear-gradient(135deg, #e6e4f0, #f2d9cc)',
-            color: '#3d2c5e',
-            cursor: 'pointer'
+            borderRadius: '8px',
+            background: 'var(--keka-primary, #0d6efd)',
+            color: 'white',
+            border: 'none',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
           }}
         >
-          <FaBars size={20} />
+          <FaBars size={18} />
         </button>
       )}
 
-      {/* Desktop Toggle Button */}
+      {/* Desktop Toggle Button - ✅ FIXED POSITION */}
       {!isMobile && (
         <button
-          onClick={toggleSidebar}
-          className="btn position-fixed d-flex align-items-center justify-content-center border-0 p-0"
+          onClick={() => setIsOpen(!isOpen)}
           style={{
-            top: isOpen ? '30px' : '18px',
-            left: isOpen ? '150px' : '60px',
+            position: 'fixed',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            left: isOpen ? `calc(${SIDEBAR_OPEN} - 10px)` : `calc(${SIDEBAR_CLOSED} - 10px)`,
             zIndex: 1001,
-            width: '24px',
-            height: '24px',
-            borderRadius: '50%',
+            width: '20px',
+            height: '40px',
+            borderRadius: '0 8px 8px 0',
             background: 'white',
-            border: '2px solid white',
-            color: 'black',
+            border: '1px solid var(--keka-border, #e9ecef)',
+            borderLeft: 'none',
+            color: 'var(--keka-text-secondary, #6c757d)',
             cursor: 'pointer',
-            boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
-            transition: 'left 0.3s ease',
-            transform: 'translateX(-50%)'
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '2px 0 5px rgba(0,0,0,0.05)',
+            padding: 0,
+            transition: 'left 0.25s ease'
           }}
         >
-          {isOpen ? <FaChevronLeft size={12} /> : <FaChevronRight size={12} />}
+          {isOpen ? <FaChevronLeft size={10} /> : <FaChevronRight size={10} />}
         </button>
       )}
 
-      {/* Overlay for mobile */}
+      {/* Mobile Overlay */}
       {isMobile && isOpen && (
         <div
           onClick={closeSidebar}
-          className="position-fixed top-0 start-0 end-0 bottom-0"
           style={{
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            zIndex: 999,
-            transition: 'opacity 0.3s ease'
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.4)',
+            zIndex: 999
           }}
         />
       )}
 
       {/* Sidebar */}
       <div
-        className="sidebar position-fixed top-0 start-0 vh-100 overflow-hidden"
+        className="sidebar"
         style={{
-          width: getSidebarWidth(),
-          background: 'linear-gradient(135deg, #e6e4f0, #f2d9cc)',
-          color: '#3d2c5e',
-          transition: 'width 0.3s ease, left 0.3s ease',
+          position: 'fixed',
+          top: 0,
+          left: isMobile ? (isOpen ? '0' : '-280px') : '0',
+          width: isMobile ? SIDEBAR_OPEN : (isOpen ? SIDEBAR_OPEN : SIDEBAR_CLOSED),
+          height: '100vh',
+          backgroundColor: 'var(--keka-sidebar-bg, #fff)',
+          borderRight: '1px solid var(--keka-border, #e9ecef)',
           zIndex: 1000,
-          boxShadow: isOpen ? '2px 0 10px rgba(0,0,0,0.3)' : 'none',
-          left: isMobile && !isOpen ? '-280px' : '0'
+          transition: 'width 0.25s ease, left 0.25s ease',
+          display: 'flex',
+          flexDirection: 'column',
+          boxShadow: isMobile && isOpen ? '0 0 15px rgba(0,0,0,0.1)' : 'none'
         }}
       >
-        {/* Sidebar Content */}
-        <div className={`h-100 d-flex flex-column overflow-auto ${isOpen ? 'p-3' : 'p-2'}`}>
-          {/* Header */}
-          <div className={`mb-4 mt-2 ${isOpen ? 'text-start' : 'text-center'}`}>
-            {isOpen ? (
-              <>
-                <h4 className="mb-0 fw-bold" style={{ fontSize: '24px' }}>EMS</h4>
-                <p className="mb-0 mt-1 small opacity-75">
-                  {user?.role === 'admin' ? 'Administrator' : 'Employee'}
-                </p>
-              </>
-            ) : (
-              <h4 className="mb-0 fw-bold" style={{ fontSize: '20px' }}>E</h4>
-            )}
+        {/* Logo Area */}
+        <div style={{
+          height: '60px',
+          display: 'flex',
+          alignItems: 'center',
+          padding: isOpen ? '0 16px' : '0',
+          justifyContent: isOpen ? 'flex-start' : 'center',
+          borderBottom: '1px solid var(--keka-border, #e9ecef)',
+          flexShrink: 0
+        }}>
+          <div style={{
+            width: '36px',
+            height: '36px',
+            borderRadius: '10px',
+            background: 'linear-gradient(135deg, #0d6efd, #0b5ed7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'white',
+            fontWeight: '700',
+            fontSize: '16px',
+            flexShrink: 0
+          }}>
+            E
           </div>
-
-          {/* Navigation */}
-          <nav className="flex-grow-1 w-100">
-            {/* Dashboard - Common for all */}
-            <NavItem
-              to="/"
-              end={true}
-              icon={<FaTachometerAlt size={18} />}
-              label="Dashboard"
-              onClick={closeSidebar}
-            />
-
-            {user?.role === 'admin' ? (
-              // ✅ ADMIN MENU ITEMS
-              <>
-                <NavItem
-                  to="/admin/employees"
-                  icon={<FaUsers size={18} />}
-                  label="Employees"
-                  onClick={closeSidebar}
-                />
-
-                <NavItem
-                  to="/admin/leave-requests"
-                  icon={<FaCalendarAlt size={18} />}
-                  label="Leave Requests"
-                  onClick={closeSidebar}
-                />
-
-                <NavItem
-                  to="/admin/attendance/reports"
-                  icon={<FaClock size={18} />}
-                  label="Attendance"
-                  onClick={closeSidebar}
-                />
-
-                {/* EMPLOYEE RATINGS LINK */}
-                <NavItem
-                  to="/admin/ratings"
-                  icon={<FaStar size={18} />}
-                  label="Employee Ratings"
-                  onClick={closeSidebar}
-                />
-
-                {/* SEND UPDATE REQUEST LINK */}
-                <NavItem
-                  to="/admin/send-update-request"
-                  icon={<FaPaperPlane size={18} />}
-                  label="Send Update Request"
-                  onClick={closeSidebar}
-                />
-
-                {/* UPDATE APPROVALS LINK WITH BADGE */}
-                <NavItem
-                  to="/admin/update-approvals"
-                  icon={<FaBell size={18} />}
-                  label="Update Approvals"
-                  badge={pendingCount}
-                  onClick={() => {
-                    closeSidebar();
-                    setPendingCount(0);
-                    markNotificationsAsRead();
-                  }}
-                />
-
-                {/* BROADCAST CENTER LINK */}
-                <NavItem
-                  to="/admin/broadcast"
-                  icon={<FaBullhorn size={18} />}
-                  label="Broadcast"
-                  onClick={closeSidebar}
-                />
-              </>
-            ) : (
-              // ✅ EMPLOYEE MENU ITEMS
-              <>
-                <NavItem
-                  to="/profile"
-                  icon={<FaUserCircle size={18} />}
-                  label="My Profile"
-                  onClick={closeSidebar}
-                />
-
-                <NavItem
-                  to="/attendance"
-                  icon={<FaFingerprint size={18} />}
-                  label="Daily Attendance"
-                  onClick={closeSidebar}
-                />
-
-                <NavItem
-                  to="/apply-leave"
-                  icon={<FaCalendarAlt size={18} />}
-                  label="Apply Leave"
-                  onClick={closeSidebar}
-                />
-
-                <NavItem
-                  to="/salary-slip"
-                  icon={<FaMoneyBill size={18} />}
-                  label="Salary Slip"
-                  onClick={closeSidebar}
-                />
-
-                {/* EMPLOYEE UPDATE REQUESTS LINK */}
-                <NavItem
-                  to="/employee/update-requests"
-                  icon={<FaEdit size={18} />}
-                  label="Update Requests"
-                  onClick={closeSidebar}
-                />
-
-                {/* My Team - sirf Team Leader/Manager ko dikhega */}
-                {(() => {
-                  const d = (employeeDesignation || '').toLowerCase();
-                  const isTL = d.includes('team leader') || d.includes('team manager') ||
-                               d.includes('tl') || d.includes('lead') || d.includes('manager') ||
-                               d.includes('head') || d.includes('supervisor');
-                  return isTL ? (
-                    <NavItem
-                      to="/manager/panel"
-                      icon={<FaUserTie size={18} />}
-                      label="My Team"
-                      onClick={closeSidebar}
-                    />
-                  ) : null;
-                })()}
-              </>
-            )}
-          </nav>
-
-          {/* User Info */}
-          <div className={`mt-auto pt-3 border-top ${isOpen ? 'text-start' : 'text-center'}`} 
-            style={{ borderTopColor: 'rgba(61,44,94,0.2)' }}>
-            {isOpen ? (
-              <>
-                <div className="d-flex align-items-center mb-2 w-100 overflow-hidden">
-                  <FaUserCircle size={20} className="me-2 flex-shrink-0" />
-                  <div className="overflow-hidden">
-                    <div className="fw-bold small text-truncate">{employeeName}</div>
-                    <small className="opacity-75 d-block text-truncate" style={{ fontSize: '10px' }}>
-                      {user?.role === 'admin' ? 'Admin' : `ID: ${user?.employeeId}`}
-                    </small>
-                  </div>
-                </div>
-                <button
-                  onClick={logout}
-                  className="btn w-100 d-flex align-items-center justify-content-center gap-2 border-0"
-                  style={{
-                    padding: '8px',
-                    border: '1px solid rgba(255,255,255,0.3)',
-                    borderRadius: '6px',
-                    background: 'rgba(61,44,94,0.1)',
-                    color: '#3d2c5e',
-                    cursor: 'pointer',
-                    fontSize: '13px',
-                    transition: 'all 0.2s ease'
-                  }}
-                >
-                  <FaSignOutAlt size={14} />
-                  <span>Logout</span>
-                </button>
-              </>
-            ) : (
-              <div className="d-flex flex-column align-items-center w-100">
-                <FaUserCircle size={24} className="mb-2" />
-                <button
-                  onClick={logout}
-                  className="btn border-0 d-flex align-items-center justify-content-center p-0"
-                  style={{
-                    width: '32px',
-                    height: '32px',
-                    border: '1px solid rgba(255,255,255,0.3)',
-                    borderRadius: '50%',
-                    background: 'rgba(61,44,94,0.1)',
-                    color: '#3d2c5e',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease'
-                  }}
-                  title="Logout"
-                >
-                  <FaSignOutAlt size={12} />
-                </button>
+          {isOpen && (
+            <div style={{ marginLeft: '12px' }}>
+              <div style={{ fontWeight: '700', fontSize: '16px', color: 'var(--keka-text-primary, #1a2c3e)', lineHeight: 1.2 }}>
+                EMS Portal
               </div>
-            )}
-          </div>
+              <div style={{ fontSize: '10px', color: 'var(--keka-text-muted, #8a94a6)' }}>
+                {user?.role === 'admin' ? 'Admin Dashboard' : 'Employee Dashboard'}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Navigation - Scrollable */}
+        <div style={{
+          flex: 1,
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          padding: isOpen ? '12px 12px' : '12px 8px',
+          scrollbarWidth: 'thin'
+        }}>
+          <SectionLabel label="Main" />
+          <NavItem to="/" end icon={<FaTachometerAlt />} label="Dashboard" />
+
+          {user?.role === 'admin' ? (
+            <>
+              <SectionLabel label="Management" />
+              <NavItem to="/admin/employees" icon={<FaUsers />} label="Employees" />
+              <NavItem to="/admin/leave-requests" icon={<FaCalendarAlt />} label="Leave Requests" />
+              <NavItem to="/admin/attendance/reports" icon={<FaClock />} label="Attendance" />
+              <NavItem to="/admin/ratings" icon={<FaStar />} label="Employee Ratings" />
+
+              <SectionLabel label="Admin" />
+              <NavItem to="/admin/send-update-request" icon={<FaPaperPlane />} label="Send Update Request" />
+              <NavItem
+                to="/admin/update-approvals"
+                icon={<FaBell />}
+                label="Update Approvals"
+                badge={pendingCount}
+                onClick={() => { setPendingCount(0); markNotificationsAsRead(); }}
+              />
+              <NavItem to="/admin/broadcast" icon={<FaBullhorn />} label="Broadcast" />
+            </>
+          ) : (
+            <>
+              <SectionLabel label="My Space" />
+              <NavItem to="/profile" icon={<FaUserCircle />} label="My Profile" />
+              <NavItem to="/attendance" icon={<FaFingerprint />} label="Daily Attendance" />
+              <NavItem to="/apply-leave" icon={<FaCalendarAlt />} label="Apply Leave" />
+              <NavItem to="/salary-slip" icon={<FaMoneyBill />} label="Salary Slip" />
+              <NavItem to="/employee/update-requests" icon={<FaEdit />} label="Update Requests" />
+
+              {(() => {
+                const d = (employeeDesignation || '').toLowerCase();
+                const isTL = d.includes('team leader') || d.includes('team manager') ||
+                  d.includes('tl') || d.includes('lead') || d.includes('manager') ||
+                  d.includes('head') || d.includes('supervisor');
+                return isTL ? (
+                  <>
+                    <SectionLabel label="Team" />
+                    <NavItem to="/manager/panel" icon={<FaUserTie />} label="My Team" />
+                  </>
+                ) : null;
+              })()}
+            </>
+          )}
+        </div>
+
+        {/* User Footer */}
+        <div style={{
+          padding: isOpen ? '16px' : '12px',
+          borderTop: '1px solid var(--keka-border, #e9ecef)',
+          flexShrink: 0,
+          backgroundColor: 'var(--keka-sidebar-bg, #fff)'
+        }}>
+          {isOpen ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{
+                width: '38px',
+                height: '38px',
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #0d6efd, #0b5ed7)',
+                color: 'white',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '14px',
+                fontWeight: '600',
+                flexShrink: 0
+              }}>
+                {getInitials(employeeName)}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  color: 'var(--keka-text-primary, #1a2c3e)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}>
+                  {employeeName}
+                </div>
+                <div style={{
+                  fontSize: '10px',
+                  color: 'var(--keka-text-muted, #8a94a6)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}>
+                  {user?.role === 'admin' ? 'Administrator' : `ID: ${user?.employeeId}`}
+                </div>
+              </div>
+              <button
+                onClick={logout}
+                title="Logout"
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  background: '#f8f9fa',
+                  border: '1px solid #e9ecef',
+                  color: '#dc3545',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#dc3545';
+                  e.currentTarget.style.color = 'white';
+                  e.currentTarget.style.borderColor = '#dc3545';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#f8f9fa';
+                  e.currentTarget.style.color = '#dc3545';
+                  e.currentTarget.style.borderColor = '#e9ecef';
+                }}
+              >
+                <FaSignOutAlt size={14} />
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+              <div style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #0d6efd, #0b5ed7)',
+                color: 'white',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '14px',
+                fontWeight: '600'
+              }}>
+                {getInitials(employeeName)}
+              </div>
+              <button
+                onClick={logout}
+                title="Logout"
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  background: '#f8f9fa',
+                  border: '1px solid #e9ecef',
+                  color: '#dc3545',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                <FaSignOutAlt size={14} />
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </>

@@ -62,8 +62,6 @@ const ManagerRegularizationRequests = ({ embedded = false }) => {
 
   useEffect(() => {
     fetchRequests();
-    const interval = setInterval(fetchRequests, 30000);
-    return () => clearInterval(interval);
   }, []);
 
   const formatDate = (dateString) => {

@@ -1,22 +1,10 @@
 // src/components/Layout/Navbar.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { 
-  FaBell, 
-  FaUserCircle, 
-  FaClock, 
-  FaCalendarAlt, 
-  FaEdit, 
-  FaCheckCircle, 
-  FaTimesCircle, 
-  FaUser, 
-  FaSignOutAlt,
-  FaTrash,
-  FaTimes,
-  FaInfoCircle,
-  FaExclamationTriangle,
-  FaBirthdayCake,
-  FaTrophy
+import {
+  FaBell, FaUserCircle, FaClock, FaCalendarAlt, FaEdit,
+  FaCheckCircle, FaTimesCircle, FaUser, FaSignOutAlt,
+  FaTimes, FaInfoCircle, FaBirthdayCake, FaTrophy
 } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
@@ -28,32 +16,22 @@ import EventNotification from '../Common/EventNotification';
 const Navbar = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const { 
-    eventNotifications, 
-    markEventAsRead, 
-    markAllEventsAsRead,
-    removeNotification 
-  } = useNotification();
-  
+  const { eventNotifications, markEventAsRead, markAllEventsAsRead, removeNotification } = useNotification();
+
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [loading, setLoading] = useState(false);
   const [employeeName, setEmployeeName] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [pendingRequests, setPendingRequests] = useState([]);
   const [pendingCount, setPendingCount] = useState(0);
   const [fetchingNotifications, setFetchingNotifications] = useState(false);
-  
+
   const notificationRef = useRef(null);
   const bellRef = useRef(null);
 
-  // Update time every second
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 1000);
-
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
@@ -62,133 +40,72 @@ const Navbar = () => {
       fetchEmployeeName();
       fetchNotifications();
       fetchPendingUpdateRequests();
-      
-      const interval = setInterval(() => {
-        fetchNotifications();
-        fetchPendingUpdateRequests();
-      }, 30000);
-      
-      return () => clearInterval(interval);
     }
   }, [user]);
 
-  // Update unread count
   useEffect(() => {
     const unreadEvents = eventNotifications.filter(e => !e.read).length;
     const unreadRegular = notifications.filter(n => !n.is_read).length;
     setUnreadCount(unreadRegular + unreadEvents);
   }, [eventNotifications, notifications]);
 
-  // Handle clicking outside
   useEffect(() => {
-    const handleClickOutside = (event) => {
+    const handleClickOutside = (e) => {
       if (
-        notificationRef.current && 
-        !notificationRef.current.contains(event.target) &&
-        bellRef.current && 
-        !bellRef.current.contains(event.target)
-      ) {
-        setShowNotifications(false);
-      }
+        notificationRef.current && !notificationRef.current.contains(e.target) &&
+        bellRef.current && !bellRef.current.contains(e.target)
+      ) setShowNotifications(false);
     };
-
-    if (showNotifications) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
+    if (showNotifications) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showNotifications]);
 
   const fetchEmployeeName = async () => {
     try {
-      if (user?.role === 'admin') {
-        setEmployeeName('Administrator');
-        return;
+      if (user?.role === 'admin') { setEmployeeName('Administrator'); return; }
+      const res = await axios.get(API_ENDPOINTS.EMPLOYEE_PROFILE(user?.employeeId));
+      if (res.data) {
+        setEmployeeName(`${res.data.first_name || ''} ${res.data.last_name || ''}`.trim() || 'Employee');
       }
-      
-      const response = await axios.get(API_ENDPOINTS.EMPLOYEE_PROFILE(user?.employeeId));
-      if (response.data) {
-        const fullName = `${response.data.first_name || ''} ${response.data.last_name || ''}`.trim();
-        setEmployeeName(fullName || 'Employee');
-      }
-    } catch (error) {
-      console.error('Error fetching employee name:', error);
+    } catch {
       setEmployeeName(user?.role === 'admin' ? 'Administrator' : 'Employee');
     }
   };
 
   const fetchNotifications = async () => {
     if (!user?.employeeId) return;
-    
     setFetchingNotifications(true);
     try {
-      const response = await axios.get(API_ENDPOINTS.NOTIFICATIONS_BY_EMPLOYEE(user.employeeId));
-      if (response.data && Array.isArray(response.data)) {
-        setNotifications(response.data);
-      }
-    } catch (error) {
-      console.error('Error fetching notifications:', error);
-    } finally {
-      setFetchingNotifications(false);
-    }
+      const res = await axios.get(API_ENDPOINTS.NOTIFICATIONS_BY_EMPLOYEE(user.employeeId));
+      if (res.data && Array.isArray(res.data)) setNotifications(res.data);
+    } catch { /* silent */ }
+    finally { setFetchingNotifications(false); }
   };
 
   const fetchPendingUpdateRequests = async () => {
     try {
-      const response = await axios.get(API_ENDPOINTS.EMPLOYEE_UPDATES_PENDING);
-      
-      if (Array.isArray(response.data)) {
-        setPendingRequests(response.data);
-        setPendingCount(response.data.length);
-      } else if (response.data?.requests && Array.isArray(response.data.requests)) {
-        setPendingRequests(response.data.requests);
-        setPendingCount(response.data.requests.length);
-      }
-    } catch (error) {
-      console.error('Error fetching pending requests:', error);
-    }
+      const res = await axios.get(API_ENDPOINTS.EMPLOYEE_UPDATES_PENDING);
+      const data = Array.isArray(res.data) ? res.data : res.data?.requests || [];
+      setPendingRequests(data);
+      setPendingCount(data.length);
+    } catch { /* silent */ }
   };
 
   const markAsRead = async (id) => {
     try {
       await axios.put(API_ENDPOINTS.NOTIFICATION_READ(id));
-      setNotifications(prev => 
-        prev.map(n => n.id === id ? { ...n, is_read: true } : n)
-      );
-    } catch (error) {
-      console.error('Error marking notification as read:', error);
-    }
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+    } catch { /* silent */ }
   };
 
   const deleteNotification = async (id, e) => {
-    e.stopPropagation(); // Prevent triggering parent click
-    
-    try {
-      // Call API to delete notification
-      await axios.delete(API_ENDPOINTS.NOTIFICATION_DELETE(id));
-      
-      // Remove from local state
-      setNotifications(prev => prev.filter(n => n.id !== id));
-      
-      // Also try to remove from context if available
-      if (removeNotification) {
-        removeNotification(id);
-      }
-    } catch (error) {
-      console.error('Error deleting notification:', error);
-      
-      // If API fails, at least remove from UI
-      setNotifications(prev => prev.filter(n => n.id !== id));
-    }
-  };
-
-  const deleteEventNotification = (eventId, e) => {
     e.stopPropagation();
-    
-    if (markEventAsRead) {
-      markEventAsRead(eventId);
+    try {
+      await axios.delete(API_ENDPOINTS.NOTIFICATION_DELETE(id));
+      setNotifications(prev => prev.filter(n => n.id !== id));
+      if (removeNotification) removeNotification(id);
+    } catch {
+      setNotifications(prev => prev.filter(n => n.id !== id));
     }
   };
 
@@ -197,341 +114,275 @@ const Navbar = () => {
       const unreadIds = notifications.filter(n => !n.is_read).map(n => n.id);
       await Promise.all(unreadIds.map(id => markAsRead(id)));
       markAllEventsAsRead();
-    } catch (error) {
-      console.error('Error marking all as read:', error);
-    }
+    } catch { /* silent */ }
   };
 
-  const handleEventClose = (eventId) => {
-    markEventAsRead(eventId);
-  };
-
-  const handleViewUpdateRequests = () => {
-    if (user?.role === 'admin') {
-      navigate('/admin/update-requests');
-    } else {
-      navigate('/employee/update-requests');
-    }
-    setShowNotifications(false);
-  };
-
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
-
-  const formatNotificationTime = (dateString) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins} min ago`;
-    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-    return date.toLocaleDateString();
-  };
-
-  const toggleNotifications = () => {
-    setShowNotifications(!showNotifications);
-  };
-
-  const formattedTime = currentTime.toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: true
-  });
-
-  const formattedDate = currentTime.toLocaleDateString('en-US', {
-    weekday: 'short',
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  });
-
-  // Get icon for notification type
   const getNotificationIcon = (type) => {
     switch (type) {
-      case 'update_approved':
-        return <FaCheckCircle className="text-success" size={14} />;
-      case 'update_rejected':
-        return <FaTimesCircle className="text-danger" size={14} />;
-      case 'update_request':
-        return <FaEdit className="text-warning" size={14} />;
-      case 'leave_approved':
-        return <FaCheckCircle className="text-success" size={14} />;
-      case 'leave_rejected':
-        return <FaTimesCircle className="text-danger" size={14} />;
-      case 'leave_pending':
-        return <FaInfoCircle className="text-info" size={14} />;
-      default:
-        return <FaBell className="text-primary" size={14} />;
+      case 'update_approved': case 'leave_approved': return <FaCheckCircle style={{ color: 'var(--keka-success)' }} size={13} />;
+      case 'update_rejected': case 'leave_rejected': return <FaTimesCircle style={{ color: 'var(--keka-danger)' }} size={13} />;
+      case 'update_request': return <FaEdit style={{ color: 'var(--keka-warning)' }} size={13} />;
+      default: return <FaBell style={{ color: 'var(--keka-primary)' }} size={13} />;
     }
   };
 
-  // Get notification badge color
-  const getNotificationBadge = (type) => {
-    switch (type) {
-      case 'update_approved':
-      case 'leave_approved':
-        return 'success';
-      case 'update_rejected':
-      case 'leave_rejected':
-        return 'danger';
-      case 'update_request':
-      case 'leave_pending':
-        return 'warning';
-      default:
-        return 'info';
-    }
+  const formatTime = (dateString) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMins = Math.floor((now - date) / 60000);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return `${Math.floor(diffHours / 24)}d ago`;
   };
+
+  const getInitials = (name) => {
+    if (!name) return 'U';
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
+
+  const formattedTime = currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+  const formattedDate = currentTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 
   return (
-    <nav className="navbar-top" style={{
-      backgroundColor: 'white',
-      padding: '10px 16px',
-      boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      position: 'sticky',
-      top: 0,
-      zIndex: 999,
-      width: '100%',
-      height: '60px'
+    <nav style={{
+      height: 'var(--keka-navbar-height)',
+      backgroundColor: 'var(--keka-navbar-bg)',
+      borderBottom: '1px solid var(--keka-border)',
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      padding: '0 20px', position: 'sticky', top: 0, zIndex: 100,
+      boxShadow: 'var(--keka-shadow-sm)', flexShrink: 0
     }}>
-      <div className="d-flex align-items-center">
-        {/* Logo/Brand space - kept empty as original */}
-      </div>
-      
-      <div className="d-flex align-items-center gap-2 gap-sm-3">
-        {/* Time and Date Display - Hidden on very small screens */}
+      {/* Left - Page title area (empty, sidebar has logo) */}
+      <div />
+
+      {/* Right - Actions */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+
+        {/* Time Display */}
         <div className="d-none d-sm-flex align-items-center" style={{
-          backgroundColor: '#f8f9fa',
-          borderRadius: '20px',
-          padding: '5px 12px'
+          backgroundColor: 'var(--keka-body-bg)', borderRadius: '20px',
+          padding: '5px 12px', gap: '6px', border: '1px solid var(--keka-border)'
         }}>
-          <FaClock style={{ color: '#d53f8c', marginRight: '6px' }} size={14} />
-          <span className="fw-bold me-2" style={{ fontSize: '14px' }}>{formattedTime}</span>
-          <span style={{ color: '#999', margin: '0 4px' }}>|</span>
-          <FaCalendarAlt style={{ color: '#d53f8c', marginLeft: '4px', marginRight: '6px' }} size={14} />
-          <span style={{ color: '#666', fontSize: '14px' }} className="d-none d-lg-inline">{formattedDate}</span>
-          <span style={{ color: '#666', fontSize: '14px' }} className="d-inline d-lg-none">
-            {currentTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-          </span>
+          <FaClock style={{ color: 'var(--keka-primary)' }} size={12} />
+          <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--keka-text-primary)' }}>{formattedTime}</span>
+          <span style={{ color: 'var(--keka-border)', margin: '0 2px' }}>|</span>
+          <FaCalendarAlt style={{ color: 'var(--keka-primary)' }} size={12} />
+          <span style={{ fontSize: '13px', color: 'var(--keka-text-secondary)' }}>{formattedDate}</span>
         </div>
 
-        {/* Mobile Time - Shown only on extra small screens */}
-        <div className="d-flex d-sm-none align-items-center" style={{
-          backgroundColor: '#f8f9fa',
-          borderRadius: '20px',
-          padding: '5px 10px'
-        }}>
-          <FaClock style={{ color: '#d53f8c', marginRight: '6px' }} size={12} />
-          <span className="fw-bold" style={{ fontSize: '12px' }}>
-            {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-          </span>
-        </div>
-
-        {/* Notification Bell */}
-        <div className="position-relative" ref={bellRef}>
-          <FaBell 
-            size={20} 
-            className="cursor-pointer" 
-            style={{ color: '#d53f8c' }}
-            onClick={toggleNotifications}
-          />
+        {/* Bell */}
+        <div style={{ position: 'relative', cursor: 'pointer' }} ref={bellRef} onClick={() => setShowNotifications(!showNotifications)}>
+          <div style={{
+            width: '36px', height: '36px', borderRadius: '8px',
+            backgroundColor: showNotifications ? 'var(--keka-primary-light)' : 'var(--keka-body-bg)',
+            border: `1px solid ${showNotifications ? 'var(--keka-primary)' : 'var(--keka-border)'}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            transition: 'all 0.2s ease'
+          }}>
+            <FaBell size={15} style={{ color: showNotifications ? 'var(--keka-primary)' : 'var(--keka-text-secondary)' }} />
+          </div>
           {unreadCount > 0 && (
-            <Badge 
-              bg="danger" 
-              className="position-absolute top-0 start-100 translate-middle rounded-pill"
-              style={{
-                fontSize: '10px',
-                padding: '2px 5px'
-              }}
-            >
+            <span style={{
+              position: 'absolute', top: '-4px', right: '-4px',
+              background: 'var(--keka-danger)', color: 'white',
+              borderRadius: '10px', fontSize: '10px', fontWeight: '600',
+              padding: '1px 5px', minWidth: '16px', textAlign: 'center',
+              border: '2px solid white'
+            }}>
               {unreadCount}
-            </Badge>
+            </span>
           )}
         </div>
 
         {/* Profile Dropdown */}
         <Dropdown align="end">
-          <Dropdown.Toggle variant="link" className="p-0 border-0" style={{ color: '#d53f8c' }}>
-            <FaUserCircle size={28} color="#d53f8c" />
+          <Dropdown.Toggle
+            variant="link" className="p-0 border-0 text-decoration-none"
+            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+          >
+            <div style={{
+              width: '34px', height: '34px', borderRadius: '50%',
+              background: 'var(--keka-primary)', color: 'white',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '12px', fontWeight: '600'
+            }}>
+              {getInitials(employeeName)}
+            </div>
+            <div className="d-none d-md-block" style={{ textAlign: 'left' }}>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--keka-text-primary)', lineHeight: 1.2 }}>
+                {employeeName}
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--keka-text-muted)', lineHeight: 1 }}>
+                {user?.role === 'admin' ? 'Administrator' : user?.employeeId}
+              </div>
+            </div>
           </Dropdown.Toggle>
 
-          <Dropdown.Menu className="dropdown-menu-end">
-            {/* My Profile - Sirf EMPLOYEE ke liye show hoga */}
+          <Dropdown.Menu style={{ border: '1px solid var(--keka-border)', borderRadius: '8px', boxShadow: 'var(--keka-shadow-md)', minWidth: '180px', padding: '6px' }}>
             {user?.role === 'employee' && (
-              <Dropdown.Item as={Link} to="/profile">
-                <FaUser className="me-2" /> My Profile
+              <Dropdown.Item as={Link} to="/profile" style={{ borderRadius: '6px', fontSize: '13px', padding: '8px 12px' }}>
+                <FaUser className="me-2" size={12} /> My Profile
               </Dropdown.Item>
             )}
-            
-            {/* Update Requests - Sabke liye (role ke hisaab se different path) */}
-            <Dropdown.Item 
-              as={Link} 
+            <Dropdown.Item
+              as={Link}
               to={user?.role === 'admin' ? '/admin/update-requests' : '/employee/update-requests'}
-              className="d-flex align-items-center"
+              style={{ borderRadius: '6px', fontSize: '13px', padding: '8px 12px', display: 'flex', alignItems: 'center' }}
             >
-              <FaEdit className="me-2" /> Update Requests
-              {pendingCount > 0 && (
-                <Badge bg="danger" className="ms-2">{pendingCount}</Badge>
-              )}
+              <FaEdit className="me-2" size={12} /> Update Requests
+              {pendingCount > 0 && <Badge bg="danger" className="ms-auto">{pendingCount}</Badge>}
             </Dropdown.Item>
-            
-            <Dropdown.Divider />
-            
-            {/* Logout - Sabke liye common */}
-            <Dropdown.Item onClick={handleLogout}>
-              <FaSignOutAlt className="me-2" /> Logout
+            <Dropdown.Divider style={{ margin: '4px 0' }} />
+            <Dropdown.Item
+              onClick={() => { logout(); navigate('/login'); }}
+              style={{ borderRadius: '6px', fontSize: '13px', padding: '8px 12px', color: 'var(--keka-danger)' }}
+            >
+              <FaSignOutAlt className="me-2" size={12} /> Logout
             </Dropdown.Item>
           </Dropdown.Menu>
         </Dropdown>
       </div>
 
-      {/* Notifications Dropdown */}
+      {/* Notifications Panel */}
       {showNotifications && (
-        <div 
+        <div
           ref={notificationRef}
-          className="position-absolute bg-white shadow-lg rounded"
           style={{
-            right: '16px',
-            top: '70px',
-            width: window.innerWidth < 576 ? 'calc(100vw - 32px)' : '400px',
-            maxWidth: '400px',
-            padding: '15px',
-            zIndex: 1001,
-            maxHeight: '500px',
-            overflowY: 'auto'
+            position: 'absolute', right: '16px',
+            top: 'calc(var(--keka-navbar-height) + 8px)',
+            width: window.innerWidth < 576 ? 'calc(100vw - 32px)' : '380px',
+            background: 'white', border: '1px solid var(--keka-border)',
+            borderRadius: '10px', boxShadow: 'var(--keka-shadow-md)',
+            zIndex: 1001, maxHeight: '480px', overflowY: 'auto'
           }}
         >
-          <div className="d-flex justify-content-between align-items-center mb-2">
-            <h6 className="mb-0">Notifications</h6>
+          {/* Header */}
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            padding: '14px 16px', borderBottom: '1px solid var(--keka-border)'
+          }}>
+            <span style={{ fontWeight: '600', fontSize: '14px', color: 'var(--keka-text-primary)' }}>
+              Notifications {unreadCount > 0 && <Badge bg="danger" pill style={{ fontSize: '10px' }}>{unreadCount}</Badge>}
+            </span>
             {unreadCount > 0 && (
-              <Button 
-                variant="link" 
-                size="sm" 
-                onClick={markAllAsRead}
-                className="p-0 text-decoration-none"
-              >
-                Mark all as read
-              </Button>
+              <button onClick={markAllAsRead} style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                fontSize: '12px', color: 'var(--keka-primary)', fontWeight: '500'
+              }}>
+                Mark all read
+              </button>
             )}
           </div>
-          
-          {/* Loading Indicator */}
-          {fetchingNotifications && (
-            <div className="text-center py-2">
-              <Spinner size="sm" animation="border" variant="primary" />
-            </div>
-          )}
-          
-          {/* Pending Update Requests Section */}
-          {pendingCount > 0 && (
-            <div className="mb-3 p-2 bg-warning bg-opacity-10 rounded">
-              <div className="d-flex align-items-start gap-2">
-                <FaEdit className="text-warning mt-1 flex-shrink-0" size={16} />
-                <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                  <small className="fw-bold d-block text-truncate">Pending Update Requests</small>
-                  <small className="text-muted d-block text-truncate">
-                    {pendingCount} update request(s) pending
-                  </small>
+
+          <div style={{ padding: '8px' }}>
+            {fetchingNotifications && (
+              <div style={{ textAlign: 'center', padding: '12px' }}>
+                <Spinner size="sm" animation="border" style={{ color: 'var(--keka-primary)' }} />
+              </div>
+            )}
+
+            {/* Pending Update Requests */}
+            {pendingCount > 0 && (
+              <div style={{
+                padding: '10px 12px', borderRadius: '8px', marginBottom: '6px',
+                background: '#FFFAF0', border: '1px solid #FEEBC8',
+                display: 'flex', alignItems: 'center', gap: '10px'
+              }}>
+                <FaEdit style={{ color: 'var(--keka-warning)', flexShrink: 0 }} size={14} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--keka-text-primary)' }}>Pending Update Requests</div>
+                  <div style={{ fontSize: '11px', color: 'var(--keka-text-secondary)' }}>{pendingCount} request(s) pending</div>
                 </div>
-                <Button
-                  variant="outline-warning"
-                  size="sm"
-                  onClick={handleViewUpdateRequests}
-                  className="flex-shrink-0"
+                <button
+                  onClick={() => { navigate(user?.role === 'admin' ? '/admin/update-requests' : '/employee/update-requests'); setShowNotifications(false); }}
+                  style={{
+                    background: 'var(--keka-warning)', color: 'white', border: 'none',
+                    borderRadius: '5px', padding: '3px 10px', fontSize: '11px',
+                    cursor: 'pointer', fontWeight: '500', flexShrink: 0
+                  }}
                 >
                   View
-                </Button>
+                </button>
               </div>
-            </div>
-          )}
-          
-          {/* Event Notifications Section */}
-          {eventNotifications.filter(e => !e.read).length > 0 && (
-            <div className="mb-3">
-              <small className="text-muted fw-semibold d-block mb-2">🎉 Today's Events</small>
-              {eventNotifications.filter(e => !e.read).map(event => (
-                <div key={event.id} className="position-relative mb-2">
-                  <EventNotification 
-                    event={event} 
-                    onClose={() => handleEventClose(event.id)}
-                  />
-                  <Button
-                    variant="link"
-                    size="sm"
-                    onClick={(e) => deleteEventNotification(event.id, e)}
-                    className="position-absolute top-0 end-0 p-1"
-                    style={{ color: '#999', fontSize: '12px' }}
-                    title="Remove notification"
-                  >
-                    <FaTimes />
-                  </Button>
+            )}
+
+            {/* Event Notifications */}
+            {eventNotifications.filter(e => !e.read).length > 0 && (
+              <div style={{ marginBottom: '6px' }}>
+                <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--keka-text-muted)', padding: '4px 4px 6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  🎉 Today's Events
                 </div>
-              ))}
-            </div>
-          )}
-          
-          {/* Regular Notifications Section */}
-          {notifications.length > 0 ? (
-            <div>
-              <small className="text-muted fw-semibold d-block mb-2">🔔 Updates</small>
-              {notifications.map(notif => (
-                <div 
-                  key={notif.id} 
-                  className={`border-bottom py-2 px-2 rounded position-relative mb-1 ${!notif.is_read ? 'bg-primary bg-opacity-10' : ''}`}
-                  style={{ cursor: !notif.is_read ? 'pointer' : 'default' }}
-                  onClick={() => !notif.is_read && markAsRead(notif.id)}
-                >
-                  <div className="d-flex align-items-start gap-2">
-                    <div className="mt-1 flex-shrink-0">
-                      {getNotificationIcon(notif.type)}
-                    </div>
-                    <div className="flex-grow-1" style={{ minWidth: 0, marginRight: '25px' }}>
-                      <p className="small mb-1 text-wrap">{notif.message}</p>
-                      <div className="d-flex justify-content-between align-items-center flex-wrap gap-1">
-                        <small className="text-muted">
-                          {formatNotificationTime(notif.created_at)}
-                        </small>
-                        {!notif.is_read && (
-                          <Badge bg={getNotificationBadge(notif.type)} pill className="small">
-                            New
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                    
-                    {/* Delete Button */}
-                    <Button
-                      variant="link"
-                      size="sm"
-                      onClick={(e) => deleteNotification(notif.id, e)}
-                      className="position-absolute top-0 end-0 p-1"
-                      style={{ color: '#999', fontSize: '12px' }}
-                      title="Delete notification"
+                {eventNotifications.filter(e => !e.read).map(event => (
+                  <div key={event.id} style={{ position: 'relative', marginBottom: '4px' }}>
+                    <EventNotification event={event} onClose={() => markEventAsRead(event.id)} />
+                    <button
+                      onClick={(e) => { e.stopPropagation(); markEventAsRead(event.id); }}
+                      style={{
+                        position: 'absolute', top: '6px', right: '6px',
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: 'var(--keka-text-muted)', padding: '2px'
+                      }}
                     >
-                      <FaTimes />
-                    </Button>
+                      <FaTimes size={10} />
+                    </button>
                   </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            eventNotifications.filter(e => !e.read).length === 0 && 
-            pendingCount === 0 && (
-              <div className="text-center py-4">
-                <p className="text-muted mb-0">No notifications</p>
+                ))}
               </div>
-            )
-          )}
+            )}
+
+            {/* Regular Notifications */}
+            {notifications.length > 0 ? (
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--keka-text-muted)', padding: '4px 4px 6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  🔔 Updates
+                </div>
+                {notifications.map(notif => (
+                  <div
+                    key={notif.id}
+                    onClick={() => !notif.is_read && markAsRead(notif.id)}
+                    style={{
+                      padding: '10px 12px', borderRadius: '8px', marginBottom: '4px',
+                      background: !notif.is_read ? 'var(--keka-primary-light)' : '#F8FAFC',
+                      border: `1px solid ${!notif.is_read ? '#B2EBF2' : 'var(--keka-border)'}`,
+                      cursor: !notif.is_read ? 'pointer' : 'default',
+                      position: 'relative', display: 'flex', gap: '10px', alignItems: 'flex-start'
+                    }}
+                  >
+                    <div style={{ marginTop: '1px', flexShrink: 0 }}>{getNotificationIcon(notif.type)}</div>
+                    <div style={{ flex: 1, minWidth: 0, marginRight: '20px' }}>
+                      <p style={{ fontSize: '12px', margin: '0 0 4px', color: 'var(--keka-text-primary)', lineHeight: 1.4 }}>{notif.message}</p>
+                      <span style={{ fontSize: '11px', color: 'var(--keka-text-muted)' }}>{formatTime(notif.created_at)}</span>
+                      {!notif.is_read && (
+                        <span style={{
+                          marginLeft: '8px', background: 'var(--keka-primary)', color: 'white',
+                          borderRadius: '4px', fontSize: '10px', padding: '1px 6px', fontWeight: '500'
+                        }}>New</span>
+                      )}
+                    </div>
+                    <button
+                      onClick={(e) => deleteNotification(notif.id, e)}
+                      style={{
+                        position: 'absolute', top: '8px', right: '8px',
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: 'var(--keka-text-muted)', padding: '2px'
+                      }}
+                    >
+                      <FaTimes size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              eventNotifications.filter(e => !e.read).length === 0 && pendingCount === 0 && (
+                <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--keka-text-muted)' }}>
+                  <FaBell size={28} style={{ opacity: 0.3, marginBottom: '8px', display: 'block', margin: '0 auto 8px' }} />
+                  <p style={{ fontSize: '13px', margin: 0 }}>No notifications</p>
+                </div>
+              )
+            )}
+          </div>
         </div>
       )}
     </nav>

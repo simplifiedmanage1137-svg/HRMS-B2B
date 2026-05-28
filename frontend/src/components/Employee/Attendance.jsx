@@ -1450,32 +1450,7 @@ const Attendance = () => {
     }
   };
 
-  useEffect(() => {
-    const checkSession = async () => {
-      if (!activeSession) return;
-      const valid = await isValidSession();
-      setIsSessionValid(valid);
-      if (!valid) {
-        setActiveSession(null);
-        clearSessionFromStorage();
-        try {
-          const res = await axios.get(API_ENDPOINTS.ATTENDANCE_TODAY(user.employeeId));
-          if (res.data.attendance?.clock_out) {
-            setHasClockedOutToday(true);
-            setMissedClockOuts([]);
-          } else if (res.data.active_session) {
-            // Server has active session but our local one was stale - re-sync
-            setActiveSession(res.data.active_session);
-            saveSessionToStorage(res.data.active_session);
-            setHasClockedOutToday(false);
-          }
-        } catch (_) { }
-      }
-    };
-    checkSession();
-    const sessionCheckInterval = setInterval(checkSession, 30000);
-    return () => clearInterval(sessionCheckInterval);
-  }, [activeSession, user]);
+  // Session validity is checked only on mount and after clock-in/clock-out actions
 
   // Real-time update for today's working hours
   useEffect(() => {
@@ -1811,22 +1786,9 @@ const Attendance = () => {
     if (user?.employeeId) fetchAttendanceHistory();
   }, [user?.employeeId, attendance]);
 
-  useEffect(() => {
-    if (!user?.employeeId) return;
-    const interval = setInterval(() => {
-      fetchAttendanceHistory();
-      fetchMissedClockOuts();
-    }, 60000);
-    return () => clearInterval(interval);
-  }, [user?.employeeId]);
+  // Removed: auto-polling for attendance history (was causing excessive DB requests)
 
-  useEffect(() => {
-    if (activeSession && location) {
-      const interval = setInterval(sendHeartbeat, 30000);
-      setHeartbeatInterval(interval);
-      return () => clearInterval(interval);
-    }
-  }, [activeSession, location]);
+  // Removed: heartbeat polling (was sending requests every 30s)
 
   useEffect(() => {
     const handleRegularizationEvent = async () => {

@@ -3,6 +3,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
+import './index.css';
 
 // Layout Components
 import Navbar from './components/Layout/Navbar';
@@ -131,8 +132,8 @@ function AppContent() {
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
-          backgroundColor: '#f8f9fa',
-          transition: 'margin-left 0.3s ease'
+          backgroundColor: 'var(--keka-body-bg)',
+          transition: 'margin-left 0.25s ease'
         }}
       >
         {/* Navbar */}
@@ -142,8 +143,8 @@ function AppContent() {
         <div style={{
           flex: 1,
           overflowY: 'auto',
-          padding: '20px',
-          backgroundColor: '#f8f9fa'
+          padding: '24px',
+          backgroundColor: 'var(--keka-body-bg)'
         }}>
           <Routes>
             {/* Dashboard Route - Conditional based on role */}

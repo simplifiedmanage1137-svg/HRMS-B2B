@@ -75,8 +75,6 @@ const RegularizationRequests = ({ onRequestCountChange, onRegularizationApproved
 
     useEffect(() => {
         fetchRequests();
-        const interval = setInterval(fetchRequests, 30000);
-        return () => clearInterval(interval);
     }, []);
 
     const isTeamLeader = (designation) => {
