@@ -1,4 +1,3 @@
-// server.js - CORRECTED VERSION
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
@@ -9,53 +8,45 @@ const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
 const cron = require('node-cron');
 
-// Load environment variables
 dotenv.config();
 
-// Import Supabase configuration
 const supabase = require('./config/supabase');
 
-// Import routes
-const authRoutes = require('./routes/authRoutes');
-const employeeRoutes = require('./routes/employeeRoutes');
-const leaveRoutes = require('./routes/leaveRoutes');
-const attendanceRoutes = require('./routes/attendanceRoutes');
-const salaryRoutes = require('./routes/salaryRoutes');
-const notificationRoutes = require('./routes/notificationRoutes');
-const adminUpdateRoutes = require('./routes/adminUpdateRoutes');
+// ─── Routes ──────────────────────────────────────────────────────────────────
+const authRoutes          = require('./routes/authRoutes');
+const employeeRoutes      = require('./routes/employeeRoutes');
+const leaveRoutes         = require('./routes/leaveRoutes');
+const attendanceRoutes    = require('./routes/attendanceRoutes');
+const salaryRoutes        = require('./routes/salaryRoutes');
+const notificationRoutes  = require('./routes/notificationRoutes');
+const adminUpdateRoutes   = require('./routes/adminUpdateRoutes');
 const employeeUpdateRoutes = require('./routes/employeeUpdateRoutes');
 const updateResponseRoutes = require('./routes/updateResponseRoutes');
-const noticeRoutes = require('./routes/noticeRoutes');
-const announcementRoutes = require('./routes/announcementRoutes');
-const ratingRoutes = require('./routes/ratingRoutes');
-const loginFeedRoutes    = require('./routes/loginFeedRoutes');
-const noticeBoardRoutes  = require('./routes/noticeBoardRoutes');
+const noticeRoutes        = require('./routes/noticeRoutes');
+const announcementRoutes  = require('./routes/announcementRoutes');
+const ratingRoutes        = require('./routes/ratingRoutes');
+const loginFeedRoutes     = require('./routes/loginFeedRoutes');
+const noticeBoardRoutes   = require('./routes/noticeBoardRoutes');
 
-// Import attendance controller for cron jobs
 const attendanceController = require('./controllers/attendanceController');
-
-// Import absent employee check cron job
 const { scheduleAbsentCheck } = require('./cron/absentEmployeeCheck');
 
-// Initialize Express app
 const app = express();
 
-// ============== DETERMINE ENVIRONMENT ==============
+// ─── Environment ─────────────────────────────────────────────────────────────
 const isProduction = process.env.NODE_ENV === 'production' || !!process.env.RENDER_EXTERNAL_URL;
 const PORT = process.env.PORT || 5000;
 
 console.log('='.repeat(70));
 console.log('🚀 SERVER INITIALIZING');
-console.log(`Environment: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
-console.log(`Port: ${PORT}`);
+console.log(`   Environment : ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
+console.log(`   Port        : ${PORT}`);
 console.log('='.repeat(70));
 
-// ============== CORS CONFIGURATION ==============
-const allowedOriginsFromEnv = process.env.ALLOWED_ORIGINS 
-    ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
-    : [];
-
-const allowedOrigins = [
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+// Hard-coded allowed origins (covers all known deployments)
+const ALLOWED_ORIGINS = new Set([
+    // Local development
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:3000',
@@ -64,139 +55,150 @@ const allowedOrigins = [
     'http://127.0.0.1:5174',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:3001',
+    // Production Vercel frontends
+    'https://hrms-p-test.vercel.app',
     'https://hrms-b2-bindemand-a31u.vercel.app',
-    'https://hrms-b2bindemand-backend.onrender.com',
-    ...allowedOriginsFromEnv
-];
+    // Render backend (for internal calls / health checks)
+    'https://hrms-p-test-1.onrender.com',
+]);
 
-const uniqueAllowedOrigins = [...new Set(allowedOrigins)];
+// Also pull any extra origins from the env var (comma-separated)
+if (process.env.ALLOWED_ORIGINS) {
+    process.env.ALLOWED_ORIGINS.split(',').forEach(o => {
+        const trimmed = o.trim();
+        if (trimmed) ALLOWED_ORIGINS.add(trimmed);
+    });
+}
 
-console.log('🔧 CORS Allowed Origins:');
-uniqueAllowedOrigins.forEach(origin => {
-    console.log(`   - ${origin}`);
-});
+console.log('🔧 CORS allowed origins:');
+ALLOWED_ORIGINS.forEach(o => console.log(`   - ${o}`));
 
-app.use(cors({
-    origin: function(origin, callback) {
+const corsOptions = {
+    origin(origin, callback) {
+        // Allow requests with no origin (curl, Postman, server-to-server)
         if (!origin) return callback(null, true);
+
+        // Allow all localhost / 127.0.0.1 regardless of port (dev convenience)
         if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
             return callback(null, true);
         }
+
+        // Allow private LAN origins (192.168.x, 10.x, 172.16-31.x)
         if (/^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(origin)) {
             return callback(null, true);
         }
-        if (uniqueAllowedOrigins.includes(origin)) {
+
+        // Allow any *.vercel.app preview deployment
+        if (/^https:\/\/[a-zA-Z0-9-]+-[a-zA-Z0-9-]+\.vercel\.app$/.test(origin)) {
             return callback(null, true);
         }
-        console.log(`❌ CORS blocked: ${origin}`);
-        return callback(new Error(`Not allowed by CORS: ${origin}`));
+
+        if (ALLOWED_ORIGINS.has(origin)) return callback(null, true);
+
+        // Blocked — return null (no error object) so Express does NOT throw;
+        // instead we return false which tells the cors middleware to omit the
+        // Access-Control-Allow-Origin header, producing a clean CORS rejection.
+        console.warn(`⛔ CORS blocked: ${origin}`);
+        return callback(null, false);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: [
-        'Content-Type', 'Authorization', 'X-Requested-With',
-        'Accept', 'Origin', 'employee-id', 'X-Employee-Id'
+        'Content-Type',
+        'Authorization',
+        'X-Requested-With',
+        'Accept',
+        'Origin',
+        'employee-id',
+        'X-Employee-Id',
     ],
-    maxAge: 86400
-}));
+    // Cache preflight for 24 h
+    maxAge: 86400,
+    // Make cors() send the actual allowed origin back (not '*') so
+    // credentials work correctly
+    optionsSuccessStatus: 204,
+};
 
-// Simple CORS logging middleware
-app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    console.log(`📍 ${req.method} ${req.url} - Origin: ${origin || 'no origin'}`);
-    next();
-});
+// Apply CORS before EVERYTHING else so preflight OPTIONS responses are
+// handled immediately and always carry the correct headers.
+app.use(cors(corsOptions));
 
-// ============== OTHER MIDDLEWARE ==============
+// Explicitly handle OPTIONS preflight for every route so nothing slips
+// through if a route handler accidentally swallows the request.
+app.options('*', cors(corsOptions));
+
+// ─── Body parsers ─────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// ============== CREATE UPLOAD DIRECTORIES ==============
+// ─── Request logger ───────────────────────────────────────────────────────────
+app.use((req, _res, next) => {
+    console.log(`📍 ${req.method} ${req.path} — origin: ${req.headers.origin || 'none'}`);
+    next();
+});
+
+// ─── Upload directories ───────────────────────────────────────────────────────
 const createUploadDirectories = () => {
-    const uploadsDir = path.join(__dirname, 'uploads');
-    const profilesDir = path.join(uploadsDir, 'profiles');
-    const documentsDir = path.join(uploadsDir, 'documents');
-    const logsDir = path.join(__dirname, 'logs');
-    
-    [uploadsDir, profilesDir, documentsDir, logsDir].forEach(dir => {
+    const dirs = [
+        path.join(__dirname, 'uploads'),
+        path.join(__dirname, 'uploads', 'profiles'),
+        path.join(__dirname, 'uploads', 'documents'),
+        path.join(__dirname, 'uploads', 'announcements'),
+        path.join(__dirname, 'uploads', 'office-events'),
+        path.join(__dirname, 'logs'),
+    ];
+    dirs.forEach(dir => {
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
-            console.log(`✅ Created directory: ${dir}`);
+            console.log(`✅ Created: ${dir}`);
         }
     });
-    
-    return { uploadsDir, profilesDir, documentsDir, logsDir };
+    return dirs[0]; // uploadsDir
 };
 
-const { uploadsDir } = createUploadDirectories();
+const uploadsDir = createUploadDirectories();
 
-// Serve static files
 app.use('/uploads', express.static(uploadsDir));
-app.use('/uploads/announcements', express.static(path.join(__dirname, 'uploads/announcements')));
-app.use('/uploads/office-events', express.static(path.join(__dirname, 'uploads/office-events')));
-app.use('/uploads/office-events', express.static(path.join(__dirname, 'uploads/office-events')));
 
-// ============== MULTER CONFIGURATION ==============
-const documentStorage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        const documentsDir = path.join(__dirname, 'uploads', 'documents');
-        cb(null, documentsDir);
-    },
-    filename: function (req, file, cb) {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        const ext = path.extname(file.originalname);
-        const fieldname = file.fieldname.replace(/[^a-zA-Z0-9]/g, '_');
-        cb(null, fieldname + '-' + uniqueSuffix + ext);
-    }
-});
-
-const uploadDocuments = multer({ 
-    storage: documentStorage,
+// ─── Multer ───────────────────────────────────────────────────────────────────
+const uploadDocuments = multer({
+    storage: multer.diskStorage({
+        destination(_req, _file, cb) {
+            cb(null, path.join(__dirname, 'uploads', 'documents'));
+        },
+        filename(_req, file, cb) {
+            const suffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+            const ext = path.extname(file.originalname);
+            cb(null, `${file.fieldname.replace(/[^a-zA-Z0-9]/g, '_')}-${suffix}${ext}`);
+        },
+    }),
     limits: { fileSize: 10 * 1024 * 1024 },
-    fileFilter: (req, file, cb) => {
-        const allowedTypes = /jpeg|jpg|png|pdf|doc|docx/;
-        const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-        const mimetype = allowedTypes.test(file.mimetype);
-        
-        if (mimetype && extname) {
-            return cb(null, true);
-        } else {
-            cb(new Error('Only images and documents are allowed'));
-        }
-    }
+    fileFilter(_req, file, cb) {
+        const ok = /jpeg|jpg|png|pdf|doc|docx/.test(
+            path.extname(file.originalname).toLowerCase()
+        );
+        cb(ok ? null : new Error('Only images and documents are allowed'), ok);
+    },
 });
 
-// ============== AUTHENTICATION MIDDLEWARE ==============
+app.locals.uploadDocuments = uploadDocuments;
+
+// ─── Auth middleware ──────────────────────────────────────────────────────────
 const authenticateToken = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-
+    const token = req.headers['authorization']?.split(' ')[1];
     if (!token) {
-        return res.status(401).json({
-            success: false,
-            message: 'Access token required',
-            code: 'NO_TOKEN'
-        });
+        return res.status(401).json({ success: false, message: 'Access token required', code: 'NO_TOKEN' });
     }
-
     jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
         if (err) {
             if (err.name === 'TokenExpiredError') {
-                return res.status(401).json({
-                    success: false,
-                    message: 'Token expired',
-                    code: 'TOKEN_EXPIRED'
-                });
+                return res.status(401).json({ success: false, message: 'Token expired', code: 'TOKEN_EXPIRED' });
             }
-            return res.status(401).json({
-                success: false,
-                message: 'Invalid token',
-                code: 'INVALID_TOKEN'
-            });
+            return res.status(401).json({ success: false, message: 'Invalid token', code: 'INVALID_TOKEN' });
         }
-        req.user = user;
-        req.userId = user.id;
-        req.userRole = user.role;
+        req.user       = user;
+        req.userId     = user.id;
+        req.userRole   = user.role;
         req.employeeId = user.employeeId;
         next();
     });
@@ -204,538 +206,267 @@ const authenticateToken = (req, res, next) => {
 
 const requireAdmin = (req, res, next) => {
     if (req.user?.role !== 'admin') {
-        return res.status(403).json({ 
-            success: false,
-            message: 'Admin access required' 
-        });
+        return res.status(403).json({ success: false, message: 'Admin access required' });
     }
     next();
 };
 
-// ============== ROUTES ==============
-// Public routes (no authentication needed)
-app.use('/api/auth', authRoutes);
-app.use('/api/public', loginFeedRoutes);
+// ─── Public routes ────────────────────────────────────────────────────────────
+app.use('/api/auth',   authRoutes);
 app.use('/api/public', loginFeedRoutes);
 
-// Protected routes (authentication required)
-app.use('/api/employees', authenticateToken, employeeRoutes);
-app.use('/api/leaves', authenticateToken, leaveRoutes);
-
-// ✅ FIX: attendanceRoutes needs to be called as a function with parameters
-app.use('/api/attendance', authenticateToken, attendanceRoutes(supabase, authenticateToken, requireAdmin));
-
-app.use('/api/salary', authenticateToken, salaryRoutes);
-app.use('/api/notifications', authenticateToken, notificationRoutes);
-app.use('/api/admin-updates', authenticateToken, adminUpdateRoutes);
+// ─── Protected routes ─────────────────────────────────────────────────────────
+app.use('/api/employees',       authenticateToken, employeeRoutes);
+app.use('/api/leaves',          authenticateToken, leaveRoutes);
+app.use('/api/attendance',      authenticateToken, attendanceRoutes(supabase, authenticateToken, requireAdmin));
+app.use('/api/salary',          authenticateToken, salaryRoutes);
+app.use('/api/notifications',   authenticateToken, notificationRoutes);
+app.use('/api/admin-updates',   authenticateToken, adminUpdateRoutes);
 app.use('/api/employee-updates', authenticateToken, employeeUpdateRoutes);
 app.use('/api/update-responses', authenticateToken, updateResponseRoutes);
-app.use('/api/notices', authenticateToken, noticeRoutes);
-app.use('/api/notice-board', authenticateToken, noticeBoardRoutes);
-app.use('/api/announcements', authenticateToken, announcementRoutes);
+app.use('/api/notices',         authenticateToken, noticeRoutes);
+app.use('/api/notice-board',    authenticateToken, noticeBoardRoutes);
+app.use('/api/announcements',   authenticateToken, announcementRoutes);
+app.use('/api/ratings',         ratingRoutes(authenticateToken, requireAdmin));
 
-// ✅ FIX: ratingRoutes also needs to be called as a function
-const ratingsRouter = ratingRoutes(authenticateToken, requireAdmin);
-app.use('/api/ratings', ratingsRouter);
+// ─── Utility endpoints ────────────────────────────────────────────────────────
+app.get('/', (_req, res) => res.json({
+    name: 'HRMS API',
+    version: '2.0.0',
+    status: 'running',
+    timestamp: new Date().toISOString(),
+}));
 
-// Make uploadDocuments available to routes
-app.locals.uploadDocuments = uploadDocuments;
+app.get('/api/health', (_req, res) => res.json({
+    success: true,
+    message: 'Server is healthy',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    port: PORT,
+}));
 
-// ============== HEALTH CHECK ENDPOINTS ==============
-app.get('/api/health', (req, res) => {
-    res.json({
-        success: true,
-        message: 'Server is healthy',
-        timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'development',
-        port: PORT,
-        cors_enabled: true,
-        allowed_origins: uniqueAllowedOrigins,
-        features: {
-            attendance_regularization: true,
-            auto_close_sessions: true,
-            cron_jobs_enabled: true,
-            employee_ratings: true
-        }
-    });
-});
+app.get('/api/test', (req, res) => res.json({
+    success: true,
+    message: 'Backend is working!',
+    timestamp: new Date().toISOString(),
+    requestOrigin: req.headers.origin || 'none',
+}));
 
-app.get('/api/test', (req, res) => {
-    res.json({
-        success: true,
-        message: 'Backend is working!',
-        timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'development',
-        cors: {
-            origins: uniqueAllowedOrigins,
-            requestOrigin: req.headers.origin || 'No origin',
-            allowedHeaders: 'Content-Type, Authorization, X-Requested-With, Accept, Origin, employee-id, X-Employee-Id'
-        }
-    });
-});
-
-app.get('/api/test-db', async (req, res) => {
+app.get('/api/test-db', async (_req, res) => {
     try {
-        const { data, error } = await supabase
+        const { error } = await supabase
             .from('employees')
             .select('count', { count: 'exact', head: true });
-        
         if (error) throw error;
-        
-        res.json({
-            success: true,
-            message: 'Supabase connected successfully!',
-            database: 'Supabase',
-            timestamp: new Date().toISOString()
-        });
-    } catch (error) {
-        console.error('Database connection error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Supabase connection failed',
-            error: error.message
-        });
+        res.json({ success: true, message: 'Supabase connected' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Supabase connection failed', error: err.message });
     }
 });
 
-// ============== CORS DEBUG ENDPOINT ==============
-app.get('/api/cors-debug', (req, res) => {
-    res.json({
-        success: true,
-        headers: req.headers,
-        origin: req.headers.origin,
-        method: req.method,
-        allowed_origins: uniqueAllowedOrigins,
-        cors_headers: {
-            'Access-Control-Allow-Origin': res.getHeader('Access-Control-Allow-Origin'),
-            'Access-Control-Allow-Methods': res.getHeader('Access-Control-Allow-Methods'),
-            'Access-Control-Allow-Headers': res.getHeader('Access-Control-Allow-Headers')
-        }
-    });
-});
+app.get('/api/cors-debug', (req, res) => res.json({
+    success: true,
+    origin: req.headers.origin || 'none',
+    corsHeaders: {
+        'Access-Control-Allow-Origin':  res.getHeader('Access-Control-Allow-Origin'),
+        'Access-Control-Allow-Methods': res.getHeader('Access-Control-Allow-Methods'),
+        'Access-Control-Allow-Headers': res.getHeader('Access-Control-Allow-Headers'),
+    },
+    allowedOrigins: [...ALLOWED_ORIGINS],
+}));
 
-// ============== ROOT ENDPOINT ==============
-app.get('/', (req, res) => {
-    res.json({
-        name: 'Employee Management System API',
-        version: '2.0.0',
-        status: 'running',
-        timestamp: new Date().toISOString(),
-        features: {
-            attendance_regularization: true,
-            auto_close_missed_clockouts: true,
-            overtime_calculation: true,
-            comp_off_management: true,
-            employee_ratings: true
-        },
-        endpoints: {
-            health: '/api/health',
-            test: '/api/test',
-            testDb: '/api/test-db',
-            corsDebug: '/api/cors-debug',
-            auth: '/api/auth/*',
-            employees: '/api/employees/*',
-            leaves: '/api/leaves/*',
-            attendance: '/api/attendance/*',
-            salary: '/api/salary/*',
-            notifications: '/api/notifications/*',
-            adminUpdates: '/api/admin-updates/*',
-            employeeUpdates: '/api/employee-updates/*',
-            updateResponses: '/api/update-responses/*',
-            ratings: '/api/ratings/*'
-        }
-    });
-});
-
-// ============== CRON JOBS ==============
-console.log('\n' + '='.repeat(70));
-console.log('⏰ SETTING UP CRON JOBS');
-console.log('='.repeat(70));
-
-// Function to log cron job activities
-const logCronActivity = (type, message, duration = null) => {
-    const logDir = path.join(__dirname, 'logs');
-    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-    
-    const logEntry = {
-        timestamp: new Date().toISOString(),
-        type: type,
-        message: message,
-        duration: duration,
-        environment: process.env.NODE_ENV || 'development'
-    };
-    
-    fs.appendFileSync(
-        path.join(logDir, 'cron-jobs.log'),
-        JSON.stringify(logEntry) + '\n'
-    );
-};
-
-// Run auto-close check every hour (at minute 0)
-cron.schedule('0 * * * *', async () => {
-    console.log('\n🕐 Running scheduled auto-close check...');
-    const startTime = Date.now();
-    try {
-        const result = await attendanceController.autoCloseStaleSessions();
-        const duration = Date.now() - startTime;
-        console.log(`✅ Auto-close completed in ${duration}ms: ${result.closedCount} sessions closed`);
-        if (isProduction || result.closedCount > 0) {
-            logCronActivity('AUTO_CLOSE', `${result.closedCount} sessions closed`, duration);
-        }
-
-        // Also fix any orphaned records (clock_out NULL but session closed)
-        // const fixResult = await attendanceController.fixOrphanedAttendance(null, null);
-        // if (fixResult.fixed > 0) {
-        //     console.log(`🔧 Hourly fix: ${fixResult.fixed} orphaned records fixed`);
-        //     logCronActivity('ORPHAN_FIX', `${fixResult.fixed} records fixed`);
-        // }
-    } catch (error) {
-        console.error('❌ Auto-close cron error:', error);
-        logCronActivity('AUTO_CLOSE_ERROR', error.message);
-    }
-});
-
-// Run end-of-day absent marking at midnight (23:59)
-cron.schedule('59 23 * * *', async () => {
-    console.log('\n🌙 Running end-of-day absent marking...');
-    const startTime = Date.now();
-    try {
-        const result = await attendanceController.markAbsentAtDayEnd();
-        const duration = Date.now() - startTime;
-        console.log(`✅ Absent marking completed in ${duration}ms: ${result.message}`);
-        logCronActivity('END_OF_DAY', result.message, duration);
-    } catch (error) {
-        console.error('❌ End-of-day marking error:', error);
-        logCronActivity('END_OF_DAY_ERROR', error.message);
-    }
-});
-
-// Initialize absent employee check cron job
-scheduleAbsentCheck();
-
-// Run database cleanup weekly (Sunday at 2 AM)
-cron.schedule('0 2 * * 0', async () => {
-    console.log('\n🧹 Running weekly database cleanup...');
-    const startTime = Date.now();
-    try {
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        
-        const { count: sessionsCount, error: sessionError } = await supabase
-            .from('attendance_sessions')
-            .delete()
-            .eq('is_active', false)
-            .lt('clock_out_time', thirtyDaysAgo.toISOString())
-            .select('count', { count: 'exact', head: true });
-        
-        if (sessionError) throw sessionError;
-        
-        const ninetyDaysAgo = new Date();
-        ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-        
-        const { count: requestsCount, error: reqError } = await supabase
-            .from('regularization_requests')
-            .delete()
-            .in('status', ['approved', 'rejected'])
-            .lt('created_at', ninetyDaysAgo.toISOString())
-            .select('count', { count: 'exact', head: true });
-        
-        if (reqError) throw reqError;
-        
-        const duration = Date.now() - startTime;
-        console.log(`✅ Cleanup completed in ${duration}ms: ${sessionsCount || 0} sessions, ${requestsCount || 0} requests removed`);
-        logCronActivity('WEEKLY_CLEANUP', `${sessionsCount || 0} sessions, ${requestsCount || 0} requests removed`, duration);
-    } catch (error) {
-        console.error('❌ Weekly cleanup error:', error);
-        logCronActivity('WEEKLY_CLEANUP_ERROR', error.message);
-    }
-});
-
-console.log('✅ Cron jobs configured:');
-console.log('   - Hourly: Auto-close stale sessions');
-console.log('   - Daily at 23:59: End-of-day absent marking');
-console.log('   - Daily at 23:59: Mark absent employees as leave');
-console.log('   - Weekly on Sunday at 02:00: Database cleanup');
-
-// ============== ERROR HANDLING MIDDLEWARE ==============
+// ─── 404 handler ──────────────────────────────────────────────────────────────
 app.use((req, res) => {
-    res.status(404).json({
-        success: false,
-        message: `Route ${req.method} ${req.url} not found`,
-        availableEndpoints: [
-            '/api/health',
-            '/api/test',
-            '/api/test-db',
-            '/api/cors-debug',
-            '/api/auth/*',
-            '/api/employees/*',
-            '/api/leaves/*',
-            '/api/attendance/*',
-            '/api/salary/*',
-            '/api/notifications/*',
-            '/api/admin-updates/*',
-            '/api/employee-updates/*',
-            '/api/update-responses/*',
-            '/api/ratings/*'
-        ]
-    });
+    res.status(404).json({ success: false, message: `${req.method} ${req.path} not found` });
 });
 
-// Global error handler
+// ─── Global error handler ─────────────────────────────────────────────────────
+// Must have 4 parameters for Express to treat it as an error handler.
+// eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-    console.error('❌ Server error:', err.stack);
-    
-    if (err.message === 'Not allowed by CORS') {
-        return res.status(403).json({
-            success: false,
-            message: 'CORS error: Origin not allowed',
-            error: err.message,
-            origin: req.headers.origin,
-            allowedOrigins: uniqueAllowedOrigins
-        });
-    }
-    
-    if (err instanceof multer.MulterError) {
-        return res.status(400).json({
-            success: false,
-            message: 'File upload error',
-            error: err.message
-        });
-    }
-    
-    if (err.name === 'JsonWebTokenError') {
-        return res.status(401).json({
-            success: false,
-            message: 'Invalid token',
-            error: err.message
-        });
-    }
-    
-    if (err.name === 'TokenExpiredError') {
-        return res.status(401).json({
-            success: false,
-            message: 'Token expired',
-            error: err.message
-        });
-    }
-    
+    console.error('❌ Unhandled error:', err.message);
+
     if (isProduction) {
         const logDir = path.join(__dirname, 'logs');
         if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
         fs.appendFileSync(
             path.join(logDir, 'errors.log'),
-            `${new Date().toISOString()} - ${err.stack}\n`
+            `${new Date().toISOString()} — ${err.stack}\n`
         );
     }
-    
+
+    if (err instanceof multer.MulterError) {
+        return res.status(400).json({ success: false, message: 'File upload error', error: err.message });
+    }
+    if (err.name === 'JsonWebTokenError') {
+        return res.status(401).json({ success: false, message: 'Invalid token', code: 'INVALID_TOKEN' });
+    }
+    if (err.name === 'TokenExpiredError') {
+        return res.status(401).json({ success: false, message: 'Token expired', code: 'TOKEN_EXPIRED' });
+    }
+
     res.status(500).json({
         success: false,
         message: 'Internal server error',
-        error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        error: isProduction ? undefined : err.message,
     });
 });
 
-// ============== START SERVER ==============
+// ─── Cron jobs ────────────────────────────────────────────────────────────────
+const logCronActivity = (type, message, duration = null) => {
+    const logDir = path.join(__dirname, 'logs');
+    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+    fs.appendFileSync(
+        path.join(logDir, 'cron-jobs.log'),
+        JSON.stringify({ timestamp: new Date().toISOString(), type, message, duration }) + '\n'
+    );
+};
+
+// Hourly: auto-close stale sessions
+cron.schedule('0 * * * *', async () => {
+    const t = Date.now();
+    try {
+        const result = await attendanceController.autoCloseStaleSessions();
+        const ms = Date.now() - t;
+        console.log(`✅ Auto-close: ${result.closedCount} sessions closed in ${ms}ms`);
+        logCronActivity('AUTO_CLOSE', `${result.closedCount} sessions closed`, ms);
+    } catch (err) {
+        console.error('❌ Auto-close cron error:', err);
+        logCronActivity('AUTO_CLOSE_ERROR', err.message);
+    }
+});
+
+// Daily 23:59: mark absent
+cron.schedule('59 23 * * *', async () => {
+    const t = Date.now();
+    try {
+        const result = await attendanceController.markAbsentAtDayEnd();
+        const ms = Date.now() - t;
+        console.log(`✅ Absent marking done in ${ms}ms: ${result.message}`);
+        logCronActivity('END_OF_DAY', result.message, ms);
+    } catch (err) {
+        console.error('❌ End-of-day cron error:', err);
+        logCronActivity('END_OF_DAY_ERROR', err.message);
+    }
+});
+
+scheduleAbsentCheck();
+
+// Weekly Sunday 02:00: DB cleanup
+cron.schedule('0 2 * * 0', async () => {
+    const t = Date.now();
+    try {
+        const thirtyAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        const ninetyAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+
+        await supabase.from('attendance_sessions')
+            .delete().eq('is_active', false).lt('clock_out_time', thirtyAgo);
+
+        await supabase.from('regularization_requests')
+            .delete().in('status', ['approved', 'rejected']).lt('created_at', ninetyAgo);
+
+        const ms = Date.now() - t;
+        console.log(`✅ Weekly cleanup done in ${ms}ms`);
+        logCronActivity('WEEKLY_CLEANUP', 'done', ms);
+    } catch (err) {
+        console.error('❌ Weekly cleanup error:', err);
+        logCronActivity('WEEKLY_CLEANUP_ERROR', err.message);
+    }
+});
+
+console.log('⏰ Cron jobs scheduled');
+
+// ─── Start server ─────────────────────────────────────────────────────────────
 app.listen(PORT, '0.0.0.0', () => {
-    console.log('\n' + '='.repeat(70));
-    console.log(`🚀 SERVER STARTED SUCCESSFULLY`);
     console.log('='.repeat(70));
-    console.log(`📡 Server running on: http://localhost:${PORT}`);
-    console.log(`🌍 Environment: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
-    console.log(`🔗 Public URL: ${process.env.RENDER_EXTERNAL_URL || 'Not set'}`);
+    console.log('🚀 SERVER STARTED');
+    console.log(`   http://localhost:${PORT}`);
+    console.log(`   ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
+    console.log(`   Public URL: ${process.env.RENDER_EXTERNAL_URL || 'not set'}`);
     console.log('='.repeat(70));
 
-    // ✅ Auto-fix orphaned attendance records on every server start
+    // Startup fix: repair orphaned attendance records and stale sessions
     setTimeout(async () => {
         try {
-            console.log('\n🔧 Running startup fix for orphaned attendance records...');
-            const result = await attendanceController.fixOrphanedAttendance(null, null);
-            console.log(`✅ Startup fix done: ${result.fixed} records fixed, ${result.skipped} skipped`);
+            console.log('🔧 Running startup attendance fixes...');
+            const fix = await attendanceController.fixOrphanedAttendance(null, null);
+            console.log(`✅ Orphan fix: ${fix.fixed} fixed, ${fix.skipped} skipped`);
 
-            // ✅ NEW: Fix all stale active sessions (session is_active=true but attendance already clocked out)
-            console.log('🔧 Fixing stale active sessions for all employees...');
             const { data: staleSessions } = await supabase
                 .from('attendance_sessions')
-                .select('session_id, employee_id, clock_in_time')
+                .select('session_id, employee_id')
                 .eq('is_active', true);
 
             let staleFixed = 0;
-            for (const session of (staleSessions || [])) {
-                // Case 1: Attendance already clocked out but session still active
-                const { data: attRec } = await supabase
+            for (const s of (staleSessions || [])) {
+                const { data: clocked } = await supabase
                     .from('attendance')
-                    .select('id, clock_out, clock_out_ist')
-                    .eq('employee_id', session.employee_id)
-                    .eq('session_id', session.session_id)
+                    .select('id, clock_out')
+                    .eq('employee_id', s.employee_id)
+                    .eq('session_id', s.session_id)
                     .not('clock_out', 'is', null)
                     .maybeSingle();
 
-                if (attRec) {
-                    await supabase
-                        .from('attendance_sessions')
-                        .update({ is_active: false, clock_out_time: attRec.clock_out })
-                        .eq('session_id', session.session_id)
-                        .eq('employee_id', session.employee_id);
+                if (clocked) {
+                    await supabase.from('attendance_sessions')
+                        .update({ is_active: false, clock_out_time: clocked.clock_out })
+                        .eq('session_id', s.session_id)
+                        .eq('employee_id', s.employee_id);
                     staleFixed++;
-                    console.log(`✅ Fixed stale session (clocked out) for ${session.employee_id}: ${session.session_id}`);
                     continue;
                 }
 
-                // Case 2: No attendance record at all for this session (orphan session)
-                const { data: anyAttRec } = await supabase
+                const { data: any } = await supabase
                     .from('attendance')
                     .select('id')
-                    .eq('employee_id', session.employee_id)
-                    .eq('session_id', session.session_id)
+                    .eq('employee_id', s.employee_id)
+                    .eq('session_id', s.session_id)
                     .maybeSingle();
 
-                if (!anyAttRec) {
-                    await supabase
-                        .from('attendance_sessions')
+                if (!any) {
+                    await supabase.from('attendance_sessions')
                         .update({ is_active: false, clock_out_time: new Date().toISOString() })
-                        .eq('session_id', session.session_id)
-                        .eq('employee_id', session.employee_id);
+                        .eq('session_id', s.session_id)
+                        .eq('employee_id', s.employee_id);
                     staleFixed++;
-                    console.log(`✅ Fixed orphan session (no attendance) for ${session.employee_id}: ${session.session_id}`);
                 }
             }
-            console.log(`✅ Stale session fix done: ${staleFixed} sessions fixed`);
+            console.log(`✅ Stale session fix: ${staleFixed} fixed`);
         } catch (err) {
             console.error('❌ Startup fix error:', err.message);
         }
     }, 3000);
 });
 
-// Handle graceful shutdown
-const gracefulShutdown = async () => {
-    console.log('\n🛑 Received shutdown signal, closing server gracefully...');
-    
-    if (supabase && supabase.supabaseClient) {
-        console.log('📡 Closing database connections...');
-        console.log('✅ Database connections closed');
-    }
-    
+// ─── Graceful shutdown ────────────────────────────────────────────────────────
+const shutdown = () => {
+    console.log('\n🛑 Shutting down gracefully...');
     const logDir = path.join(__dirname, 'logs');
     if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-    fs.appendFileSync(
-        path.join(logDir, 'server.log'),
-        `${new Date().toISOString()} - Server shutdown\n`
-    );
-    
-    console.log('✅ Server shutdown complete');
+    fs.appendFileSync(path.join(logDir, 'server.log'), `${new Date().toISOString()} - shutdown\n`);
     process.exit(0);
 };
 
-process.on('SIGTERM', gracefulShutdown);
-process.on('SIGINT', gracefulShutdown);
+process.on('SIGTERM', shutdown);
+process.on('SIGINT',  shutdown);
 
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-    console.error('❌ Uncaught Exception:', error);
-    console.error('Stack:', error.stack);
-    
+process.on('uncaughtException', (err) => {
+    console.error('❌ Uncaught exception:', err.stack);
     if (isProduction) {
         const logDir = path.join(__dirname, 'logs');
         if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-        fs.appendFileSync(
-            path.join(logDir, 'errors.log'),
-            `${new Date().toISOString()} - Uncaught Exception: ${error.stack}\n`
-        );
-    }
-    
-    if (process.env.NODE_ENV === 'production') {
+        fs.appendFileSync(path.join(logDir, 'errors.log'), `${new Date().toISOString()} - ${err.stack}\n`);
         process.exit(1);
     }
 });
 
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-    
+process.on('unhandledRejection', (reason) => {
+    console.error('❌ Unhandled rejection:', reason);
     if (isProduction) {
         const logDir = path.join(__dirname, 'logs');
         if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-        fs.appendFileSync(
-            path.join(logDir, 'errors.log'),
-            `${new Date().toISOString()} - Unhandled Rejection: ${reason}\n`
-        );
-    }
-    
-    if (process.env.NODE_ENV === 'production') {
+        fs.appendFileSync(path.join(logDir, 'errors.log'), `${new Date().toISOString()} - Rejection: ${reason}\n`);
         process.exit(1);
-    }
-});
-
-// In server.js - Add temporary debug route
-app.get('/api/debug/regularization-ids', authenticateToken, requireAdmin, async (req, res) => {
-    try {
-        const { data } = await supabase
-            .from('regularization_requests')
-            .select('id, status')
-            .limit(10);
-        
-        res.json({
-            success: true,
-            ids: data.map(d => ({
-                id: d.id,
-                type: typeof d.id,
-                string_version: String(d.id)
-            }))
-        });
-    } catch (error) {
-        res.json({ error: error.message });
-    }
-});
-
-// Add this before your routes
-app.get('/api/debug/routes', (req, res) => {
-    const routes = [];
-    
-    // Function to extract routes from app
-    function printRoutes(stack, basePath = '') {
-        stack.forEach(layer => {
-            if (layer.route) {
-                const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
-                routes.push({
-                    path: basePath + layer.route.path,
-                    methods: methods
-                });
-            } else if (layer.name === 'router' && layer.handle.stack) {
-                printRoutes(layer.handle.stack, basePath + (layer.regexp.source.replace(/\\/g, '').replace(/\^|\?/g, '').replace(/\//g, '')));
-            }
-        });
-    }
-    
-    printRoutes(app._router.stack);
-    res.json({
-        success: true,
-        routes: routes.filter(r => r.path.includes('regularization') || r.path.includes('ratings'))
-    });
-});
-
-// Add a test endpoint to check database connectivity
-app.get('/api/test-supabase', async (req, res) => {
-    try {
-        const startTime = Date.now();
-        const { data, error } = await supabase
-            .from('regularization_requests')
-            .select('count', { count: 'exact', head: true });
-        
-        const duration = Date.now() - startTime;
-        
-        if (error) throw error;
-        
-        res.json({
-            success: true,
-            message: 'Supabase connected',
-            response_time_ms: duration,
-            count: data
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
     }
 });
 
