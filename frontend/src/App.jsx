@@ -115,12 +115,7 @@ function AppContent() {
 
   // For all other pages, render with sidebar and navbar
   return (
-    <div style={{
-      display: 'flex',
-      height: '100vh',
-      overflow: 'hidden',
-      position: 'relative'
-    }}>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', position: 'relative' }}>
       {/* Sidebar */}
       {user && <Sidebar />}
 
@@ -132,7 +127,7 @@ function AppContent() {
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
-          backgroundColor: 'var(--keka-body-bg)',
+          backgroundColor: 'var(--body-bg)',
           transition: 'margin-left 0.25s ease'
         }}
       >
@@ -143,8 +138,8 @@ function AppContent() {
         <div style={{
           flex: 1,
           overflowY: 'auto',
-          padding: '24px',
-          backgroundColor: 'var(--keka-body-bg)'
+          padding: '28px',
+          backgroundColor: 'var(--body-bg)'
         }}>
           <Routes>
             {/* Dashboard Route - Conditional based on role */}

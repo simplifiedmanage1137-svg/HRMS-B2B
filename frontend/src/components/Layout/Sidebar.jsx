@@ -1,30 +1,29 @@
-// src/components/Layout/Sidebar.jsx
 import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
   FaTachometerAlt, FaUsers, FaCalendarAlt, FaMoneyBill,
   FaUserCircle, FaSignOutAlt, FaFingerprint, FaClock,
-  FaBars, FaChevronLeft, FaChevronRight, FaBell,
-  FaPaperPlane, FaEdit, FaCheckCircle, FaUserTie,
-  FaBullhorn, FaStar
+  FaBell, FaPaperPlane, FaEdit, FaUserTie,
+  FaBullhorn, FaStar, FaChevronRight
 } from 'react-icons/fa';
 import axios from '../../config/axios';
 import API_ENDPOINTS from '../../config/api';
 import { Badge } from 'react-bootstrap';
 
-const SIDEBAR_OPEN = '260px';
+const SIDEBAR_OPEN   = '260px';
 const SIDEBAR_CLOSED = '72px';
 
 const Sidebar = () => {
   const { user, logout } = useAuth();
   const location = useLocation();
-  const [employeeName, setEmployeeName] = useState('');
+  const [employeeName, setEmployeeName]               = useState('');
   const [employeeDesignation, setEmployeeDesignation] = useState('');
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen]     = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
 
+  /* ── data fetching ── */
   useEffect(() => {
     if (user) {
       fetchEmployeeName();
@@ -34,9 +33,9 @@ const Sidebar = () => {
 
   useEffect(() => {
     if (user?.role === 'admin') {
-      const handler = () => fetchPendingCount();
-      window.addEventListener('updateApprovalsChanged', handler);
-      return () => window.removeEventListener('updateApprovalsChanged', handler);
+      const h = () => fetchPendingCount();
+      window.addEventListener('updateApprovalsChanged', h);
+      return () => window.removeEventListener('updateApprovalsChanged', h);
     }
   }, [user]);
 
@@ -47,23 +46,24 @@ const Sidebar = () => {
     }
   }, [location.pathname]);
 
+  /* ── responsive ── */
   useEffect(() => {
-    const handleResize = () => {
+    const onResize = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
-      if (!mobile) setIsOpen(true);
-      else setIsOpen(false);
+      if (mobile) setIsOpen(false);
     };
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, []);
 
+  /* ── main content margin ── */
   useEffect(() => {
-    const mainContent = document.getElementById('main-content-wrapper');
-    if (mainContent) {
-      mainContent.style.marginLeft = isMobile ? '0' : (isOpen ? SIDEBAR_OPEN : SIDEBAR_CLOSED);
-      mainContent.style.transition = 'margin-left 0.25s ease';
+    const el = document.getElementById('main-content-wrapper');
+    if (el) {
+      el.style.marginLeft = isMobile ? '0' : (isOpen ? SIDEBAR_OPEN : SIDEBAR_CLOSED);
+      el.style.transition  = 'margin-left 0.25s ease';
     }
   }, [isOpen, isMobile]);
 
@@ -98,64 +98,21 @@ const Sidebar = () => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
-  // ✅ FIXED: NavItem with proper horizontal alignment
+  /* ── NavItem ── */
   const NavItem = ({ to, icon, label, badge, onClick, end = false }) => (
     <NavLink
       to={to}
       end={end}
       onClick={() => { if (onClick) onClick(); closeSidebar(); }}
-      className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-      style={({ isActive }) => ({
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: isOpen ? 'flex-start' : 'center',
-        gap: '12px',
-        padding: isOpen ? '10px 12px' : '10px',
-        margin: '2px 0',
-        borderRadius: '8px',
-        backgroundColor: isActive ? 'var(--keka-primary-light, #e8f0fe)' : 'transparent',
-        color: isActive ? 'var(--keka-primary, #0d6efd)' : 'var(--keka-sidebar-text, #5a626e)',
-        fontWeight: isActive ? '600' : '400',
-        fontSize: '13px',
-        textDecoration: 'none',
-        transition: 'all 0.2s ease',
-        position: 'relative',
-        cursor: 'pointer',
-        whiteSpace: 'nowrap',
-      })}
+      className={({ isActive }) => `hrms-nav-item${isActive ? ' active' : ''}`}
       title={!isOpen ? label : ''}
     >
-      <span style={{ 
-        flexShrink: 0, 
-        fontSize: '16px', 
-        width: '20px', 
-        display: 'inline-flex', 
-        alignItems: 'center', 
-        justifyContent: 'center' 
-      }}>
-        {icon}
-      </span>
+      <span className="hrms-nav-item__icon">{icon}</span>
       {isOpen && (
         <>
-          <span style={{ 
-            flex: 1, 
-            overflow: 'hidden', 
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap' 
-          }}>
-            {label}
-          </span>
+          <span className="hrms-nav-item__label">{label}</span>
           {badge > 0 && (
-            <Badge 
-              bg="danger" 
-              pill 
-              style={{ 
-                fontSize: '10px', 
-                padding: '2px 6px',
-                flexShrink: 0,
-                marginLeft: '4px'
-              }}
-            >
+            <Badge bg="danger" pill style={{ fontSize: '10px', padding: '2px 6px', flexShrink: 0 }}>
               {badge}
             </Badge>
           )}
@@ -166,12 +123,8 @@ const Sidebar = () => {
           bg="danger"
           pill
           style={{
-            position: 'absolute',
-            top: '-2px',
-            right: '-2px',
-            fontSize: '9px',
-            padding: '2px 5px',
-            minWidth: '18px'
+            position: 'absolute', top: '-2px', right: '-2px',
+            fontSize: '9px', padding: '2px 5px', minWidth: '16px'
           }}
         >
           {badge}
@@ -180,170 +133,96 @@ const Sidebar = () => {
     </NavLink>
   );
 
-  const SectionLabel = ({ label }) => (
-    isOpen ? (
-      <div style={{
-        fontSize: '10px',
-        fontWeight: '600',
-        color: 'var(--keka-text-muted, #8a94a6)',
-        textTransform: 'uppercase',
-        letterSpacing: '0.5px',
-        padding: '16px 12px 6px',
-        marginTop: '4px'
-      }}>
-        {label}
-      </div>
-    ) : (
-      <div style={{ height: '20px' }} />
-    )
+  /* ── Section label ── */
+  const Section = ({ label }) => (
+    isOpen
+      ? <div className="hrms-sidebar__section">{label}</div>
+      : <div style={{ height: '18px' }} />
   );
+
+  const sidebarWidth = isMobile
+    ? (isOpen ? SIDEBAR_OPEN : '-280px')
+    : (isOpen ? SIDEBAR_OPEN : SIDEBAR_CLOSED);
 
   return (
     <>
-      {/* Mobile Menu Button */}
+      {/* Mobile hamburger */}
       {isMobile && !isOpen && (
         <button
           onClick={() => setIsOpen(true)}
           style={{
-            position: 'fixed',
-            top: '12px',
-            left: '16px',
-            zIndex: 1000,
-            width: '40px',
-            height: '40px',
-            borderRadius: '8px',
-            background: 'var(--keka-primary, #0d6efd)',
-            color: 'white',
-            border: 'none',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+            position: 'fixed', top: '12px', left: '16px', zIndex: 400,
+            width: '38px', height: '38px', borderRadius: '8px',
+            background: 'var(--primary)', color: 'white', border: 'none',
+            cursor: 'pointer', display: 'flex', alignItems: 'center',
+            justifyContent: 'center', boxShadow: 'var(--shadow-md)'
           }}
         >
-          <FaBars size={18} />
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M1 2.5h14M1 8h14M1 13.5h14" stroke="white" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+          </svg>
         </button>
       )}
 
-      {/* Desktop Toggle Button - ✅ FIXED POSITION */}
+      {/* Desktop hover zone — edge of closed sidebar */}
       {!isMobile && (
-        <button
-          onClick={() => setIsOpen(!isOpen)}
-          style={{
-            position: 'fixed',
-            top: '50%',
-            transform: 'translateY(-50%)',
-            left: isOpen ? `calc(${SIDEBAR_OPEN} - 10px)` : `calc(${SIDEBAR_CLOSED} - 10px)`,
-            zIndex: 1001,
-            width: '20px',
-            height: '40px',
-            borderRadius: '0 8px 8px 0',
-            background: 'white',
-            border: '1px solid var(--keka-border, #e9ecef)',
-            borderLeft: 'none',
-            color: 'var(--keka-text-secondary, #6c757d)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '2px 0 5px rgba(0,0,0,0.05)',
-            padding: 0,
-            transition: 'left 0.25s ease'
-          }}
-        >
-          {isOpen ? <FaChevronLeft size={10} /> : <FaChevronRight size={10} />}
-        </button>
-      )}
-
-      {/* Mobile Overlay */}
-      {isMobile && isOpen && (
         <div
-          onClick={closeSidebar}
+          onMouseEnter={() => setIsOpen(true)}
+          onMouseLeave={() => setIsOpen(false)}
           style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.4)',
-            zIndex: 999
+            position: 'fixed', top: 0,
+            left: isOpen ? `calc(${SIDEBAR_OPEN} - 6px)` : `calc(${SIDEBAR_CLOSED} - 6px)`,
+            width: '12px', height: '100vh',
+            zIndex: 301, cursor: 'ew-resize',
+            transition: 'left 0.25s ease'
           }}
         />
       )}
 
-      {/* Sidebar */}
-      <div
-        className="sidebar"
+      {/* Mobile overlay */}
+      {isMobile && isOpen && (
+        <div className="hrms-overlay" onClick={closeSidebar} />
+      )}
+
+      {/* ── SIDEBAR ── */}
+      <aside
+        className={`hrms-sidebar${!isOpen ? ' hrms-sidebar--collapsed' : ''}`}
         style={{
-          position: 'fixed',
-          top: 0,
           left: isMobile ? (isOpen ? '0' : '-280px') : '0',
           width: isMobile ? SIDEBAR_OPEN : (isOpen ? SIDEBAR_OPEN : SIDEBAR_CLOSED),
-          height: '100vh',
-          backgroundColor: 'var(--keka-sidebar-bg, #fff)',
-          borderRight: '1px solid var(--keka-border, #e9ecef)',
-          zIndex: 1000,
-          transition: 'width 0.25s ease, left 0.25s ease',
-          display: 'flex',
-          flexDirection: 'column',
-          boxShadow: isMobile && isOpen ? '0 0 15px rgba(0,0,0,0.1)' : 'none'
         }}
+        onMouseEnter={() => { if (!isMobile) setIsOpen(true); }}
+        onMouseLeave={() => { if (!isMobile) setIsOpen(false); }}
       >
-        {/* Logo Area */}
-        <div style={{
-          height: '60px',
-          display: 'flex',
-          alignItems: 'center',
-          padding: isOpen ? '0 16px' : '0',
-          justifyContent: isOpen ? 'flex-start' : 'center',
-          borderBottom: '1px solid var(--keka-border, #e9ecef)',
-          flexShrink: 0
-        }}>
-          <div style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '10px',
-            background: 'linear-gradient(135deg, #0d6efd, #0b5ed7)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'white',
-            fontWeight: '700',
-            fontSize: '16px',
-            flexShrink: 0
-          }}>
-            E
-          </div>
+
+        {/* ── Logo ── */}
+        <div className="hrms-sidebar__logo">
+          <div className="hrms-sidebar__logo-mark">E</div>
           {isOpen && (
-            <div style={{ marginLeft: '12px' }}>
-              <div style={{ fontWeight: '700', fontSize: '16px', color: 'var(--keka-text-primary, #1a2c3e)', lineHeight: 1.2 }}>
-                EMS Portal
-              </div>
-              <div style={{ fontSize: '10px', color: 'var(--keka-text-muted, #8a94a6)' }}>
+            <div className="hrms-sidebar__logo-text">
+              <div className="hrms-sidebar__logo-title">EMS Portal</div>
+              <div className="hrms-sidebar__logo-sub">
                 {user?.role === 'admin' ? 'Admin Dashboard' : 'Employee Dashboard'}
               </div>
             </div>
           )}
         </div>
 
-        {/* Navigation - Scrollable */}
-        <div style={{
-          flex: 1,
-          overflowY: 'auto',
-          overflowX: 'hidden',
-          padding: isOpen ? '12px 12px' : '12px 8px',
-          scrollbarWidth: 'thin'
-        }}>
-          <SectionLabel label="Main" />
+        {/* ── Navigation ── */}
+        <nav className="hrms-sidebar__nav">
+
+          <Section label="Overview" />
           <NavItem to="/" end icon={<FaTachometerAlt />} label="Dashboard" />
 
           {user?.role === 'admin' ? (
             <>
-              <SectionLabel label="Management" />
-              <NavItem to="/admin/employees" icon={<FaUsers />} label="Employees" />
-              <NavItem to="/admin/leave-requests" icon={<FaCalendarAlt />} label="Leave Requests" />
-              <NavItem to="/admin/attendance/reports" icon={<FaClock />} label="Attendance" />
-              <NavItem to="/admin/ratings" icon={<FaStar />} label="Employee Ratings" />
+              <Section label="Management" />
+              <NavItem to="/admin/employees"         icon={<FaUsers />}       label="Employees" />
+              <NavItem to="/admin/leave-requests"    icon={<FaCalendarAlt />} label="Leave Requests" />
+              <NavItem to="/admin/attendance/reports" icon={<FaClock />}      label="Attendance" />
+              <NavItem to="/admin/ratings"           icon={<FaStar />}        label="Employee Ratings" />
 
-              <SectionLabel label="Admin" />
+              <Section label="Admin Tools" />
               <NavItem to="/admin/send-update-request" icon={<FaPaperPlane />} label="Send Update Request" />
               <NavItem
                 to="/admin/update-approvals"
@@ -356,144 +235,60 @@ const Sidebar = () => {
             </>
           ) : (
             <>
-              <SectionLabel label="My Space" />
-              <NavItem to="/profile" icon={<FaUserCircle />} label="My Profile" />
-              <NavItem to="/attendance" icon={<FaFingerprint />} label="Daily Attendance" />
-              <NavItem to="/apply-leave" icon={<FaCalendarAlt />} label="Apply Leave" />
-              <NavItem to="/salary-slip" icon={<FaMoneyBill />} label="Salary Slip" />
-              <NavItem to="/employee/update-requests" icon={<FaEdit />} label="Update Requests" />
+              <Section label="My Space" />
+              <NavItem to="/profile"                 icon={<FaUserCircle />}  label="My Profile" />
+              <NavItem to="/attendance"              icon={<FaFingerprint />} label="Daily Attendance" />
+              <NavItem to="/apply-leave"             icon={<FaCalendarAlt />} label="Apply Leave" />
+              <NavItem to="/salary-slip"             icon={<FaMoneyBill />}   label="Salary Slip" />
+              <NavItem to="/employee/update-requests" icon={<FaEdit />}       label="Update Requests" />
 
               {(() => {
                 const d = (employeeDesignation || '').toLowerCase();
-                const isTL = d.includes('team leader') || d.includes('team manager') ||
-                  d.includes('tl') || d.includes('lead') || d.includes('manager') ||
-                  d.includes('head') || d.includes('supervisor');
+                const isTL =
+                  d.includes('team leader') || d.includes('team manager') ||
+                  d.includes('tl') || d.includes('lead') ||
+                  d.includes('manager') || d.includes('head') || d.includes('supervisor');
                 return isTL ? (
                   <>
-                    <SectionLabel label="Team" />
+                    <Section label="Team" />
                     <NavItem to="/manager/panel" icon={<FaUserTie />} label="My Team" />
                   </>
                 ) : null;
               })()}
             </>
           )}
-        </div>
+        </nav>
 
-        {/* User Footer */}
-        <div style={{
-          padding: isOpen ? '16px' : '12px',
-          borderTop: '1px solid var(--keka-border, #e9ecef)',
-          flexShrink: 0,
-          backgroundColor: 'var(--keka-sidebar-bg, #fff)'
-        }}>
+        {/* ── Footer ── */}
+        <div className="hrms-sidebar__footer">
           {isOpen ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div style={{
-                width: '38px',
-                height: '38px',
-                borderRadius: '50%',
-                background: 'linear-gradient(135deg, #0d6efd, #0b5ed7)',
-                color: 'white',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '14px',
-                fontWeight: '600',
-                flexShrink: 0
-              }}>
+            <div className="hrms-sidebar__user">
+              <div className="hrms-sidebar__user-avatar">
                 {getInitials(employeeName)}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{
-                  fontSize: '13px',
-                  fontWeight: '600',
-                  color: 'var(--keka-text-primary, #1a2c3e)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap'
-                }}>
-                  {employeeName}
-                </div>
-                <div style={{
-                  fontSize: '10px',
-                  color: 'var(--keka-text-muted, #8a94a6)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap'
-                }}>
+                <div className="hrms-sidebar__user-name">{employeeName}</div>
+                <div className="hrms-sidebar__user-role">
                   {user?.role === 'admin' ? 'Administrator' : `ID: ${user?.employeeId}`}
                 </div>
               </div>
-              <button
-                onClick={logout}
-                title="Logout"
-                style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '8px',
-                  background: '#f8f9fa',
-                  border: '1px solid #e9ecef',
-                  color: '#dc3545',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  transition: 'all 0.2s ease'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#dc3545';
-                  e.currentTarget.style.color = 'white';
-                  e.currentTarget.style.borderColor = '#dc3545';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#f8f9fa';
-                  e.currentTarget.style.color = '#dc3545';
-                  e.currentTarget.style.borderColor = '#e9ecef';
-                }}
-              >
-                <FaSignOutAlt size={14} />
+              <button className="hrms-logout-btn" onClick={logout} title="Logout">
+                <FaSignOutAlt size={12} />
               </button>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
-              <div style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '50%',
-                background: 'linear-gradient(135deg, #0d6efd, #0b5ed7)',
-                color: 'white',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '14px',
-                fontWeight: '600'
-              }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '4px 0' }}>
+              <div className="hrms-sidebar__user-avatar" style={{ width: '32px', height: '32px', fontSize: '12px' }}>
                 {getInitials(employeeName)}
               </div>
-              <button
-                onClick={logout}
-                title="Logout"
-                style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '8px',
-                  background: '#f8f9fa',
-                  border: '1px solid #e9ecef',
-                  color: '#dc3545',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  transition: 'all 0.2s ease'
-                }}
-              >
-                <FaSignOutAlt size={14} />
+              <button className="hrms-logout-btn" onClick={logout} title="Logout">
+                <FaSignOutAlt size={11} />
               </button>
             </div>
           )}
         </div>
-      </div>
+
+      </aside>
     </>
   );
 };

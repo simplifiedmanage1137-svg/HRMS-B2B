@@ -225,6 +225,13 @@ export const API_ENDPOINTS = {
     RATINGS_ALL: `${API_BASE_URL}/api/ratings/all`,
     RATINGS_ADMIN_RATE: `${API_BASE_URL}/api/ratings/admin-rate`,
 
+    // Notice Board (global navbar)
+    NOTICE_BOARD_ACTIVE: `${API_BASE_URL}/api/notice-board/active`,
+    NOTICE_BOARD_LIST:   `${API_BASE_URL}/api/notice-board`,
+    NOTICE_BOARD_CREATE: `${API_BASE_URL}/api/notice-board`,
+    NOTICE_BOARD_UPDATE: (id) => `${API_BASE_URL}/api/notice-board/${id}`,
+    NOTICE_BOARD_DELETE: (id) => `${API_BASE_URL}/api/notice-board/${id}`,
+
     // Public login feed (no auth)
     LOGIN_FEED: `${API_BASE_URL}/api/public/login-feed`,
     OFFICE_EVENTS_CREATE: `${API_BASE_URL}/api/public/office-events`,
