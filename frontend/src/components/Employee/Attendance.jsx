@@ -2188,22 +2188,35 @@ const Attendance = () => {
                     <Table hover size="sm" className="mb-0">
                       <thead className="bg-light sticky-top" style={{ top: 0, zIndex: 10 }}>
                         <tr>
-                          <th style={{ width: '15%' }} className="small">Date</th>
-                          <th style={{ width: '10%' }} className="small d-none d-sm-table-cell">Day</th>
-                          <th style={{ width: '20%' }} className="small">Clock In</th>
-                          <th style={{ width: '20%' }} className="small">Clock Out</th>
-                          <th style={{ width: '15%' }} className="small">Hours</th>
-                          <th style={{ width: '20%' }} className="small">Status</th>
+                          <th style={{ width: '14%', whiteSpace: 'nowrap' }} className="small">Date</th>
+                          <th style={{ width: '9%', whiteSpace: 'nowrap' }} className="small d-none d-sm-table-cell">Day</th>
+                          <th style={{ width: '18%', whiteSpace: 'nowrap' }} className="small">Clock In</th>
+                          <th style={{ width: '16%', whiteSpace: 'nowrap' }} className="small">Clock Out</th>
+                          <th style={{ width: '14%', whiteSpace: 'nowrap' }} className="small">Hours</th>
+                          <th style={{ width: '34%' }} className="small">Status</th>
                         </tr>
                       </thead>
                       <tbody>
                         {attendanceHistory.map((record, index) => {
-                          const hasLate = record.late_minutes > 0;
                           const today = new Date().toISOString().split('T')[0];
                           const isToday = record.attendance_date === today;
 
+                          const totalHours = parseFloat(record.total_hours) || 0;
+                          let rowClass = '';
+                          if (record.isWeeklyOff) {
+                            rowClass = 'bg-light';
+                          } else if (record.isToday) {
+                            rowClass = 'table-primary';
+                          } else if (record.is_regularized) {
+                            rowClass = 'table-info';
+                          } else if (totalHours >= 10) {
+                            rowClass = 'table-success';
+                          } else if (totalHours > 0 && totalHours < 9) {
+                            rowClass = 'table-danger';
+                          }
+
                           return (
-                            <tr key={index} className={`${record.isWeeklyOff ? 'bg-light' : ''} ${record.isToday ? 'table-primary fw-bold' : ''} ${hasLate ? 'table-danger' : ''} ${record.is_regularized ? 'table-info' : ''}`}>
+                            <tr key={index} className={`${rowClass} ${record.isToday ? 'fw-bold' : ''}`}>
                               <td className="small">
                                 <div>
                                   <span className="fw-semibold">{formatShortDate(record.date)}</span>
@@ -2270,9 +2283,7 @@ const Attendance = () => {
                                 )}
                               </td>
                               <td className="small">
-                                <div className="text-truncate" style={{ maxWidth: '120px' }}>
-                                  {getAttendanceStatusBadge(record)}
-                                </div>
+                                {getAttendanceStatusBadge(record)}
                               </td>
                             </tr>
                           );
