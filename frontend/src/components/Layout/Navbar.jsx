@@ -287,29 +287,30 @@ const Navbar = () => {
                 onMouseLeave={() => setNoticePaused(false)}
               >
                 {/*
-                  Two identical halves inside an inline-flex wrapper.
-                  Each half = message repeated 5× with a separator.
-                  Animation moves -50% of the wrapper's own width = one half,
-                  so the second half seamlessly takes the first half's position.
+                  Seamless ticker: two identical halves side-by-side.
+                  Animation shifts -50% (one half) so half-2 slides into half-1 with no gap.
+                  20 reps per half = multiple copies always visible simultaneously.
+                  90s / 20 reps = ~4.5s per sentence regardless of message length.
                 */}
                 <div style={{
                   display: 'inline-flex',
+                  willChange: 'transform',
                   animation: noticePaused ? 'none'
                     : activeNotice.direction === 'left_to_right'
-                      ? 'noticeScrollLTR 30s linear infinite'
-                      : 'noticeScrollRTL 30s linear infinite',
+                      ? 'noticeScrollLTR 90s linear infinite'
+                      : 'noticeScrollRTL 90s linear infinite',
                 }}>
                   {[0, 1].map(half => (
                     <span key={half} style={{
                       display: 'inline-block',
                       whiteSpace: 'nowrap',
-                      paddingRight: '4em',
+                      paddingRight: '3em',
                       fontSize: '19px',
                       color: noticeColor,
                       fontStyle: noticeItalic ? 'italic' : 'normal',
                       fontWeight: noticeBold ? '700' : '500',
                     }}>
-                      {Array(5).fill(activeNotice.message).join('    ·    ')}
+                      {Array(20).fill(activeNotice.message).join('  ·  ')}
                     </span>
                   ))}
                 </div>
