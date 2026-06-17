@@ -52,6 +52,7 @@ export const API_ENDPOINTS = {
   EMPLOYEE_DOCUMENT_DELETE: (employeeId, documentType) =>
     ep(`/api/employees/${employeeId}/documents/${documentType}`),
   EMPLOYEE_DELETE: (id) => ep(`/api/employees/${id}`),
+  EMPLOYEE_UPDATE_ROLE: (id) => ep(`/api/employees/${id}/role`),
   TODAY_EVENTS:    ep('/api/employees/today-events'),
   EMPLOYEE_STATS:  ep('/api/employees/stats/summary'),
 
@@ -174,8 +175,13 @@ export const API_ENDPOINTS = {
   SHIFTS:       ep('/api/shifts'),
   SHIFT_BY_ID:  (id) => ep(`/api/shifts/${id}`),
 
-  // Contact
-  CONTACT: ep('/api/contact'),
+  // Teams
+  TEAMS:                  ep('/api/teams'),
+  TEAM_BY_ID:             (id) => ep(`/api/teams/${id}`),
+  TEAMS_MANAGERS_LIST:    ep('/api/teams/managers/list'),
+  TEAMS_EMPLOYEES_UNASSIGNED: ep('/api/teams/employees/unassigned'),
+  TEAMS_HIERARCHY:        ep('/api/teams/hierarchy'),
+  TEAMS_MANAGER_SETTINGS: (id) => ep(`/api/teams/manager-settings/${id}`),
 
   // Geofence
   GEOFENCE_LIST:   ep('/api/geofence/list'),
