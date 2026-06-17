@@ -1,7 +1,8 @@
 // hooks/useEmployeeData.js
 import { useState, useEffect } from 'react';
 import { useNotification } from '../context/NotificationContext';
-import axios from 'axios';
+import axiosInstance from '../config/axios';
+import API_ENDPOINTS from '../config/api';
 
 export const useEmployeeData = (employeeId) => {
   const [employee, setEmployee] = useState(null);
@@ -11,14 +12,14 @@ export const useEmployeeData = (employeeId) => {
 
   const fetchEmployee = async () => {
     if (!employeeId) return;
-    
+
     try {
       setLoading(true);
-      const response = await axios.get(`http://localhost:5173//api/employees/profile/${employeeId}`);
+      const response = await axiosInstance.get(API_ENDPOINTS.EMPLOYEE_PROFILE(employeeId));
       setEmployee(response.data);
       setError('');
-    } catch (error) {
-      console.error('Error fetching employee:', error);
+    } catch (err) {
+      console.error('Error fetching employee:', err);
       setError('Failed to load employee data');
     } finally {
       setLoading(false);
@@ -31,7 +32,6 @@ export const useEmployeeData = (employeeId) => {
     }
   }, [employeeId]);
 
-  // Listen for employee updates
   useEffect(() => {
     if (employeeUpdate && employeeUpdate.employeeId === employeeId) {
       fetchEmployee();

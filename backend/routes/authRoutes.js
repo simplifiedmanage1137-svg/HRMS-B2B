@@ -19,36 +19,45 @@ function generateTokens(payload) {
 // Login
 router.post('/login', async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email, identifier, password } = req.body;
+        const loginId = (identifier || email || '').trim();
 
-        if (!email || !password) {
-            return res.status(400).json({ success: false, message: 'Email and password are required' });
+        if (!loginId || !password) {
+            return res.status(400).json({ success: false, message: 'Employee ID / Email and password are required' });
         }
 
         // Admin hardcoded login
-        if (email === 'hr@b2bindemand.com' && password === 'Hr3007') {
-            const payload = { id: 1, email, role: 'admin', employeeId: 'HR001' };
+        if (loginId === 'hr@b2bindemand.com' && password === 'Hr3007') {
+            const payload = { id: 1, email: loginId, role: 'admin', employeeId: 'HR001' };
             const { accessToken, refreshToken } = generateTokens(payload);
             return res.json({
                 success: true,
                 token: accessToken,
                 refreshToken,
-                user: { id: 1, email, role: 'admin', employeeId: 'HR001', firstName: 'HR', lastName: 'Admin', department: 'Human Resources', designation: 'HR Manager' }
+                user: { id: 1, email: loginId, role: 'admin', employeeId: 'HR001', firstName: 'HR', lastName: 'Admin', department: 'Human Resources', designation: 'HR Manager' }
             });
         }
 
-        // Find employee by email or emp_ format
+        // Detect whether the input is an email address or an employee ID
+        const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginId);
+
+        // Find employee by email or employee_id
         let user = null;
 
-        if (email.startsWith('emp_') && email.endsWith('@ems.com')) {
-            const employeeId = email.replace('emp_', '').replace('@ems.com', '');
-            const { data } = await supabase.from('employees').select('*').eq('employee_id', employeeId).maybeSingle();
+        if (isEmail) {
+            const { data, error } = await supabase.from('employees').select('*').eq('email', loginId.toLowerCase()).maybeSingle();
+            if (error) throw error;
+            user = data;
+        } else {
+            const { data, error } = await supabase.from('employees').select('*').eq('employee_id', loginId).maybeSingle();
+            if (error) throw error;
             user = data;
         }
 
-        if (!user) {
-            const { data, error } = await supabase.from('employees').select('*').eq('email', email.toLowerCase().trim()).maybeSingle();
-            if (error) throw error;
+        // Legacy emp_XXX@ems.com format fallback
+        if (!user && loginId.startsWith('emp_') && loginId.endsWith('@ems.com')) {
+            const employeeId = loginId.replace('emp_', '').replace('@ems.com', '');
+            const { data } = await supabase.from('employees').select('*').eq('employee_id', employeeId).maybeSingle();
             user = data;
         }
 
@@ -76,35 +85,16 @@ router.post('/login', async (req, res) => {
         }
 
         if (!isValidPassword) {
-            console.log('❌ Invalid password for user:', email);
+            console.log('❌ Invalid password for user:', loginId);
             return res.status(401).json({
                 success: false,
                 message: 'Invalid email or password'
             });
         }
 
-        // Check if employee is active (if is_active column exists)
+        // Check if employee is active
         if (user.is_active === false) {
             return res.status(403).json({ success: false, message: 'Your account is deactivated. Please contact admin.' });
-        }
-
-        // Verify password with bcrypt, fallback to plain text for legacy
-        let isValid = false;
-        if (user.password) {
-            try {
-                isValid = await bcrypt.compare(password, user.password);
-            } catch {
-                isValid = password === user.password;
-            }
-        }
-
-        // Legacy fallback: allow default passwords if no hashed password set
-        if (!isValid && (!user.password || user.password === 'Welcome@123' || user.password === user.employee_id?.toLowerCase())) {
-            isValid = password === 'Welcome@123' || password === user.employee_id?.toLowerCase();
-        }
-
-        if (!isValid) {
-            return res.status(401).json({ success: false, message: 'Invalid email or password' });
         }
 
         const payload = { id: user.id, email: user.email, role: user.role || 'employee', employeeId: user.employee_id };

@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import io from 'socket.io-client';
+import axiosInstance from '../config/axios';
+import API_ENDPOINTS from '../config/api';
 
-const BRIDGE_URL = 'http://localhost:3001';
+// Fingerprint bridge is a local hardware service — always localhost.
+// Override via VITE_FINGERPRINT_BRIDGE_URL if the bridge runs on a different port.
+const BRIDGE_URL = import.meta.env.VITE_FINGERPRINT_BRIDGE_URL || 'http://localhost:3001';
 
 export const useFingerprint = () => {
   const [socket, setSocket] = useState(null);
@@ -11,7 +15,6 @@ export const useFingerprint = () => {
   const [error, setError] = useState(null);
   const [bridgeStatus, setBridgeStatus] = useState('disconnected');
 
-  // Initialize WebSocket connection
   useEffect(() => {
     const newSocket = io(BRIDGE_URL, {
       transports: ['websocket'],
@@ -21,30 +24,23 @@ export const useFingerprint = () => {
     });
 
     newSocket.on('connect', () => {
-      console.log('✅ Connected to fingerprint bridge');
+      console.log('Connected to fingerprint bridge');
       setIsConnected(true);
       setBridgeStatus('connected');
       setError(null);
     });
 
     newSocket.on('connection-status', (data) => {
-      console.log('Scanner status:', data);
       setBridgeStatus(data.connected ? 'scanner-ready' : 'scanner-disconnected');
     });
 
     newSocket.on('fingerprint-data', (data) => {
-      console.log('Fingerprint captured:', data);
       setLastScan(data);
       setScanning(false);
     });
 
     newSocket.on('scanning', (data) => {
-      console.log('Scan status:', data);
-      if (data.status === 'in-progress') {
-        setScanning(true);
-      } else {
-        setScanning(false);
-      }
+      setScanning(data.status === 'in-progress');
     });
 
     newSocket.on('error', (errorData) => {
@@ -54,21 +50,18 @@ export const useFingerprint = () => {
     });
 
     newSocket.on('disconnect', () => {
-      console.log('❌ Disconnected from fingerprint bridge');
       setIsConnected(false);
       setBridgeStatus('disconnected');
     });
 
     setSocket(newSocket);
 
-    // Fetch initial status
     fetch(`${BRIDGE_URL}/api/status`)
       .then(res => res.json())
       .then(data => {
         setBridgeStatus(data.connected ? 'scanner-ready' : 'scanner-disconnected');
       })
-      .catch(err => {
-        console.error('Failed to fetch bridge status:', err);
+      .catch(() => {
         setBridgeStatus('bridge-offline');
       });
 
@@ -77,7 +70,6 @@ export const useFingerprint = () => {
     };
   }, []);
 
-  // Function to scan fingerprint
   const scanFingerprint = useCallback(() => {
     if (!isConnected) {
       setError('Bridge server not connected');
@@ -98,7 +90,6 @@ export const useFingerprint = () => {
         return;
       }
 
-      // Set up one-time listener for this scan
       const onData = (data) => {
         socket.off('fingerprint-data', onData);
         socket.off('error', onError);
@@ -114,38 +105,20 @@ export const useFingerprint = () => {
       socket.once('fingerprint-data', onData);
       socket.once('error', onError);
 
-      // Trigger scan
       socket.emit('scan-fingerprint');
     });
   }, [socket, isConnected, bridgeStatus]);
 
-  // Function to clock in with fingerprint
   const clockInWithFingerprint = useCallback(async (employeeId) => {
-    try {
-      const fingerprintData = await scanFingerprint();
-      
-      // Send to your main backend
-      const response = await fetch('http://localhost:5173//api/attendance/clock-in', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          employee_id: employeeId,
-          fingerprint_data: fingerprintData,
-          timestamp: new Date().toISOString()
-        })
-      });
+    const fingerprintData = await scanFingerprint();
 
-      if (!response.ok) {
-        throw new Error('Failed to clock in');
-      }
+    const response = await axiosInstance.post(API_ENDPOINTS.ATTENDANCE_CLOCK_IN, {
+      employee_id: employeeId,
+      fingerprint_data: fingerprintData,
+      timestamp: new Date().toISOString(),
+    });
 
-      return await response.json();
-    } catch (error) {
-      console.error('Clock-in failed:', error);
-      throw error;
-    }
+    return response.data;
   }, [scanFingerprint]);
 
   return {
@@ -155,6 +128,6 @@ export const useFingerprint = () => {
     error,
     bridgeStatus,
     scanFingerprint,
-    clockInWithFingerprint
+    clockInWithFingerprint,
   };
 };

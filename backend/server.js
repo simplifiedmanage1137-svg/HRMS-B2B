@@ -10,6 +10,16 @@ const cron = require('node-cron');
 
 dotenv.config();
 
+// ─── Startup env validation ───────────────────────────────────────────────────
+const REQUIRED_ENV = ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY'];
+const missingEnv = REQUIRED_ENV.filter(k => !process.env[k]);
+if (missingEnv.length > 0) {
+    console.error('❌ MISSING REQUIRED ENVIRONMENT VARIABLES:');
+    missingEnv.forEach(k => console.error(`   - ${k}`));
+    console.error('   Copy backend/.env.example to backend/.env and fill in the values.');
+    process.exit(1);
+}
+
 const supabase = require('./config/supabase');
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
@@ -384,6 +394,15 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`   ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
     console.log(`   Public URL: ${process.env.RENDER_EXTERNAL_URL || 'not set'}`);
     console.log('='.repeat(70));
+
+    // Verify Supabase connection
+    supabase.from('employees').select('count', { count: 'exact', head: true }).then(({ error }) => {
+        if (error) {
+            console.error(`❌ Supabase connection FAILED: ${error.message}`);
+        } else {
+            console.log('✅ Supabase connected');
+        }
+    });
 
     // Startup fix: repair orphaned attendance records and stale sessions
     setTimeout(async () => {

@@ -68,7 +68,7 @@ const Login = () => {
         setTimeout(() => {
           setShowForgotModal(false);
           setFpEmail(''); setFpSuccess('');
-          setEmail(fpEmail);
+          setIdentifier(fpEmail);
         }, 2000);
       }
     } catch (err) {
