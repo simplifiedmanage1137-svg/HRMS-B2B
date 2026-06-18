@@ -1,21 +1,14 @@
 // src/components/Manager/Dashboard.jsx
 import React, { useState, useEffect } from 'react';
-import { Row, Col, Card, Button, Badge, Spinner, Table } from 'react-bootstrap';
 import {
   FaUsers, FaCalendarAlt, FaClock, FaUserTie, FaArrowRight,
   FaSyncAlt, FaCheckCircle, FaTimesCircle, FaHourglassHalf,
-  FaUserCheck, FaBriefcase, FaChartPie, FaChartBar
+  FaChartPie, FaChartBar, FaSignInAlt, FaSignOutAlt, FaExclamationTriangle,
 } from 'react-icons/fa';
 import { Doughnut, Bar } from 'react-chartjs-2';
 import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
-  ArcElement,
+  Chart as ChartJS, CategoryScale, LinearScale, BarElement,
+  Title, Tooltip, Legend, ArcElement,
 } from 'chart.js';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -24,21 +17,93 @@ import API_ENDPOINTS from '../../config/api';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement);
 
-const StatCard = ({ label, value, icon, colorClass, loading }) => (
-  <Card className="border-0 shadow-sm h-100">
-    <Card.Body className="d-flex align-items-center gap-3 p-3">
-      <div className={`${colorClass} bg-opacity-10 p-3 rounded-circle flex-shrink-0`}>
-        <span className={colorClass.replace('bg-', 'text-')}>{icon}</span>
+const fmt = (d) =>
+  d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+
+const AVATAR_BG = ['#3B82F6','#8B5CF6','#22C55E','#F97316','#EF4444','#0EA5E9','#EC4899','#14B8A6'];
+const avatarColor = (str) => AVATAR_BG[((str || '').charCodeAt(0) || 0) % AVATAR_BG.length];
+const initials = (f, l) => ((f || '')[0] || '') + ((l || '')[0] || '');
+
+const STAT_PALETTES = {
+  blue:  { grad: 'linear-gradient(135deg,#3B82F6,#2563EB)', border: '#1D4ED8', shadow: '#BFDBFE' },
+  amber: { grad: 'linear-gradient(135deg,#F97316,#EA580C)', border: '#C2410C', shadow: '#FED7AA' },
+  green: { grad: 'linear-gradient(135deg,#22C55E,#16A34A)', border: '#15803D', shadow: '#BBF7D0' },
+  red:   { grad: 'linear-gradient(135deg,#EF4444,#DC2626)', border: '#B91C1C', shadow: '#FECACA' },
+};
+
+const DESIG_COLORS = ['#3B82F6','#8B5CF6','#22C55E','#F97316','#EF4444','#0EA5E9','#EC4899','#14B8A6'];
+
+const StatCard = ({ label, value, icon, pal, loading }) => (
+  <div style={{
+    background: '#fff',
+    borderRadius: 12,
+    boxShadow: '0 1px 3px rgba(0,0,0,.06),0 2px 8px rgba(0,0,0,.05)',
+    padding: '20px 22px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 16,
+    height: '100%',
+  }}>
+    <div style={{
+      width: 46, height: 46, borderRadius: 12,
+      background: pal.shadow,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      flexShrink: 0,
+    }}>
+      <span style={{ color: pal.border, fontSize: 18 }}>{icon}</span>
+    </div>
+    <div>
+      <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 5 }}>{label}</div>
+      {loading
+        ? <div style={{ width: 48, height: 28, background: '#F1F5F9', borderRadius: 6 }} />
+        : <div style={{ fontSize: 28, fontWeight: 700, color: '#0F172A', lineHeight: 1 }}>{value}</div>
+      }
+    </div>
+  </div>
+);
+
+const SectionCard = ({ children, style }) => (
+  <div style={{
+    background: '#fff',
+    borderRadius: 16,
+    boxShadow: '0 1px 3px rgba(0,0,0,.06),0 4px 20px rgba(0,0,0,.07)',
+    overflow: 'hidden',
+    height: '100%',
+    ...style,
+  }}>
+    {children}
+  </div>
+);
+
+const CardHead = ({ iconGrad, icon, title, subtitle, right }) => (
+  <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid #F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ width: 34, height: 34, borderRadius: 10, background: iconGrad, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        {icon}
       </div>
       <div>
-        <div className="text-muted small">{label}</div>
-        {loading
-          ? <Spinner animation="border" size="sm" />
-          : <div className="fw-bold fs-4 lh-1">{value}</div>
-        }
+        <div style={{ fontWeight: 700, fontSize: 14, color: '#0F172A' }}>{title}</div>
+        {subtitle && <div style={{ fontSize: 11, color: '#94A3B8' }}>{subtitle}</div>}
       </div>
-    </Card.Body>
-  </Card>
+    </div>
+    {right}
+  </div>
+);
+
+const NavBtn = ({ onClick, bg, color, children }) => (
+  <button onClick={onClick} style={{ background: bg, border: 'none', color, borderRadius: 8, padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+    {children}
+  </button>
+);
+
+const AvatarCircle = ({ first, last }) => (
+  <div style={{ width: 38, height: 38, borderRadius: '50%', background: avatarColor(first), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#fff', fontSize: 13, fontWeight: 700, textTransform: 'uppercase' }}>
+    {initials(first, last)}
+  </div>
+);
+
+const SpinRing = ({ color }) => (
+  <div style={{ width: 30, height: 30, border: '3px solid #E2E8F0', borderTopColor: color || '#3B82F6', borderRadius: '50%', animation: 'mgrspin 0.8s linear infinite' }} />
 );
 
 const ManagerDashboard = () => {
@@ -49,66 +114,190 @@ const ManagerDashboard = () => {
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [hoveredAction, setHoveredAction] = useState(null);
+
+  // Clock in/out state
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [attendance, setAttendance] = useState(null);
+  const [activeSession, setActiveSession] = useState(null);
+  const [clockLoading, setClockLoading] = useState(false);
+  const [clockMessage, setClockMessage] = useState({ type: '', text: '' });
+
+  const STORAGE_KEY = `attendance_session_${user?.employeeId}`;
+  const saveSession = (s) => localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+  const clearSession = () => localStorage.removeItem(STORAGE_KEY);
+
+  const nowIST = () => {
+    const now = new Date();
+    const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${ist.getUTCFullYear()}-${p(ist.getUTCMonth()+1)}-${p(ist.getUTCDate())} ${p(ist.getUTCHours())}:${p(ist.getUTCMinutes())}:${p(ist.getUTCSeconds())}`;
+  };
+
+  const formatTimeIST = (datetime) => {
+    if (!datetime) return '--:--';
+    try {
+      let hourNum, minute;
+      if (typeof datetime === 'string') {
+        if (datetime.includes(' ') && !datetime.includes('T')) {
+          const parts = datetime.split(' ')[1].split(':');
+          hourNum = parseInt(parts[0], 10);
+          minute = parts[1]?.padStart(2, '0') || '00';
+        } else if (datetime.includes('T')) {
+          const d = new Date(datetime);
+          if (isNaN(d.getTime())) return '--:--';
+          const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+          hourNum = ist.getUTCHours();
+          minute = String(ist.getUTCMinutes()).padStart(2, '0');
+        } else if (datetime.match(/^\d{2}:\d{2}:\d{2}$/)) {
+          const parts = datetime.split(':');
+          hourNum = parseInt(parts[0], 10);
+          minute = parts[1];
+        } else return '--:--';
+      } else return '--:--';
+      if (isNaN(hourNum)) return '--:--';
+      const ampm = hourNum >= 12 ? 'PM' : 'AM';
+      const h12 = hourNum % 12 === 0 ? 12 : hourNum % 12;
+      return `${h12}:${minute} ${ampm}`;
+    } catch { return '--:--'; }
+  };
+
+  useEffect(() => {
+    const t = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const fetchTodayAttendance = async () => {
+    if (!user?.employeeId) return;
+    try {
+      const res = await axios.get(API_ENDPOINTS.ATTENDANCE_TODAY(user.employeeId));
+      const att = res.data.attendance;
+      const serverSession = res.data.active_session;
+      if (att) {
+        att.clock_in = att.clock_in_ist || att.clock_in;
+        att.clock_out = att.clock_out_ist || att.clock_out;
+        if (att.clock_in) att.clock_in_display = formatTimeIST(att.clock_in);
+        if (att.clock_out) att.clock_out_display = formatTimeIST(att.clock_out);
+        setAttendance(att);
+        if (serverSession) { setActiveSession(serverSession); saveSession(serverSession); }
+        else if (att.clock_in && !att.clock_out) { setActiveSession({ session_id: att.session_id || 'inferred' }); }
+        else { setActiveSession(null); clearSession(); }
+      } else {
+        setAttendance(null);
+        if (!serverSession) { setActiveSession(null); clearSession(); }
+      }
+    } catch { /* silent */ }
+  };
+
+  const handleClockIn = async () => {
+    setClockLoading(true);
+    setClockMessage({ type: '', text: '' });
+    try {
+      const res = await axios.post(API_ENDPOINTS.ATTENDANCE_CLOCK_IN, {
+        employee_id: user.employeeId, latitude: null, longitude: null, accuracy: null,
+      });
+      const t = res.data.clock_in_ist || res.data.clock_in;
+      const att = {
+        clock_in: t, clock_in_ist: t, clock_in_display: formatTimeIST(t),
+        late_minutes: res.data.late_minutes || 0,
+        late_display: res.data.late_display || null,
+        status: 'working',
+        attendance_date: res.data.attendance_date || nowIST().split(' ')[0],
+        session_id: res.data.session_id,
+      };
+      setAttendance(att);
+      const session = { session_id: res.data.session_id, clock_in_time: t };
+      setActiveSession(session);
+      saveSession(session);
+      setClockMessage({ type: 'success', text: res.data.message || 'Clocked in successfully!' });
+    } catch (err) {
+      setClockMessage({ type: 'error', text: err.response?.data?.message || 'Failed to clock in' });
+    } finally { setClockLoading(false); }
+  };
+
+  const handleClockOut = async () => {
+    setClockLoading(true);
+    setClockMessage({ type: '', text: '' });
+    try {
+      const pre = await axios.get(API_ENDPOINTS.ATTENDANCE_TODAY(user.employeeId));
+      const serverSession = pre.data.active_session;
+      if (!serverSession) { setActiveSession(null); clearSession(); await fetchTodayAttendance(); setClockLoading(false); return; }
+      const res = await axios.post(API_ENDPOINTS.ATTENDANCE_CLOCK_OUT, {
+        employee_id: user.employeeId, session_id: serverSession.session_id,
+        latitude: null, longitude: null, accuracy: null,
+      });
+      const t = res.data.clock_out_ist || res.data.clock_out;
+      setAttendance(prev => ({
+        ...prev, clock_out: t,
+        clock_out_display: formatTimeIST(t),
+        total_hours_display: res.data.total_hours_display,
+        status: res.data.status,
+      }));
+      setActiveSession(null);
+      clearSession();
+      setClockMessage({ type: 'success', text: res.data.message || 'Clocked out successfully!' });
+    } catch (err) {
+      setClockMessage({ type: 'error', text: err.response?.data?.message || 'Failed to clock out' });
+    } finally { setClockLoading(false); }
+  };
 
   const fetchData = async () => {
     setLoading(true);
     try {
       const [teamRes, leavesRes] = await Promise.allSettled([
         axios.get(API_ENDPOINTS.MANAGER_TEAM),
-        axios.get(`${API_ENDPOINTS.LEAVES}?reporting_manager=true`),
+        axios.get(API_ENDPOINTS.LEAVES + '?reporting_manager=true'),
       ]);
-
-      if (teamRes.status === 'fulfilled') {
-        setTeam(teamRes.value.data?.team || []);
-      }
-      if (leavesRes.status === 'fulfilled') {
-        setLeaveRequests(leavesRes.value.data || []);
-      }
+      if (teamRes.status === 'fulfilled')  setTeam(teamRes.value.data?.team || []);
+      if (leavesRes.status === 'fulfilled') setLeaveRequests(leavesRes.value.data || []);
       setLastUpdated(new Date());
-    } catch {
-      // individual errors handled by allSettled
-    } finally {
-      setLoading(false);
-    }
+    } catch { /* allSettled handles individual errors */ }
+    finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { fetchData(); fetchTodayAttendance(); }, []);
 
-  const pendingLeaves = leaveRequests.filter(l => l.status === 'pending');
+  const pendingLeaves  = leaveRequests.filter(l => l.status === 'pending');
   const approvedLeaves = leaveRequests.filter(l => l.status === 'approved');
   const rejectedLeaves = leaveRequests.filter(l => l.status === 'rejected');
+  const totalLeaves    = leaveRequests.length;
 
-  // Designation breakdown for bar chart
   const designationMap = {};
-  team.forEach(m => {
-    const key = m.designation || 'Unspecified';
-    designationMap[key] = (designationMap[key] || 0) + 1;
-  });
-  const designationLabels = Object.keys(designationMap);
-  const designationValues = Object.values(designationMap);
+  team.forEach(m => { const k = m.designation || 'Unspecified'; designationMap[k] = (designationMap[k] || 0) + 1; });
+  const desigLabels = Object.keys(designationMap);
+  const desigValues = Object.values(designationMap);
+  const desigTotal  = desigValues.reduce((s, v) => s + v, 0);
 
-  const totalLeaves = leaveRequests.length;
+  const leaveSegments = [
+    { label: 'Pending',  value: pendingLeaves.length,  color: '#F97316', bg: '#FFF7ED', border: '#FED7AA' },
+    { label: 'Approved', value: approvedLeaves.length, color: '#22C55E', bg: '#F0FDF4', border: '#BBF7D0' },
+    { label: 'Rejected', value: rejectedLeaves.length, color: '#EF4444', bg: '#FEF2F2', border: '#FECACA' },
+  ];
+
+  const leavePct = (v) => totalLeaves > 0 ? ((v / totalLeaves) * 100).toFixed(1) : '0.0';
+  const desigPct = (v) => desigTotal  > 0 ? ((v / desigTotal)  * 100).toFixed(0) : '0';
 
   const leaveChartData = {
-    labels: ['Pending', 'Approved', 'Rejected'],
+    labels: leaveSegments.map(s => s.label),
     datasets: [{
-      data: [pendingLeaves.length, approvedLeaves.length, rejectedLeaves.length],
-      backgroundColor: ['#F97316', '#22C55E', '#EF4444'],
-      borderColor: ['#EA580C', '#16A34A', '#DC2626'],
-      borderWidth: 2,
+      data: leaveSegments.map(s => s.value),
+      backgroundColor: leaveSegments.map(s => s.color),
+      borderWidth: 3,
+      borderColor: '#ffffff',
+      hoverBorderColor: '#ffffff',
+      hoverBorderWidth: 4,
       hoverOffset: 14,
-      borderRadius: 4,
     }],
   };
 
-  const teamChartData = {
-    labels: designationLabels,
+  const desigChartData = {
+    labels: desigLabels,
     datasets: [{
-      label: 'Members',
-      data: designationValues,
-      backgroundColor: ['#3B82F6', '#8B5CF6', '#22C55E', '#F97316', '#EF4444', '#0EA5E9'],
-      borderRadius: 6,
-      borderSkipped: false,
+      data: desigValues,
+      backgroundColor: desigLabels.map((_, i) => DESIG_COLORS[i % DESIG_COLORS.length]),
+      borderWidth: 3,
+      borderColor: '#ffffff',
+      hoverOffset: 8,
     }],
   };
 
@@ -116,399 +305,525 @@ const ManagerDashboard = () => {
     id: 'leaveCenterText',
     beforeDraw(chart) {
       if (chart.config.type !== 'doughnut') return;
-      const { width, height, ctx } = chart;
+      const { ctx, chartArea } = chart;
+      if (!chartArea) return;
+      const cx = (chartArea.left + chartArea.right) / 2;
+      const cy = (chartArea.top + chartArea.bottom) / 2;
       ctx.save();
-      const cx = width / 2;
-      const cy = height / 2 - 10;
       ctx.font = 'bold 26px Inter,system-ui,sans-serif';
       ctx.fillStyle = '#0F172A';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(totalLeaves > 0 ? totalLeaves : '—', cx, cy);
+      ctx.fillText(totalLeaves > 0 ? String(totalLeaves) : '—', cx, cy - 10);
       ctx.font = '500 9.5px Inter,system-ui,sans-serif';
       ctx.fillStyle = '#94A3B8';
-      ctx.fillText('TOTAL REQUESTS', cx, cy + 18);
+      ctx.fillText('TOTAL', cx, cy + 8);
+      ctx.fillText('REQUESTS', cx, cy + 20);
       ctx.restore();
     },
   };
 
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    cutout: '62%',
-    animation: { animateRotate: true, duration: 900 },
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        backgroundColor: 'rgba(15,23,42,.93)',
-        padding: 10,
-        cornerRadius: 8,
-        borderColor: 'rgba(255,255,255,.1)',
-        borderWidth: 1,
-        callbacks: {
-          label: (ctx) => {
-            const pct = totalLeaves > 0 ? Math.round((ctx.parsed / totalLeaves) * 100) : 0;
-            return \  \: \  (\%)\;
-          },
-        },
-      },
-    },
-  };
-
-  const barOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        backgroundColor: 'rgba(15,23,42,.93)',
-        padding: 10,
-        cornerRadius: 8,
-        borderColor: 'rgba(255,255,255,.1)',
-        borderWidth: 1,
-      },
-    },
-    scales: {
-      x: { grid: { display: false }, ticks: { font: { size: 11 }, color: '#64748B' } },
-      y: {
-        beginAtZero: true,
-        ticks: { stepSize: 1, font: { size: 11 }, color: '#64748B' },
-        grid: { color: '#F1F5F9' },
-      },
-    },
-  };
+  const today = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   const quickActions = [
-    { label: 'My Team', icon: <FaUsers />, path: '/manager/panel', variant: 'primary' },
-    { label: 'Leave Approvals', icon: <FaCalendarAlt />, path: '/manager/panel', variant: 'success' },
-    { label: 'Attendance', icon: <FaClock />, path: '/attendance', variant: 'info' },
+    { label: 'My Team',         desc: 'View all team members',    icon: <FaUsers size={20} />,       pal: STAT_PALETTES.blue,  path: '/manager/panel' },
+    { label: 'Leave Approvals', desc: 'Approve or reject leaves', icon: <FaCalendarAlt size={20} />, pal: STAT_PALETTES.green, path: '/manager/panel' },
+    { label: 'Attendance',      desc: 'View attendance records',  icon: <FaClock size={20} />,       pal: STAT_PALETTES.amber, path: '/attendance' },
   ];
 
-  const formatDate = (d) => {
-    if (!d) return '—';
-    return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-  };
-
   return (
-    <div className="p-3 p-md-4">
+    <div style={{ background: '#F8FAFC', minHeight: '100vh', padding: '24px 20px' }}>
+
       {/* Header */}
-      <div className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center mb-4 gap-2">
-        <div className="d-flex align-items-center gap-2">
-          <FaUserTie size={22} className="text-primary" />
-          <div>
-            <h5 className="mb-0">Manager Dashboard</h5>
-            <small className="text-muted">
-              Welcome, {user?.name || user?.employeeId} &nbsp;·&nbsp; ID: {user?.employeeId}
-              {lastUpdated && (
-                <> &nbsp;·&nbsp; Updated {lastUpdated.toLocaleTimeString()}</>
-              )}
-            </small>
+      <div style={{
+        background: '#1e2a3e',
+        borderRadius: 10,
+        padding: '24px 32px',
+        marginBottom: 28,
+        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 0,
+        position: 'relative',
+        overflow: 'hidden',
+      }}>
+        <div style={{ position: 'absolute', width: 200, height: 200, borderRadius: '50%', background: 'rgba(255,255,255,.06)', top: -80, right: 100 }} />
+        <div style={{ position: 'absolute', width: 130, height: 130, borderRadius: '50%', background: 'rgba(255,255,255,.08)', bottom: -50, right: -20 }} />
+
+        {/* Row 1: title + welcome | clock button */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, position: 'relative' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div style={{ width: 52, height: 52, borderRadius: 14, background: 'rgba(255,255,255,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <FaUserTie size={24} color="#fff" />
+            </div>
+            <div>
+              <h4 style={{ color: '#fff', margin: 0, fontWeight: 800, fontSize: 22 }}>Manager Dashboard</h4>
+              <div style={{ color: 'rgba(255,255,255,.82)', fontSize: 13, marginTop: 3 }}>
+                Welcome back, <strong style={{ color: '#fff' }}>{user?.name || user?.employeeId}</strong>
+                {lastUpdated && <span style={{ marginLeft: 8, opacity: 0.65 }}>· Updated {lastUpdated.toLocaleTimeString()}</span>}
+              </div>
+            </div>
           </div>
+
+          {/* Clock In / Out button */}
+          {(() => {
+            const hasOpen = !!activeSession || (!!attendance?.clock_in && !attendance?.clock_out);
+            return (
+              <button
+                onClick={hasOpen ? handleClockOut : handleClockIn}
+                disabled={clockLoading}
+                style={{
+                  background: hasOpen ? 'rgba(251,191,36,0.9)' : 'rgba(34,197,94,0.9)',
+                  border: 'none', borderRadius: 10, padding: '9px 20px',
+                  color: hasOpen ? '#78350f' : '#fff',
+                  cursor: clockLoading ? 'not-allowed' : 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 7,
+                  fontSize: 13, fontWeight: 700,
+                  opacity: clockLoading ? 0.7 : 1, flexShrink: 0,
+                }}
+              >
+                {clockLoading
+                  ? <><FaSyncAlt size={12} style={{ animation: 'mgrspin 0.8s linear infinite' }} /> Processing...</>
+                  : hasOpen
+                    ? <><FaSignOutAlt size={13} /> Clock Out</>
+                    : <><FaSignInAlt size={13} /> Clock In</>
+                }
+              </button>
+            );
+          })()}
         </div>
-        <Button variant="outline-secondary" size="sm" onClick={fetchData} disabled={loading}>
-          <FaSyncAlt className={`me-1 ${loading ? 'fa-spin' : ''}`} size={12} />
-          Refresh
-        </Button>
+
+        {/* Row 2: attendance info */}
+        <div style={{
+          display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 20,
+          margin: '16px 0', padding: '14px 16px',
+          background: 'rgba(255,255,255,.06)', borderRadius: 10,
+          position: 'relative',
+        }}>
+          {/* Live clock */}
+          <div style={{ textAlign: 'center', minWidth: 72 }}>
+            <div style={{ fontSize: 9, color: 'rgba(255,255,255,.45)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 3 }}>Live Time</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>
+              {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+            </div>
+          </div>
+
+          <div style={{ width: 1, height: 36, background: 'rgba(255,255,255,.15)', flexShrink: 0 }} />
+
+          {/* In time */}
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 9, color: 'rgba(255,255,255,.45)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 3 }}>In</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: attendance?.clock_in ? '#4ade80' : 'rgba(255,255,255,.4)' }}>
+              {attendance?.clock_in ? (attendance.clock_in_display || formatTimeIST(attendance.clock_in)) : '--:--'}
+            </div>
+            {attendance?.late_display && attendance?.late_minutes > 0 && (
+              <div style={{ fontSize: 9, color: '#f87171', display: 'flex', alignItems: 'center', gap: 2, justifyContent: 'center', marginTop: 1 }}>
+                <FaExclamationTriangle size={7} /> Late {attendance.late_display}
+              </div>
+            )}
+          </div>
+
+          <div style={{ width: 1, height: 36, background: 'rgba(255,255,255,.15)', flexShrink: 0 }} />
+
+          {/* Out time */}
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 9, color: 'rgba(255,255,255,.45)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 3 }}>Out</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: attendance?.clock_out ? '#fbbf24' : 'rgba(255,255,255,.4)' }}>
+              {attendance?.clock_out ? (attendance.clock_out_display || formatTimeIST(attendance.clock_out)) : '--:--'}
+            </div>
+            {attendance?.total_hours_display && (
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,.5)', marginTop: 1 }}>{attendance.total_hours_display}</div>
+            )}
+          </div>
+
+          <div style={{ width: 1, height: 36, background: 'rgba(255,255,255,.15)', flexShrink: 0 }} />
+
+          {/* Status */}
+          {attendance?.status ? (
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              background: attendance.status === 'working' ? 'rgba(74,222,128,.15)' : 'rgba(255,255,255,.08)',
+              border: `1px solid ${attendance.status === 'working' ? 'rgba(74,222,128,.35)' : 'rgba(255,255,255,.15)'}`,
+              borderRadius: 20, padding: '3px 10px',
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: attendance.status === 'working' ? '#4ade80' : '#94a3b8', display: 'inline-block' }} />
+              <span style={{ fontSize: 11, fontWeight: 600, color: attendance.status === 'working' ? '#4ade80' : '#cbd5e1', textTransform: 'capitalize' }}>
+                {attendance.status === 'working' ? 'Working' : attendance.status}
+              </span>
+            </div>
+          ) : (
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,.35)' }}>Not clocked in today</span>
+          )}
+
+          {/* Message feedback */}
+          {clockMessage.text && (
+            <div style={{
+              fontSize: 11, fontWeight: 500,
+              color: clockMessage.type === 'success' ? '#4ade80' : '#f87171',
+              background: clockMessage.type === 'success' ? 'rgba(74,222,128,.1)' : 'rgba(248,113,113,.1)',
+              border: `1px solid ${clockMessage.type === 'success' ? 'rgba(74,222,128,.25)' : 'rgba(248,113,113,.25)'}`,
+              borderRadius: 8, padding: '4px 10px',
+            }}>
+              {clockMessage.text}
+            </div>
+          )}
+        </div>
+
+        {/* Row 3: date + refresh */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, position: 'relative', flexWrap: 'wrap' }}>
+          <div style={{ background: 'rgba(231, 225, 225, 0.15)', borderRadius: 10, padding: '8px 16px', color: 'rgba(255,255,255,.9)', fontSize: 13 }}>
+            {today}
+          </div>
+          <button
+            onClick={fetchData}
+            disabled={loading}
+            style={{ background: 'rgba(255, 255, 255, 0.2)', border: '1px solid rgba(255,255,255,.3)', borderRadius: 10, padding: '8px 18px', color: '#fff', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, opacity: loading ? 0.7 : 1 }}
+          >
+            <FaSyncAlt size={12} style={{ animation: loading ? 'mgrspin 1s linear infinite' : 'none' }} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Stat Cards */}
-      <Row className="g-3 mb-4">
-        <Col xs={6} md={3}>
-          <StatCard
-            label="Team Members"
-            value={team.length}
-            icon={<FaUsers size={18} />}
-            colorClass="bg-primary"
-            loading={loading}
-          />
-        </Col>
-        <Col xs={6} md={3}>
-          <StatCard
-            label="Pending Leaves"
-            value={pendingLeaves.length}
-            icon={<FaHourglassHalf size={18} />}
-            colorClass="bg-warning"
-            loading={loading}
-          />
-        </Col>
-        <Col xs={6} md={3}>
-          <StatCard
-            label="Approved Leaves"
-            value={approvedLeaves.length}
-            icon={<FaCheckCircle size={18} />}
-            colorClass="bg-success"
-            loading={loading}
-          />
-        </Col>
-        <Col xs={6} md={3}>
-          <StatCard
-            label="Rejected Leaves"
-            value={rejectedLeaves.length}
-            icon={<FaTimesCircle size={18} />}
-            colorClass="bg-danger"
-            loading={loading}
-          />
-        </Col>
-      </Row>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 16, marginBottom: 28 }}>
+        <StatCard label="Team Members"    value={team.length}           icon={<FaUsers />}         pal={STAT_PALETTES.blue}  loading={loading} />
+        <StatCard label="Pending Leaves"  value={pendingLeaves.length}  icon={<FaHourglassHalf />} pal={STAT_PALETTES.amber} loading={loading} />
+        <StatCard label="Approved Leaves" value={approvedLeaves.length} icon={<FaCheckCircle />}   pal={STAT_PALETTES.green} loading={loading} />
+        <StatCard label="Rejected Leaves" value={rejectedLeaves.length} icon={<FaTimesCircle />}   pal={STAT_PALETTES.red}   loading={loading} />
+      </div>
 
       {/* Charts Row */}
-      <Row className="g-3 mb-4">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 16, marginBottom: 28 }}>
 
-        {/* Leave Request Status – premium doughnut */}
-        <Col xs={12} md={5}>
-          <Card className="border-0 h-100" style={{ borderRadius: 16, boxShadow: '0 1px 3px rgba(0,0,0,.06),0 4px 20px rgba(0,0,0,.07)', overflow: 'hidden' }}>
-            <Card.Body className="p-0">
-              {/* Header */}
-              <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid #F1F5F9', display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ width: 34, height: 34, borderRadius: 10, background: 'linear-gradient(135deg,#F97316,#EA580C)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <FaChartPie size={15} color="#fff" />
-                </div>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: '#0F172A' }}>Leave Request Status</div>
-                  <div style={{ fontSize: 11, color: '#94A3B8' }}>All-time breakdown</div>
+        {/* Leave Request Status */}
+        <SectionCard>
+          <CardHead
+            iconGrad="linear-gradient(135deg,#F97316,#EA580C)"
+            icon={<FaChartPie size={15} color="#fff" />}
+            title="Leave Request Status"
+            subtitle="All-time breakdown"
+          />
+          <div style={{ padding: '20px 20px 0' }}>
+            {loading ? (
+              <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <SpinRing color="#F97316" />
+              </div>
+            ) : totalLeaves === 0 ? (
+              <div style={{ height: 220, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, color: '#94A3B8' }}>
+                <FaCalendarAlt size={28} style={{ opacity: 0.4 }} />
+                <small>No leave requests yet</small>
+              </div>
+            ) : (
+              /* Centered doughnut — same style as admin */
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
+                <div style={{ width: 220, height: 220 }}>
+                  <Doughnut
+                    data={leaveChartData}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      animation: { duration: 1000, easing: 'easeInOutQuart', animateRotate: true, animateScale: false },
+                      cutout: '55%',
+                      plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                          backgroundColor: 'rgba(15,23,42,0.93)',
+                          titleColor: '#f8fafc',
+                          bodyColor: '#cbd5e1',
+                          borderColor: 'rgba(255,255,255,0.08)',
+                          borderWidth: 1,
+                          padding: { top: 10, bottom: 10, left: 14, right: 14 },
+                          cornerRadius: 10,
+                          displayColors: true,
+                          boxWidth: 8, boxHeight: 8, boxPadding: 5,
+                          callbacks: {
+                            title: (items) => items[0]?.label,
+                            label: (ctx) => ` ${ctx.raw} requests · ${leavePct(ctx.raw)}%`,
+                          },
+                        },
+                      },
+                      elements: { arc: { borderRadius: 4 } },
+                    }}
+                    plugins={[leaveCenterPlugin]}
+                  />
                 </div>
               </div>
+            )}
+          </div>
 
-              {/* Chart */}
-              <div style={{ padding: '16px 20px 0' }}>
-                {loading ? (
-                  <div className="d-flex justify-content-center align-items-center" style={{ height: 210 }}>
-                    <Spinner animation="border" variant="primary" />
+          {/* Badge-style legend — same flex+baseline layout as admin */}
+          {!loading && totalLeaves > 0 && (
+            <div style={{ padding: '0 20px 20px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+              {leaveSegments.map(seg => (
+                <div
+                  key={seg.label}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '10px 12px',
+                    background: seg.bg,
+                    borderRadius: 10,
+                    border: `1px solid ${seg.border}`,
+                    cursor: 'default',
+                    transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.boxShadow = '0 6px 16px ' + seg.color + '30';
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                >
+                  <div style={{
+                    width: 10, height: 10, borderRadius: '50%',
+                    background: seg.color, flexShrink: 0,
+                    boxShadow: '0 0 0 3px ' + seg.color + '30',
+                  }} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 10.5, color: '#6b7280', fontWeight: 500 }}>{seg.label}</div>
+                    {/* flex+baseline keeps count and % visually separate */}
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, marginTop: 1 }}>
+                      <span style={{ fontSize: 18, fontWeight: 700, color: '#111827', lineHeight: 1 }}>
+                        {seg.value}
+                      </span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: seg.color }}>
+                        {leavePct(seg.value)}%
+                      </span>
+                    </div>
                   </div>
-                ) : leaveRequests.length === 0 ? (
-                  <div className="d-flex flex-column justify-content-center align-items-center text-muted" style={{ height: 210, gap: 8 }}>
-                    <FaCalendarAlt size={28} opacity={0.4} />
-                    <small>No leave requests yet</small>
-                  </div>
-                ) : (
-                  <div style={{ height: 210 }}>
-                    <Doughnut data={leaveChartData} options={chartOptions} plugins={[leaveCenterPlugin]} />
-                  </div>
-                )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Footer */}
+          {!loading && (
+            <div style={{
+              margin: '0 20px 20px',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '10px 16px',
+              background: 'linear-gradient(135deg,#f8fafc,#f1f5f9)',
+              borderRadius: 10,
+              border: '1px solid #e2e8f0',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <FaCalendarAlt size={12} color="#64748b" />
+                <span style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>Total Leave Requests</span>
               </div>
+              <span style={{ fontSize: 15, fontWeight: 700, color: '#111827' }}>{totalLeaves}</span>
+            </div>
+          )}
+        </SectionCard>
 
-              {/* Badge legend */}
-              {!loading && leaveRequests.length > 0 && (
-                <div style={{ padding: '14px 20px 18px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  {[
-                    { label: 'Pending',  count: pendingLeaves.length,  color: '#F97316', bg: '#FFF7ED', border: '#FED7AA', tc: '#C2410C' },
-                    { label: 'Approved', count: approvedLeaves.length, color: '#22C55E', bg: '#F0FDF4', border: '#BBF7D0', tc: '#15803D' },
-                    { label: 'Rejected', count: rejectedLeaves.length, color: '#EF4444', bg: '#FEF2F2', border: '#FECACA', tc: '#B91C1C' },
-                  ].map(item => (
-                    <div key={item.label} style={{ background: item.bg, border: `1px solid ${item.border}`, borderRadius: 10, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: item.color, boxShadow: `0 0 0 2px ${item.border}`, flexShrink: 0 }} />
-                      <div>
-                        <div style={{ fontSize: 11, color: item.tc, fontWeight: 600 }}>{item.label}</div>
-                        <div style={{ fontSize: 18, fontWeight: 800, color: '#0F172A', lineHeight: 1.1 }}>
-                          {item.count}
-                          <span style={{ fontSize: 11, fontWeight: 500, color: '#94A3B8', marginLeft: 4 }}>
-                            {totalLeaves > 0 ? `${Math.round((item.count / totalLeaves) * 100)}%` : '0%'}
-                          </span>
+        {/* Team by Designation */}
+        <SectionCard>
+          <CardHead
+            iconGrad="linear-gradient(135deg,#3B82F6,#2563EB)"
+            icon={<FaChartBar size={15} color="#fff" />}
+            title="Team by Designation"
+            subtitle="Member distribution"
+            right={
+              <span style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#1D4ED8', borderRadius: 20, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>
+                {team.length} members
+              </span>
+            }
+          />
+          <div style={{ padding: '16px 20px 20px' }}>
+            {loading ? (
+              <div style={{ height: 260, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <SpinRing />
+              </div>
+            ) : team.length === 0 ? (
+              <div style={{ height: 260, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, color: '#94A3B8' }}>
+                <FaUsers size={28} style={{ opacity: 0.4 }} />
+                <small>No team members found</small>
+              </div>
+            ) : (
+              /* Doughnut + progress bars — matches admin dept distribution */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                  <div style={{ width: 180, height: 180 }}>
+                    <Doughnut
+                      data={desigChartData}
+                      options={{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        animation: { duration: 700, easing: 'easeInOutQuart' },
+                        cutout: '52%',
+                        plugins: {
+                          legend: { display: false },
+                          tooltip: {
+                            backgroundColor: 'rgba(15,23,42,0.92)',
+                            titleColor: '#f9fafb',
+                            bodyColor: '#d1d5db',
+                            padding: 10,
+                            cornerRadius: 8,
+                            callbacks: {
+                              label: (ctx) => ` ${ctx.raw} members (${desigPct(ctx.raw)}%)`,
+                            },
+                          },
+                        },
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Progress-bar legend */}
+                <div style={{ maxHeight: 200, overflowY: desigLabels.length > 5 ? 'auto' : 'visible' }}>
+                  {desigLabels.map((label, i) => {
+                    const val = desigValues[i];
+                    const pct = desigPct(val);
+                    const color = DESIG_COLORS[i % DESIG_COLORS.length];
+                    return (
+                      <div key={label} style={{ marginBottom: 10 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ width: 9, height: 9, borderRadius: '50%', background: color, display: 'inline-block', flexShrink: 0 }} />
+                            <span style={{ fontSize: 12, color: '#374151', fontWeight: 500 }}>{label}</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color }}>{val}</span>
+                            <span style={{ fontSize: 11, color: '#9ca3af', background: '#f3f4f6', borderRadius: 10, padding: '1px 6px' }}>{pct}%</span>
+                          </div>
+                        </div>
+                        <div style={{ height: 5, borderRadius: 99, background: '#f3f4f6', overflow: 'hidden' }}>
+                          <div style={{
+                            height: '100%', borderRadius: 99,
+                            background: color,
+                            width: `${Math.max(parseFloat(pct), val > 0 ? 3 : 0)}%`,
+                            transition: 'width 0.7s ease',
+                          }} />
                         </div>
                       </div>
+                    );
+                  })}
+                  {desigLabels.length > 0 && (
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 11, color: '#6b7280' }}>Total members:</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#111827' }}>{desigTotal}</span>
                     </div>
-                  ))}
+                  )}
                 </div>
-              )}
-            </Card.Body>
-          </Card>
-        </Col>
-
-        {/* Team by Designation – premium bar */}
-        <Col xs={12} md={7}>
-          <Card className="border-0 h-100" style={{ borderRadius: 16, boxShadow: '0 1px 3px rgba(0,0,0,.06),0 4px 20px rgba(0,0,0,.07)', overflow: 'hidden' }}>
-            <Card.Body className="p-0">
-              {/* Header */}
-              <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid #F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ width: 34, height: 34, borderRadius: 10, background: 'linear-gradient(135deg,#3B82F6,#2563EB)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <FaChartBar size={15} color="#fff" />
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: '#0F172A' }}>Team by Designation</div>
-                    <div style={{ fontSize: 11, color: '#94A3B8' }}>Member distribution</div>
-                  </div>
-                </div>
-                <span style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#1D4ED8', borderRadius: 20, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>
-                  {team.length} members
-                </span>
               </div>
+            )}
+          </div>
+        </SectionCard>
+      </div>
 
-              {/* Chart */}
-              <div style={{ padding: '16px 20px 20px' }}>
-                {loading ? (
-                  <div className="d-flex justify-content-center align-items-center" style={{ height: 240 }}>
-                    <Spinner animation="border" variant="primary" />
-                  </div>
-                ) : team.length === 0 ? (
-                  <div className="d-flex flex-column justify-content-center align-items-center text-muted" style={{ height: 240, gap: 8 }}>
-                    <FaUsers size={28} opacity={0.4} />
-                    <small>No team members found</small>
-                  </div>
-                ) : (
-                  <div style={{ height: 240 }}>
-                    <Bar data={teamChartData} options={barOptions} />
-                  </div>
-                )}
-              </div>
-            </Card.Body>
-          </Card>
-        </Col>
-      </Row>
+      {/* Team Members + Pending Leaves */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 16, marginBottom: 28 }}>
 
-      {/* Team Members + Pending Leaves Row */}
-      <Row className="g-3 mb-4">
         {/* Team Members */}
-        <Col xs={12} md={6}>
-          <Card className="border-0 shadow-sm h-100">
-            <Card.Body className="p-3">
-              <div className="d-flex justify-content-between align-items-center mb-3">
-                <div className="d-flex align-items-center gap-2">
-                  <FaUsers className="text-primary" size={15} />
-                  <span className="fw-semibold small">Team Members</span>
-                </div>
-                <Button variant="outline-primary" size="sm" onClick={() => navigate('/manager/panel')}>
-                  View All <FaArrowRight size={10} className="ms-1" />
-                </Button>
-              </div>
-              {loading ? (
-                <div className="d-flex justify-content-center py-4">
-                  <Spinner animation="border" variant="primary" size="sm" />
-                </div>
-              ) : team.length === 0 ? (
-                <p className="text-muted small text-center py-3 mb-0">No team members assigned</p>
-              ) : (
-                <div className="table-responsive">
-                  <Table size="sm" className="mb-0 align-middle">
-                    <thead className="table-light">
-                      <tr className="small text-muted">
-                        <th className="fw-normal">Name</th>
-                        <th className="fw-normal d-none d-sm-table-cell">Designation</th>
-                        <th className="fw-normal">Shift</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {team.slice(0, 6).map(m => (
-                        <tr key={m.employee_id} className="small">
-                          <td>
-                            <div className="fw-semibold">{m.first_name} {m.last_name}</div>
-                            <small className="text-muted">{m.employee_id}</small>
-                          </td>
-                          <td className="d-none d-sm-table-cell text-truncate" style={{ maxWidth: 120 }}>
-                            {m.designation || '—'}
-                          </td>
-                          <td>
-                            <Badge bg="light" text="dark" pill className="px-2">
-                              {m.shift_timing || 'Default'}
-                            </Badge>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </Table>
-                  {team.length > 6 && (
-                    <p className="text-muted small text-center mt-2 mb-0">
-                      +{team.length - 6} more members
-                    </p>
-                  )}
-                </div>
-              )}
-            </Card.Body>
-          </Card>
-        </Col>
+        <SectionCard>
+          <CardHead
+            iconGrad="linear-gradient(135deg,#3B82F6,#2563EB)"
+            icon={<FaUsers size={15} color="#fff" />}
+            title="Team Members"
+            subtitle={team.length + ' total'}
+            right={<NavBtn onClick={() => navigate('/manager/panel')} bg="#EFF6FF" color="#1D4ED8">View All <FaArrowRight size={10} /></NavBtn>}
+          />
+          <div style={{ padding: '8px 0' }}>
+            {loading
+              ? <div style={{ display: 'flex', justifyContent: 'center', padding: 32 }}><SpinRing /></div>
+              : team.length === 0
+                ? <div style={{ padding: '32px 20px', textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>No team members assigned</div>
+                : team.slice(0, 6).map((m, i) => (
+                    <div key={m.employee_id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 20px', borderBottom: i < Math.min(team.length, 6) - 1 ? '1px solid #F8FAFC' : 'none' }}>
+                      <AvatarCircle first={m.first_name} last={m.last_name} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>{m.first_name} {m.last_name}</div>
+                        <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 1 }}>{m.employee_id} · {m.designation || 'N/A'}</div>
+                      </div>
+                      <span style={{ background: '#F0FDF4', color: '#15803D', border: '1px solid #BBF7D0', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                        {m.shift_timing || 'Default'}
+                      </span>
+                    </div>
+                  ))
+            }
+            {team.length > 6 && <div style={{ padding: '10px 20px', fontSize: 12, color: '#64748B', textAlign: 'center' }}>+{team.length - 6} more members</div>}
+          </div>
+        </SectionCard>
 
-        {/* Pending Leave Requests */}
-        <Col xs={12} md={6}>
-          <Card className="border-0 shadow-sm h-100">
-            <Card.Body className="p-3">
-              <div className="d-flex justify-content-between align-items-center mb-3">
-                <div className="d-flex align-items-center gap-2">
-                  <FaHourglassHalf className="text-warning" size={15} />
-                  <span className="fw-semibold small">Pending Leave Approvals</span>
-                  {pendingLeaves.length > 0 && (
-                    <Badge bg="warning" text="dark" pill>{pendingLeaves.length}</Badge>
-                  )}
-                </div>
-                <Button variant="outline-success" size="sm" onClick={() => navigate('/manager/panel')}>
-                  Manage <FaArrowRight size={10} className="ms-1" />
-                </Button>
-              </div>
-              {loading ? (
-                <div className="d-flex justify-content-center py-4">
-                  <Spinner animation="border" variant="warning" size="sm" />
-                </div>
-              ) : pendingLeaves.length === 0 ? (
-                <div className="text-center py-3">
-                  <FaCheckCircle size={28} className="text-success mb-2 opacity-75" />
-                  <p className="text-muted small mb-0">No pending leave approvals</p>
-                </div>
-              ) : (
-                <div className="table-responsive">
-                  <Table size="sm" className="mb-0 align-middle">
-                    <thead className="table-light">
-                      <tr className="small text-muted">
-                        <th className="fw-normal">Employee</th>
-                        <th className="fw-normal">Type</th>
-                        <th className="fw-normal">From</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pendingLeaves.slice(0, 6).map(l => (
-                        <tr key={l.id} className="small">
-                          <td>
-                            <div className="fw-semibold">{l.first_name} {l.last_name}</div>
-                            <small className="text-muted">{l.employee_id}</small>
-                          </td>
-                          <td>
-                            <Badge bg="info" pill className="px-2 text-capitalize">
-                              {l.leave_type || 'Leave'}
-                            </Badge>
-                          </td>
-                          <td className="text-muted">{formatDate(l.start_date)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </Table>
-                  {pendingLeaves.length > 6 && (
-                    <p className="text-muted small text-center mt-2 mb-0">
-                      +{pendingLeaves.length - 6} more pending
-                    </p>
-                  )}
-                </div>
-              )}
-            </Card.Body>
-          </Card>
-        </Col>
-      </Row>
+        {/* Pending Leaves */}
+        <SectionCard>
+          <CardHead
+            iconGrad="linear-gradient(135deg,#F97316,#EA580C)"
+            icon={<FaHourglassHalf size={15} color="#fff" />}
+            title={
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                Pending Approvals
+                {!loading && pendingLeaves.length > 0 && (
+                  <span style={{ background: '#FFF7ED', color: '#C2410C', border: '1px solid #FED7AA', borderRadius: 20, padding: '1px 8px', fontSize: 11, fontWeight: 700 }}>
+                    {pendingLeaves.length}
+                  </span>
+                )}
+              </span>
+            }
+            subtitle="Awaiting your action"
+            right={<NavBtn onClick={() => navigate('/manager/panel')} bg="#F0FDF4" color="#15803D">Manage <FaArrowRight size={10} /></NavBtn>}
+          />
+          <div style={{ padding: '8px 0' }}>
+            {loading
+              ? <div style={{ display: 'flex', justifyContent: 'center', padding: 32 }}><SpinRing color="#F97316" /></div>
+              : pendingLeaves.length === 0
+                ? <div style={{ padding: '32px 20px', textAlign: 'center' }}>
+                    <FaCheckCircle size={32} color="#22C55E" style={{ opacity: 0.8, display: 'block', margin: '0 auto 10px' }} />
+                    <div style={{ fontSize: 13, color: '#94A3B8' }}>All caught up! No pending approvals.</div>
+                  </div>
+                : pendingLeaves.slice(0, 6).map((l, i) => (
+                    <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 20px', borderBottom: i < Math.min(pendingLeaves.length, 6) - 1 ? '1px solid #F8FAFC' : 'none' }}>
+                      <AvatarCircle first={l.first_name} last={l.last_name} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>{l.first_name} {l.last_name}</div>
+                        <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 1 }}>{l.employee_id} · {fmt(l.start_date)}</div>
+                      </div>
+                      <span style={{ background: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 600, textTransform: 'capitalize', whiteSpace: 'nowrap' }}>
+                        {l.leave_type || 'Leave'}
+                      </span>
+                    </div>
+                  ))
+            }
+            {pendingLeaves.length > 6 && <div style={{ padding: '10px 20px', fontSize: 12, color: '#64748B', textAlign: 'center' }}>+{pendingLeaves.length - 6} more pending</div>}
+          </div>
+        </SectionCard>
+      </div>
 
       {/* Quick Actions */}
-      <div className="mb-2">
-        <p className="text-muted small fw-semibold mb-2 text-uppercase" style={{ letterSpacing: '0.5px' }}>
-          Quick Actions
-        </p>
-        <Row className="g-3">
-          {quickActions.map(({ label, icon, path, variant }) => (
-            <Col xs={12} sm={6} md={4} key={label}>
-              <Card className="border-0 shadow-sm h-100">
-                <Card.Body className="d-flex flex-column align-items-start p-3">
-                  <div className={`bg-${variant} bg-opacity-10 p-3 rounded-circle mb-3`}>
-                    <span className={`text-${variant}`}>{icon}</span>
-                  </div>
-                  <h6 className="fw-semibold mb-auto">{label}</h6>
-                  <Button
-                    variant={`outline-${variant}`}
-                    size="sm"
-                    className="mt-3 d-flex align-items-center gap-2"
-                    onClick={() => navigate(path)}
-                  >
-                    Go <FaArrowRight size={10} />
-                  </Button>
-                </Card.Body>
-              </Card>
-            </Col>
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 14 }}>Quick Actions</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 16 }}>
+          {quickActions.map(({ label, desc, icon, pal, path }) => (
+            <div
+              key={label}
+              onClick={() => navigate(path)}
+              onMouseEnter={() => setHoveredAction(label)}
+              onMouseLeave={() => setHoveredAction(null)}
+              style={{
+                background: '#fff',
+                borderRadius: 16,
+                boxShadow: hoveredAction === label ? '0 8px 32px rgba(0,0,0,.12)' : '0 1px 3px rgba(0,0,0,.06),0 4px 16px rgba(0,0,0,.06)',
+                padding: '22px',
+                cursor: 'pointer',
+                transition: 'transform .2s,box-shadow .2s',
+                transform: hoveredAction === label ? 'translateY(-3px)' : 'none',
+              }}
+            >
+              <div style={{ width: 48, height: 48, borderRadius: 14, background: pal.grad, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+                <span style={{ color: '#fff' }}>{icon}</span>
+              </div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: '#0F172A', marginBottom: 4 }}>{label}</div>
+              <div style={{ fontSize: 12, color: '#94A3B8', marginBottom: 16 }}>{desc}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: pal.border }}>
+                Go to {label} <FaArrowRight size={10} />
+              </div>
+            </div>
           ))}
-        </Row>
+        </div>
       </div>
+
+      <style>{'@keyframes mgrspin { to { transform: rotate(360deg); } }'}</style>
     </div>
   );
 };

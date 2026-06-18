@@ -2073,7 +2073,7 @@ const AdminDashboard = () => {
                                     callbacks: {
                                       title: (items) => items[0]?.label,
                                       label: (ctx) =>
-                                           employees · %,
+                                        ` ${ctx.raw} employees · ${(ctx.raw / total * 100).toFixed(1)}%`,
                                     },
                                   } : { enabled: false },
                                 },
@@ -2101,13 +2101,13 @@ const AdminDashboard = () => {
                                 padding: '10px 12px',
                                 background: seg.bg,
                                 borderRadius: 10,
-                                border: 1px solid ,
+                                border: `1px solid ${seg.border}`,
                                 cursor: 'default',
                                 transition: 'transform 0.15s ease, box-shadow 0.15s ease',
                               }}
                               onMouseEnter={e => {
                                 e.currentTarget.style.transform = 'translateY(-2px)';
-                                e.currentTarget.style.boxShadow =   6px 16px 20;
+                                e.currentTarget.style.boxShadow = '0 6px 16px ' + seg.color + '20';
                               }}
                               onMouseLeave={e => {
                                 e.currentTarget.style.transform = 'translateY(0)';
@@ -2117,7 +2117,7 @@ const AdminDashboard = () => {
                               <div style={{
                                 width: 10, height: 10, borderRadius: '50%',
                                 background: seg.color, flexShrink: 0,
-                                boxShadow:   0 0 3px 30,
+                                boxShadow: '0 0 0 3px ' + seg.color + '30',
                               }} />
                               <div style={{ minWidth: 0 }}>
                                 <div style={{ fontSize: 10.5, color: '#6b7280', fontWeight: 500 }}>
