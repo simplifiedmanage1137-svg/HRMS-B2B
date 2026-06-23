@@ -783,14 +783,11 @@ const Attendance = () => {
     const historyMap = {};
 
     history.forEach(record => {
-      if (record.attendance_date) {
+      if (!record.attendance_date) return;
+      if (!historyMap[record.attendance_date] || (!historyMap[record.attendance_date].clock_in && record.clock_in)) {
         historyMap[record.attendance_date] = record;
       }
     });
-
-    if (attendance && attendance.attendance_date === todayStr) {
-      historyMap[todayStr] = attendance;
-    }
 
     for (let i = 0; i < 30; i++) {
       const date = new Date(today);
@@ -1097,12 +1094,14 @@ const Attendance = () => {
       const generateDays = (apiHistory, fromDate, toDate) => {
         const result = [];
         const historyMap = {};
-        apiHistory.forEach(r => { if (r.attendance_date) historyMap[r.attendance_date] = r; });
+        apiHistory.forEach(r => {
+          if (!r.attendance_date) return;
+          if (!historyMap[r.attendance_date] || (!historyMap[r.attendance_date].clock_in && r.clock_in)) {
+            historyMap[r.attendance_date] = r;
+          }
+        });
 
         const todayStr = formatDate(today);
-        if (attendance && attendance.attendance_date === todayStr) {
-          historyMap[todayStr] = attendance;
-        }
 
         let d = new Date(toDate);
         const stopDate = new Date(fromDate);
@@ -1187,20 +1186,35 @@ const Attendance = () => {
         setAttendanceHistory(newRecords);
         setHistoryOffset(INITIAL_DAYS);
 
-        // Sync today's attendance
+        // Sync today's attendance from DB
         const todayStr = formatDate(today);
         const todayRecord = history.find(r => r.attendance_date === todayStr);
         if (todayRecord && todayRecord.clock_in) {
+          const clockIn = todayRecord.clock_in_ist || todayRecord.clock_in;
+          const clockOut = todayRecord.clock_out_ist || todayRecord.clock_out;
           setAttendance(prev => {
-            if (!prev || !prev.clock_in_display) {
-              const clockIn = todayRecord.clock_in_ist || todayRecord.clock_in;
-              const clockOut = todayRecord.clock_out_ist || todayRecord.clock_out;
+            if (!prev) {
               return {
                 ...todayRecord, clock_in: clockIn, clock_out: clockOut,
                 clock_in_display: clockIn ? formatTimeIST(clockIn) : null,
                 clock_out_display: clockOut ? formatTimeIST(clockOut) : null,
                 late_minutes: Number(todayRecord.late_minutes) || 0,
                 late_display: todayRecord.late_display || null
+              };
+            }
+            if (!prev.clock_in_display) {
+              return { ...prev, clock_in_display: formatTimeIST(clockIn) };
+            }
+            // If DB has clock-out but local state doesn't yet, sync it
+            if (clockOut && !prev.clock_out) {
+              return {
+                ...prev,
+                clock_out: clockOut, clock_out_ist: clockOut,
+                clock_out_display: formatTimeIST(clockOut),
+                total_hours: todayRecord.total_hours,
+                total_minutes: todayRecord.total_minutes,
+                total_hours_display: todayRecord.total_hours_display,
+                status: todayRecord.status
               };
             }
             return prev;
@@ -1427,35 +1441,12 @@ const Attendance = () => {
     }
   };
 
-  // In Attendance.jsx - Update handleClockOut function
-
   const handleClockOut = async () => {
     setLoading(true);
     try {
-      // ✅ PRE-CHECK: Verify there's actually an active session on server
-      const preCheckResponse = await axios.get(API_ENDPOINTS.ATTENDANCE_TODAY(user.employeeId));
-      const serverSession = preCheckResponse.data.active_session;
-      const todayAtt = preCheckResponse.data.attendance;
-
-      // If no active server session at all → nothing to clock out
-      if (!serverSession) {
-        setActiveSession(null);
-        clearSessionFromStorage();
-        if (todayAtt?.clock_out) {
-          setHasClockedOutToday(true);
-        }
-        setMissedClockOuts([]);
-        setLoading(false);
-        return;
-      }
-
-      // Session ID comes from server (always trust server)
-      const sessionId = serverSession.session_id;
-
-      // Proceed with clock-out using server session
       const response = await axios.post(API_ENDPOINTS.ATTENDANCE_CLOCK_OUT, {
         employee_id: user.employeeId,
-        session_id: sessionId,
+        session_id: activeSession?.session_id || null,
         latitude: null,
         longitude: null,
         accuracy: null
@@ -1463,36 +1454,31 @@ const Attendance = () => {
 
       setMessage({ type: 'success', text: response.data.message });
 
-      // ✅ CRITICAL: Update attendance state to show clock_out
+      // Apply clock-out directly from API response
+      const clockOutIST = response.data.clock_out_ist;
       setAttendance(prev => ({
         ...prev,
-        clock_out: response.data.clock_out_ist || response.data.clock_out,
-        clock_out_display: response.data.clock_out_ist ? formatTimeIST(response.data.clock_out_ist) : null,
+        clock_out: clockOutIST,
+        clock_out_ist: clockOutIST,
+        clock_out_display: formatTimeIST(clockOutIST),
         total_hours: response.data.total_hours,
         total_minutes: response.data.total_minutes,
         total_hours_display: response.data.total_hours_display,
         status: response.data.status
       }));
 
-      // ✅ Clear session and set hasClockedOutToday = true
       setActiveSession(null);
       clearSessionFromStorage();
       setHasClockedOutToday(true);
       setMissedClockOuts([]);
 
-      // ✅ Force refresh to get fresh state
-      await fetchTodayAttendance();
       await fetchAttendanceHistory();
       await fetchMissedClockOuts();
-
-      setLoading(false);
-      return;
 
     } catch (error) {
       console.error('❌ Clock-out error:', error);
       const errData = error.response?.data;
       if (errData?.already_clocked_out || error.response?.status === 404) {
-        // Stale session was fixed by backend — clear local state and show Clock In
         setActiveSession(null);
         clearSessionFromStorage();
         setHasClockedOutToday(false);
@@ -1510,6 +1496,7 @@ const Attendance = () => {
       } else {
         setMessage({ type: 'danger', text: errData?.message || 'Failed to clock out' });
       }
+    } finally {
       setLoading(false);
     }
   };

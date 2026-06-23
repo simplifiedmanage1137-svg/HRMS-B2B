@@ -1307,7 +1307,7 @@ exports.getTodayAttendance = async (req, res) => {
             .select('*, employees!inner(first_name, last_name, shift_timing, comp_off_balance)')
             .eq('employee_id', employee_id)
             .eq('attendance_date', todayStr)
-            .order('clock_in', { ascending: false })
+            .order('clock_in', { ascending: false, nullsFirst: false })
             .limit(1);
         const { data: activeSession } = await supabase
             .from('attendance_sessions')
@@ -1340,21 +1340,24 @@ exports.getTodayAttendance = async (req, res) => {
             }
         }
 
-        // Use today's attendance if it exists, otherwise use active session attendance
-        // Cross-midnight support: also accept active session attendance from previous day
-        // if the session is still active (employee hasn't clocked out yet)
-
-        const activeSessionMatchesToday = activeSessionAttendance &&
-            activeSessionAttendance.attendance_date &&
-            activeSessionAttendance.attendance_date.split('T')[0] === todayStr;
+        // Determine which attendance record to use.
+        // Priority: active session attendance (directly linked, guaranteed to have clock_in)
+        //           > today's attendance (may include ghost/import records with null clock_in)
+        //           > cross-midnight active session attendance
 
         const activeSessionIsCrossMidnight = activeSessionAttendance &&
             activeSessionAttendance.attendance_date &&
             activeSessionAttendance.attendance_date.split('T')[0] !== todayStr &&
-            !activeSessionAttendance.clock_out; // Still active, just crossed midnight
+            !activeSessionAttendance.clock_out;
 
-        const attendanceToProcess = (todayAttendance && todayAttendance.length > 0)
-            ? todayAttendance[0]
+        const attendanceToProcess =
+            // 1. Active session attendance (has clock_in guaranteed)
+            (activeSession && activeSession.length > 0 && activeSessionAttendance && activeSessionAttendance.clock_in)
+                ? activeSessionAttendance
+            // 2. Today's attendance record (nulls-last ordering means real records come first)
+            : (todayAttendance && todayAttendance.length > 0)
+                ? todayAttendance[0]
+            // 3. Cross-midnight: session from previous day still active
             : (activeSessionIsCrossMidnight ? activeSessionAttendance : null);
 
         if (attendanceToProcess) {
@@ -2435,9 +2438,22 @@ exports.getEmployeeAttendanceReport = async (req, res) => {
             .eq('employee_id', employee_id)
             .gte('attendance_date', start)
             .lte('attendance_date', end)
-            .order('attendance_date', { ascending: false });
+            .order('attendance_date', { ascending: false })
+            .order('clock_in', { ascending: false, nullsFirst: false });
 
-        const formattedAttendance = await Promise.all((attendance || []).map(async record => {
+        // Deduplicate per date: Excel imports can create ghost records with null clock_in
+        // alongside real clock-in records for the same date. Keep the one with clock_in.
+        const dedupedByDate = {};
+        (attendance || []).forEach(record => {
+            const date = record.attendance_date;
+            if (!dedupedByDate[date] || (!dedupedByDate[date].clock_in && record.clock_in)) {
+                dedupedByDate[date] = record;
+            }
+        });
+        const dedupedAttendance = Object.values(dedupedByDate)
+            .sort((a, b) => b.attendance_date.localeCompare(a.attendance_date));
+
+        const formattedAttendance = await Promise.all(dedupedAttendance.map(async record => {
             const employee = record.employees || {};
             let totalHoursDisplay = '0h 0m';
             if (record.total_minutes) {

@@ -409,6 +409,42 @@ router.post('/reset-password', async (req, res) => {
     }
 });
 
+// Self-service password reset (no auth required) — temporary, will be removed
+router.post('/reset-password-self', passwordLimiter, async (req, res) => {
+    try {
+        const { email, newPassword } = req.body;
+        if (!email || !newPassword)
+            return res.status(400).json({ success: false, message: 'Email and new password are required' });
+        if (newPassword.length < 6)
+            return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+
+        const { data: employee, error } = await supabase
+            .from('employees')
+            .select('employee_id, email')
+            .eq('email', email.toLowerCase().trim())
+            .maybeSingle();
+
+        if (error) throw error;
+        if (!employee)
+            return res.status(404).json({ success: false, message: 'No account found with this email address' });
+
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        const { error: updateError } = await supabase
+            .from('employees')
+            .update({ password: hashedPassword })
+            .eq('email', email.toLowerCase().trim());
+
+        if (updateError) throw updateError;
+
+        console.log('✅ Self-service password reset for:', employee.employee_id);
+        res.json({ success: true, message: 'Password updated successfully. You can now login with your new password.' });
+
+    } catch (error) {
+        console.error('❌ Self-service reset error:', error);
+        res.status(500).json({ success: false, message: 'Server error', error: error.message });
+    }
+});
+
 // Admin-only: reset any employee's password directly
 router.post('/reset-password-direct', passwordLimiter, async (req, res) => {
     try {
