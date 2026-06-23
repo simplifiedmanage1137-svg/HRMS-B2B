@@ -87,6 +87,7 @@ const AddEmployee = () => {
     middle_name: '',
     last_name: '',
     email: '',
+    password: '',
     joining_date: '',
     designation: '',
     department: '',
@@ -203,6 +204,8 @@ const AddEmployee = () => {
     if (!tempPersonalData.first_name) return "First name is required";
     if (!tempPersonalData.last_name) return "Last name is required";
     if (!tempPersonalData.email) return "Email is required";
+    if (!tempPersonalData.password) return "Initial password is required";
+    if (tempPersonalData.password.length < 6) return "Password must be at least 6 characters";
     if (!tempPersonalData.joining_date) return "Joining date is required";
     if (!tempPersonalData.designation) return "Designation is required";
     if (!tempPersonalData.department) return "Department is required";
@@ -480,7 +483,7 @@ const AddEmployee = () => {
   // Test API connection
   const testApiConnection = async () => {
     try {
-      const response = await axios.get(API_ENDPOINTS.TEST);
+      const response = await axios.get(API_ENDPOINTS.HEALTH_CHECK);
       console.log('API Test:', response.data);
       return true;
     } catch (error) {
@@ -547,6 +550,7 @@ const AddEmployee = () => {
         last_name: tempPersonalData.last_name?.trim(),
         employee_id: empId,
         email: tempPersonalData.email?.trim().toLowerCase(),
+        password: tempPersonalData.password,
         joining_date: tempPersonalData.joining_date,
         designation: tempPersonalData.designation?.trim(),
         department: tempPersonalData.department,
@@ -803,6 +807,24 @@ const AddEmployee = () => {
                         onChange={handlePersonalChange}
                         size="sm"
                         placeholder="employee@company.com"
+                      />
+                    </Form.Group>
+                  </Col>
+                </Row>
+
+                <Row className="mb-3">
+                  <Col xs={12}>
+                    <Form.Group>
+                      <Form.Label className="small fw-semibold text-muted">
+                        Initial Password <span className="text-danger">*</span>
+                      </Form.Label>
+                      <Form.Control
+                        type="password"
+                        name="password"
+                        value={tempPersonalData.password}
+                        onChange={handlePersonalChange}
+                        size="sm"
+                        placeholder="Set initial login password (min. 6 characters)"
                       />
                     </Form.Group>
                   </Col>

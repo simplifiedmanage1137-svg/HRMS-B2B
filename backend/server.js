@@ -40,7 +40,6 @@ const noticeBoardRoutes   = require('./routes/noticeBoardRoutes');
 const teamRoutes          = require('./routes/teamRoutes');
 
 const attendanceController = require('./controllers/attendanceController');
-const { scheduleAbsentCheck } = require('./cron/absentEmployeeCheck');
 
 const app = express();
 
@@ -255,36 +254,6 @@ app.get('/api/health', (_req, res) => res.json({
     port: PORT,
 }));
 
-app.get('/api/test', (req, res) => res.json({
-    success: true,
-    message: 'Backend is working!',
-    timestamp: new Date().toISOString(),
-    requestOrigin: req.headers.origin || 'none',
-}));
-
-app.get('/api/test-db', async (_req, res) => {
-    try {
-        const { error } = await supabase
-            .from('employees')
-            .select('count', { count: 'exact', head: true });
-        if (error) throw error;
-        res.json({ success: true, message: 'Supabase connected' });
-    } catch (err) {
-        res.status(500).json({ success: false, message: 'Supabase connection failed', error: err.message });
-    }
-});
-
-app.get('/api/cors-debug', (req, res) => res.json({
-    success: true,
-    origin: req.headers.origin || 'none',
-    corsHeaders: {
-        'Access-Control-Allow-Origin':  res.getHeader('Access-Control-Allow-Origin'),
-        'Access-Control-Allow-Methods': res.getHeader('Access-Control-Allow-Methods'),
-        'Access-Control-Allow-Headers': res.getHeader('Access-Control-Allow-Headers'),
-    },
-    allowedOrigins: [...ALLOWED_ORIGINS],
-}));
-
 // ─── 404 handler ──────────────────────────────────────────────────────────────
 app.use((req, res) => {
     res.status(404).json({ success: false, message: `${req.method} ${req.path} not found` });
@@ -370,8 +339,6 @@ cron.schedule('59 23 * * *', async () => {
         logCronActivity('END_OF_DAY_ERROR', err.message);
     }
 });
-
-scheduleAbsentCheck();
 
 // Weekly Sunday 02:00: DB cleanup
 cron.schedule('0 2 * * 0', async () => {

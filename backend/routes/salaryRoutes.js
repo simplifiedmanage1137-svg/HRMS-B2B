@@ -15,9 +15,11 @@ router.post('/generate', verifyToken, salaryController.generateSalarySlip);
 
 // Admin only routes
 router.post('/generate-bulk', verifyToken, isAdmin, salaryController.generateBulkSalarySlips);
-router.put('/:id/mark-paid', verifyToken, isAdmin, salaryController.markAsPaid);
-router.delete('/:id', verifyToken, isAdmin, salaryController.deleteSalarySlip);
-router.get('/stats/summary', verifyToken, isAdmin, salaryController.getSalaryStatistics);
-router.put('/:id', verifyToken, isAdmin, salaryController.updateSalarySlip);
+router.get('/stats/summary',  verifyToken, isAdmin, salaryController.getSalaryStatistics);
+router.get('/bulk',            verifyToken, isAdmin, salaryController.getBulkPayroll);
+router.post('/adjustment',     verifyToken, isAdmin, salaryController.saveSalaryAdjustment);
+router.put('/:id/mark-paid',  verifyToken, isAdmin, salaryController.markAsPaid);
+router.delete('/:id',         verifyToken, isAdmin, salaryController.deleteSalarySlip);
+router.put('/:id',            verifyToken, isAdmin, salaryController.updateSalarySlip);
 
 module.exports = router;

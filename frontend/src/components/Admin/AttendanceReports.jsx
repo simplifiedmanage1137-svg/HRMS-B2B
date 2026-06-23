@@ -9,6 +9,7 @@ import {
   FaFileExcel,
   FaArrowLeft,
   FaArrowRight,
+  FaSyncAlt,
   FaEye,
   FaClock,
   FaUmbrellaBeach,
@@ -27,6 +28,7 @@ import axios from '../../config/axios';
 import API_ENDPOINTS from '../../config/api';
 import * as XLSX from 'xlsx';
 import { holidays as holidayData } from '../../data/holidays';
+import AttendanceImportPanel from './AttendanceImportPanel';
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const getISTNow = () => new Date(Date.now() + IST_OFFSET_MS);
@@ -43,6 +45,7 @@ const AttendanceReports = () => {
   const [department, setDepartment] = useState('all');
   const [departments, setDepartments] = useState([]);
   const [monthlyStats, setMonthlyStats] = useState({});
+  const [refreshKey, setRefreshKey] = useState(0);
   const [daysInMonth, setDaysInMonth] = useState(0);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
@@ -196,7 +199,7 @@ const AttendanceReports = () => {
         fetchMonthlyAttendance();
       }
     }
-  }, [activeView, selectedDate, selectedMonth, selectedYear, department, allEmployees]);
+  }, [activeView, selectedDate, selectedMonth, selectedYear, department, allEmployees, refreshKey]);
 
   const fetchAllEmployees = async () => {
     try {
@@ -344,16 +347,13 @@ const AttendanceReports = () => {
     }
   };
 
-  // Salary cycle: selected month 26th → next month 25th
+  // Salary cycle: previous month 26th → selected month 25th
+  // e.g. selected month=7 (July) → cycle: Jun 26 – Jul 25
   const getSalaryCycle = (month, year) => {
-    // e.g. selected month=4 (April) → cycle: Apr 26 – May 25
-    const cycleStart = new Date(year, month - 1, 26); // selected month 26th
-    let cycleEnd;
-    if (month === 12) {
-      cycleEnd = new Date(year + 1, 0, 25); // next year Jan 25
-    } else {
-      cycleEnd = new Date(year, month, 25); // next month 25th
-    }
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const prevYear  = month === 1 ? year - 1 : year;
+    const cycleStart = new Date(prevYear, prevMonth - 1, 26); // prev month 26th
+    const cycleEnd   = new Date(year, month - 1, 25);         // selected month 25th
     return { cycleStart, cycleEnd };
   };
 
@@ -517,7 +517,81 @@ const AttendanceReports = () => {
         let overtimeHours = 0;
         let overtimeAmount = 0;
 
-        if (isWeekend) {
+        // DB attendance has highest priority — Excel-imported data overrides holiday/weekend
+        if (dayAttendance) {
+          clockIn = dayAttendance.clock_in_ist || dayAttendance.clock_in;
+          clockOut = dayAttendance.clock_out_ist || dayAttendance.clock_out;
+          lateMinutes = dayAttendance.late_minutes || 0;
+          compOffAwarded = dayAttendance.comp_off_awarded || false;
+          compOffDays = dayAttendance.comp_off_days || 0;
+          overtimeHours = dayAttendance.overtime_hours != null ? dayAttendance.overtime_hours : 0;
+          overtimeAmount = dayAttendance.overtime_amount != null ? dayAttendance.overtime_amount : (overtimeHours * 150);
+
+          const dbStatus = (dayAttendance.status || '').toLowerCase();
+          const dbHours  = Number(dayAttendance.total_hours) || 0;
+          totalHours = dbHours;
+
+          // Special case: employee is actively working right now (not yet clocked out)
+          if (clockIn && !clockOut && isToday) {
+            let clockInTime;
+            if (typeof clockIn === 'string' && clockIn.includes(' ')) {
+              const [p, t] = clockIn.split(' ');
+              const [yr, mo, dy] = p.split('-');
+              const [hr, mn, sc] = t.split(':');
+              clockInTime = new Date(yr, mo - 1, dy, hr, mn, sc || 0);
+            } else {
+              clockInTime = new Date(clockIn);
+            }
+            const liveMinutes = Math.round((new Date() - clockInTime) / (1000 * 60));
+            totalHours = liveMinutes / 60;
+            status = 'working'; statusBadge = 'info'; statusIcon = '✓';
+            tooltip = `Working since ${formatShortTime(clockIn)}`;
+            if (lateMinutes > 0) tooltip += ` | Late: ${formatLateDisplay(lateMinutes)}`;
+            if (compOffAwarded)  tooltip += ` | Comp-Off Earned: ${compOffDays} day`;
+            if (overtimeHours > 0) tooltip += ` | Overtime: ${overtimeHours}h (₹${overtimeAmount})`;
+          } else {
+            // DB status is the source of truth — covers both clock-in records and Excel imports.
+            // Clock times are shown in the tooltip only; they never override the stored status.
+            const statusDisplayMap = {
+              present:  { status: 'present',  statusBadge: 'success',   statusIcon: '✓' },
+              absent:   { status: 'absent',   statusBadge: 'danger',    statusIcon: '✗' },
+              half_day: { status: 'half_day', statusBadge: 'warning',   statusIcon: 'HD' },
+              on_leave: { status: 'on_leave', statusBadge: 'purple',    statusIcon: 'L'  },
+              leave:    { status: 'on_leave', statusBadge: 'purple',    statusIcon: 'L'  },
+              week_off: { status: 'weekend',  statusBadge: 'secondary', statusIcon: 'WO' },
+              holiday:  { status: 'holiday',  statusBadge: 'warning',   statusIcon: '🎉' },
+              comp_off: { status: 'comp_off', statusBadge: 'info',      statusIcon: 'CO' },
+              working:  { status: 'present',  statusBadge: 'success',   statusIcon: '✓'  },
+            };
+            const mapped = statusDisplayMap[dbStatus];
+            if (mapped) {
+              status      = mapped.status;
+              statusBadge = mapped.statusBadge;
+              statusIcon  = mapped.statusIcon;
+            }
+
+            // Build tooltip — show clock times if available, otherwise use DB hours
+            if (clockIn && clockOut) {
+              tooltip = `In: ${formatShortTime(clockIn)} | Out: ${formatShortTime(clockOut)} | Hrs: ${dbHours}h`;
+            } else if (clockIn) {
+              tooltip = `In: ${formatShortTime(clockIn)} | No clock out`;
+            } else {
+              const h = dbHours ? ` (${dbHours}h)` : '';
+              tooltip = status === 'present'  ? `Present${h}`
+                      : status === 'absent'   ? 'Absent'
+                      : status === 'half_day' ? `Half Day${h}`
+                      : status === 'on_leave' ? 'On Leave'
+                      : status === 'weekend'  ? 'Week Off'
+                      : status === 'holiday'  ? 'Holiday'
+                      : status === 'comp_off' ? 'Comp Off'
+                      : dbStatus;
+            }
+            if (lateMinutes > 0) tooltip += ` | Late: ${formatLateDisplay(lateMinutes)}`;
+            if (compOffAwarded)  tooltip += ` | Comp-Off Earned: ${compOffDays} day`;
+            if (overtimeHours > 0) tooltip += ` | Overtime: ${overtimeHours}h (₹${overtimeAmount})`;
+          }
+        }
+        else if (isWeekend) {
           status = 'weekend';
           statusBadge = 'secondary';
           statusIcon = 'W';
@@ -535,117 +609,6 @@ const AttendanceReports = () => {
           statusIcon = 'L';
           tooltip = `On Leave: ${dayLeave.type}`;
           leaveType = dayLeave.type;
-        }
-        else if (dayAttendance) {
-          clockIn = dayAttendance.clock_in_ist || dayAttendance.clock_in;
-          clockOut = dayAttendance.clock_out_ist || dayAttendance.clock_out;
-          lateMinutes = dayAttendance.late_minutes || 0;
-          compOffAwarded = dayAttendance.comp_off_awarded || false;
-          compOffDays = dayAttendance.comp_off_days || 0;
-
-          // Calculate total minutes from clock in and out
-          let totalMinutes = 0;
-
-          if (clockIn && clockOut) {
-            // Parse times properly
-            let clockInTime, clockOutTime;
-
-            if (typeof clockIn === 'string' && clockIn.includes(' ')) {
-              const [inDatePart, inTimePart] = clockIn.split(' ');
-              const [inYear, inMonth, inDay] = inDatePart.split('-');
-              const [inHour, inMinute, inSecond] = inTimePart.split(':');
-              clockInTime = new Date(inYear, inMonth - 1, inDay, inHour, inMinute, inSecond || 0);
-            } else {
-              clockInTime = new Date(clockIn);
-            }
-
-            if (typeof clockOut === 'string' && clockOut.includes(' ')) {
-              const [outDatePart, outTimePart] = clockOut.split(' ');
-              const [outYear, outMonth, outDay] = outDatePart.split('-');
-              const [outHour, outMinute, outSecond] = outTimePart.split(':');
-              clockOutTime = new Date(outYear, outMonth - 1, outDay, outHour, outMinute, outSecond || 0);
-            } else {
-              clockOutTime = new Date(clockOut);
-            }
-
-            // If clock_out is less than clock_in (crossed midnight), add 24 hours
-            if (clockOutTime < clockInTime) {
-              clockOutTime.setDate(clockOutTime.getDate() + 1);
-            }
-
-            totalMinutes = Math.round((clockOutTime - clockInTime) / (1000 * 60));
-            totalHours = totalMinutes / 60;
-          } else if (clockIn && !clockOut && isToday) {
-            // Still working
-            let clockInTime;
-            if (typeof clockIn === 'string' && clockIn.includes(' ')) {
-              const [inDatePart, inTimePart] = clockIn.split(' ');
-              const [inYear, inMonth, inDay] = inDatePart.split('-');
-              const [inHour, inMinute, inSecond] = inTimePart.split(':');
-              clockInTime = new Date(inYear, inMonth - 1, inDay, inHour, inMinute, inSecond || 0);
-            } else {
-              clockInTime = new Date(clockIn);
-            }
-            const now = new Date();
-            totalMinutes = Math.round((now - clockInTime) / (1000 * 60));
-            totalHours = totalMinutes / 60;
-          }
-
-          overtimeHours = dayAttendance.overtime_hours != null ? dayAttendance.overtime_hours : Math.max(0, Math.floor(totalHours - expectedWorkHours));
-          overtimeAmount = dayAttendance.overtime_amount != null ? dayAttendance.overtime_amount : (overtimeHours * 150);
-
-          // ✅ FIXED: Determine status based on total minutes vs expected work minutes
-          if (clockIn && clockOut) {
-            if (totalMinutes >= expectedWorkMinutes) {
-              status = 'present';
-              statusBadge = 'success';
-              statusIcon = '✓';
-            } else if (totalMinutes >= 300) {
-              statusBadge = 'danger';
-              statusIcon = '✗';
-            }
-
-            tooltip = `In: ${formatShortTime(clockIn)} | Out: ${formatShortTime(clockOut)} | Hrs: ${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m`;
-            if (lateMinutes > 0) {
-              tooltip += ` | Late: ${formatLateDisplay(lateMinutes)}`;
-            }
-            if (compOffAwarded) {
-              tooltip += ` | Comp-Off Earned: ${compOffDays} day`;
-            }
-            if (overtimeHours > 0) {
-              tooltip += ` | Overtime: ${overtimeHours}h (₹${overtimeAmount})`;
-            }
-          }
-          else if (clockIn && !clockOut && isToday) {
-            status = 'working';
-            statusBadge = 'info';
-            statusIcon = '✓';
-            tooltip = `Working since ${formatShortTime(clockIn)}`;
-            if (lateMinutes > 0) {
-              tooltip += ` | Late: ${formatLateDisplay(lateMinutes)}`;
-            }
-            if (compOffAwarded) {
-              tooltip += ` | Comp-Off Earned: ${compOffDays} day`;
-            }
-            if (overtimeHours > 0) {
-              tooltip += ` | Overtime: ${overtimeHours}h (₹${overtimeAmount})`;
-            }
-          }
-          else if (clockIn) {
-            status = 'present';
-            statusBadge = 'success';
-            statusIcon = '✓';
-            tooltip = `In: ${formatShortTime(clockIn)} | No clock out`;
-            if (lateMinutes > 0) {
-              tooltip += ` | Late: ${formatLateDisplay(lateMinutes)}`;
-            }
-            if (compOffAwarded) {
-              tooltip += ` | Comp-Off Earned: ${compOffDays} day`;
-            }
-            if (overtimeHours > 0) {
-              tooltip += ` | Overtime: ${overtimeHours}h (₹${overtimeAmount})`;
-            }
-          }
         }
 
         processedData.push({
@@ -1130,9 +1093,39 @@ const AttendanceReports = () => {
         >
           <FaCalendarAlt className="me-1" size={12} /> Monthly Calendar
         </Button>
+        <Button
+          variant={activeView === 'import' ? 'primary' : 'light'}
+          size="sm"
+          onClick={() => setActiveView('import')}
+        >
+          <FaFileExcel className="me-1" size={12} /> Import
+        </Button>
+        <Button
+          variant="outline-secondary"
+          size="sm"
+          className="ms-auto"
+          disabled={loading}
+          onClick={() => activeView === 'daily' ? fetchDailyAttendance() : activeView === 'monthly' ? fetchMonthlyAttendance() : null}
+          title="Refresh current view"
+        >
+          {loading
+            ? <><Spinner animation="border" size="sm" style={{ width: 11, height: 11 }} className="me-1" /> Refreshing…</>
+            : <><FaSyncAlt className="me-1" size={11} /> Refresh</>}
+        </Button>
       </div>
 
-      {activeView === 'daily' ? (
+      {activeView === 'import' ? (
+        <AttendanceImportPanel
+          employees={allEmployees}
+          onMonthYearChange={(m, y) => { setSelectedMonth(m); setSelectedYear(y); }}
+          onImportSuccess={(m, y) => {
+            setSelectedMonth(m);
+            setSelectedYear(y);
+            setActiveView('monthly');
+            setRefreshKey(k => k + 1);
+          }}
+        />
+      ) : activeView === 'daily' ? (
         <div className="d-flex flex-column flex-sm-row mb-3 gap-2">
           <Form.Control
             type="date"
@@ -1231,11 +1224,13 @@ const AttendanceReports = () => {
         <Card className="border-0 shadow-sm">
           <Card.Header className="bg-light py-2 d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-2">
             <h6 className="mb-0 fw-semibold small">
-              {activeView === 'daily' ? 'Daily Attendance' : 'Monthly Calendar'}
+              {activeView === 'daily' ? 'Daily Attendance' : 'Monthly Attendance'}
             </h6>
-            <Badge bg="secondary" pill className="ms-0 ms-sm-auto">
-              {activeView === 'daily' ? dailyAttendance.length : daysInMonth} Records
-            </Badge>
+            {activeView === 'daily' && (
+              <Badge bg="secondary" pill className="ms-0 ms-sm-auto">
+                {dailyAttendance.length} Records
+              </Badge>
+            )}
           </Card.Header>
           <Card.Body className="p-0">
             {activeView === 'daily' ? (
@@ -1360,278 +1355,169 @@ const AttendanceReports = () => {
                   </tbody>
                 </Table>
               </div>
-            ) : (
-              <div className="monthly-table-container" style={{ position: 'relative', height: '400px', overflow: 'auto' }}>
-                <style>
-                  {`
-                    .monthly-table-container {
-                      position: relative;
-                      overflow: auto;
-                      white-space: nowrap;
-                    }
-                    
-                    .monthly-table {
-                      border-collapse: separate;
-                      border-spacing: 0;
-                      min-width: 100%;
-                    }
-                    
-                    .monthly-table thead {
-                      position: sticky;
-                      top: 0;
-                      z-index: 20;
-                      background-color: #f8f9fa;
-                    }
-                    
-                    .monthly-table th, 
-                    .monthly-table td {
-                      border: 1px solid #dee2e6;
-                      padding: 0.35rem;
-                      white-space: nowrap;
-                    }
-                    
-                    .fixed-col {
-                      position: sticky;
-                      background-color: white;
-                      z-index: 15;
-                    }
-                    
-                    .fixed-col-header {
-                      position: sticky;
-                      background-color: #f8f9fa !important;
-                      z-index: 25;
-                    }
-                    
-                    .col-1 {
-                      left: 0;
-                      min-width: 40px;
-                      border-right: 2px solid #dee2e6;
-                      box-shadow: 2px 0 5px -2px rgba(0,0,0,0.1);
-                    }
-                    
-                    .col-2 {
-                      left: 40px;
-                      min-width: 120px;
-                      border-right: 2px solid #dee2e6;
-                      box-shadow: 2px 0 5px -2px rgba(0,0,0,0.1);
-                    }
-                    
-                    .monthly-table tbody tr:hover .fixed-col {
-                      background-color: rgba(0,0,0,.075);
-                    }
-                    
-                    @media (max-width: 768px) {
-                      .monthly-table th, 
-                      .monthly-table td {
-                        padding: 0.25rem;
-                      }
-                      .col-2 {
-                        min-width: 100px;
-                      }
-                    }
-                  `}
-                </style>
-                <table className="monthly-table table-sm mb-0">
-                  <thead>
-                    <tr>
-                      <th className="fixed-col-header col-1 text-center fw-normal small bg-light"
-                        style={{ left: 0, top: 0 }}>
-                        Sr No
-                      </th>
-                      <th className="fixed-col-header col-2 text-center fw-normal small bg-light"
-                        style={{ left: '40px', top: 0 }}>
-                        Employee
-                      </th>
-                      {[...Array(daysInMonth)].map((_, i) => {
-                        const dayIndex = i; // 0-based
-                        const { cycleStart } = getSalaryCycle(selectedMonth, selectedYear);
-                        const currentDate = new Date(cycleStart);
-                        currentDate.setDate(currentDate.getDate() + dayIndex);
-                        const dayNum = currentDate.getDate();
-                        const monthShort = currentDate.toLocaleDateString('en-IN', { month: 'short' });
-                        const isCurrent = currentDate.toDateString() === new Date().toDateString();
-                        const dayOfWeek = currentDate.getDay();
-                        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+            ) : (() => {
+                const { cycleStart, cycleEnd } = getSalaryCycle(selectedMonth, selectedYear);
+                const cycleDateList = [];
+                const cur = new Date(cycleStart);
+                while (cur <= cycleEnd) { cycleDateList.push(new Date(cur)); cur.setDate(cur.getDate() + 1); }
 
-                        return (
-                          <th key={i} className={`fw-normal small text-center ${isCurrent ? 'bg-primary text-white' : isWeekend ? 'bg-secondary text-white' : 'bg-light'}`}
-                            style={{ minWidth: '30px', top: 0, zIndex: 10 }}>
-                            {dayNum}
-                            <div className="small fw-normal d-none d-sm-block">{monthShort}</div>
-                          </th>
-                        );
-                      })}
-                      <th className="text-center fw-normal small bg-light" style={{ minWidth: '28px', top: 0, zIndex: 10 }}>P</th>
-                      <th className="text-center fw-normal small bg-light" style={{ minWidth: '28px', top: 0, zIndex: 10 }}>H</th>
-                      <th className="text-center fw-normal small bg-light" style={{ minWidth: '28px', top: 0, zIndex: 10 }}>L</th>
-                      <th className="text-center fw-normal small bg-light d-none d-md-table-cell" style={{ minWidth: '28px', top: 0, zIndex: 10 }}>Hol</th>
-                      <th className="text-center fw-normal small bg-light d-none d-md-table-cell" style={{ minWidth: '28px', top: 0, zIndex: 10 }}>W</th>
-                      <th className="text-center fw-normal small bg-light" style={{ minWidth: '28px', top: 0, zIndex: 10 }}>A</th>
-                      <th className="text-center fw-normal small bg-light d-none d-lg-table-cell" style={{ minWidth: '60px', top: 0, zIndex: 10 }}>Late</th>
-                      <th className="text-center fw-normal small bg-light d-none d-lg-table-cell" style={{ minWidth: '60px', top: 0, zIndex: 10 }}>OT</th>
-                      <th className="text-center fw-normal small bg-light d-none d-xl-table-cell" style={{ minWidth: '60px', top: 0, zIndex: 10 }}>OT Amt</th>
-                      <th className="text-center fw-normal small bg-light d-none d-xl-table-cell" style={{ minWidth: '60px', top: 0, zIndex: 10 }}>Comp-Off</th>
-                      <th className="text-center fw-normal small bg-light" style={{ minWidth: '70px', top: 0, zIndex: 10 }}>Avg Hours</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.keys(monthlyStats).length > 0 ? (
-                      Object.keys(monthlyStats).map((empId, idx) => {
-                        const empStats = monthlyStats[empId];
-                        const empRecords = monthlyAttendance.filter(r => r.employee_id === empId);
+                const STATUS_CELL = {
+                  present:  { bg: '#dcfce7', color: '#15803d', label: 'P'   },
+                  working:  { bg: '#dbeafe', color: '#1d4ed8', label: 'W'   },
+                  absent:   { bg: '#fee2e2', color: '#b91c1c', label: 'A'   },
+                  half_day: { bg: '#fef9c3', color: '#a16207', label: 'HD'  },
+                  on_leave: { bg: '#ede9fe', color: '#6d28d9', label: 'L'   },
+                  holiday:  { bg: '#fef3c7', color: '#92400e', label: 'H'   },
+                  weekend:  { bg: '#f1f5f9', color: '#64748b', label: 'W-OFF'},
+                  comp_off: { bg: '#e0f2fe', color: '#0369a1', label: 'CO'  },
+                };
 
-                        return (
-                          <tr key={empId}>
-                            <td className="fixed-col col-1 text-center small"
-                              style={{ left: 0, backgroundColor: 'white' }}>
-                              {idx + 1}
-                            </td>
-                            <td className="fixed-col col-2 small"
-                              style={{ left: '40px', backgroundColor: 'white' }}>
-                              <div className="text-truncate" style={{ maxWidth: '110px' }} title={empStats.name}>
-                                <span className="fw-semibold">{empStats.name}</span>
-                              </div>
-                              <small className="text-muted text-truncate d-block" style={{ maxWidth: '110px' }} title={empId}>
-                                {empId}
-                              </small>
-                            </td>
-                            {[...Array(daysInMonth)].map((_, day) => {
-                              const dayNum = day + 1;
-                              const dayRecord = empRecords.find(r => r.day === dayNum);
-                              const isCurrent = isCurrentDate(dayNum);
+                const empIds = Object.keys(monthlyStats);
+                const totalP    = empIds.reduce((s, id) => s + (monthlyStats[id].present   || 0), 0);
+                const totalA    = empIds.reduce((s, id) => s + (monthlyStats[id].absent    || 0), 0);
+                const totalHD   = empIds.reduce((s, id) => s + (monthlyStats[id].half_day  || 0), 0);
+                const totalL    = empIds.reduce((s, id) => s + (monthlyStats[id].on_leave  || 0), 0);
+                const totalLate = empIds.reduce((s, id) => s + (monthlyStats[id].late_count|| 0), 0);
 
+                const SUMMARY_COLS = [
+                  { key: 'P',   label: 'P',    bg: '#dcfce7', color: '#15803d', title: 'Present',    val: e => e.present   || 0 },
+                  { key: 'HD',  label: 'HD',   bg: '#fef9c3', color: '#a16207', title: 'Half Day',   val: e => e.half_day  || 0 },
+                  { key: 'W',   label: 'W',    bg: '#dbeafe', color: '#1d4ed8', title: 'Working',    val: e => e.working   || 0 },
+                  { key: 'L',   label: 'L',    bg: '#ede9fe', color: '#6d28d9', title: 'On Leave',   val: e => e.on_leave  || 0 },
+                  { key: 'H',   label: 'H',    bg: '#fef3c7', color: '#92400e', title: 'Holiday',    val: e => e.holiday   || 0 },
+                  { key: 'WO',  label: 'W-OFF',bg: '#f1f5f9', color: '#64748b', title: 'Weekend Off',val: e => e.weekend   || 0 },
+                  { key: 'A',   label: 'A',    bg: '#fee2e2', color: '#b91c1c', title: 'Absent',     val: e => e.absent    || 0 },
+                  { key: 'LT',  label: '⚠️',   bg: '#fff7ed', color: '#c2410c', title: 'Late',       val: e => e.late_count|| 0 },
+                  { key: 'OT',  label: 'OT',   bg: '#f0fdf4', color: '#15803d', title: 'Overtime',   val: e => e.overtime_hours > 0 ? e.overtime_hours + 'h' : 0 },
+                  { key: 'CO',  label: 'CO',   bg: '#e0f2fe', color: '#0369a1', title: 'Comp-Off',   val: e => e.comp_off_count|| 0 },
+                ];
+
+                return (
+                  <>
+                    {/* ── Summary strip ── */}
+                    <div style={{ display: 'flex', gap: 8, padding: '10px 14px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '5px 14px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 17, fontWeight: 800, color: '#374151' }}>{empIds.length}</div>
+                        <div style={{ fontSize: 10, color: '#6b7280' }}>Employees</div>
+                      </div>
+                      {[
+                        { label: 'Present',  value: totalP,    bg: '#dcfce7', color: '#15803d' },
+                        { label: 'Half Day', value: totalHD,   bg: '#fef9c3', color: '#a16207' },
+                        { label: 'Absent',   value: totalA,    bg: '#fee2e2', color: '#b91c1c' },
+                        { label: 'On Leave', value: totalL,    bg: '#ede9fe', color: '#6d28d9' },
+                        { label: 'Late',     value: totalLate, bg: '#fff7ed', color: '#c2410c' },
+                      ].map(({ label, value, bg, color }) => (
+                        <div key={label} style={{ background: bg, borderRadius: 8, padding: '5px 12px', textAlign: 'center' }}>
+                          <div style={{ fontSize: 17, fontWeight: 800, color }}>{value}</div>
+                          <div style={{ fontSize: 10, color }}>{label}</div>
+                        </div>
+                      ))}
+                      <div style={{ marginLeft: 'auto', fontSize: 11, color: '#6b7280', fontWeight: 600 }}>
+                        {formatCycleLabel(selectedMonth, selectedYear)}
+                      </div>
+                    </div>
+
+                    {/* ── Date grid ── */}
+                    <div style={{ overflowX: 'auto', maxHeight: '460px' }}>
+                      <table style={{ borderCollapse: 'collapse', fontSize: 11 }}>
+                        <thead>
+                          <tr>
+                            <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e5e7eb', borderRight: '2px solid #d1d5db', position: 'sticky', left: 0, top: 0, background: '#f9fafb', zIndex: 3, minWidth: 160, whiteSpace: 'nowrap' }}>
+                              Employee
+                            </th>
+                            {cycleDateList.map((d, i) => {
+                              const dn  = d.getDate();
+                              const mon = d.toLocaleString('en-US', { month: 'short' });
+                              const dow = ['Su','Mo','Tu','We','Th','Fr','Sa'][d.getDay()];
+                              const isWknd  = d.getDay() === 0 || d.getDay() === 6;
+                              const isToday = d.toDateString() === new Date().toDateString();
                               return (
-                                <td key={day} className={`small text-center align-middle ${isCurrent ? 'bg-primary bg-opacity-10' : ''}`}
-                                  style={{ backgroundColor: dayRecord?.is_late ? '#fff3cd' : 'transparent' }}>
-                                  {/* Calendar View - Fixed Status Display */}
-                                  {dayRecord ? (
-                                    <>
-                                      {(() => {
-                                        // Determine the correct icon based on status
-                                        let icon = '•';
-                                        let iconColor = 'text-secondary';
-                                        let iconTooltip = dayRecord.tooltip || 'No data';
-
-                                        // ⭐ Overtime takes priority - show distinct ⏰ symbol
-                                        if ((dayRecord.status === 'present' || dayRecord.status === 'working') && dayRecord.overtime_hours > 0) {
-                                          icon = '⏰';
-                                          iconColor = 'text-success';
-                                          iconTooltip = `Present + Overtime: +${dayRecord.overtime_hours}h`;
-                                          if (dayRecord.total_hours) {
-                                            iconTooltip += ` (${dayRecord.total_hours}h total)`;
-                                          }
-                                          if (dayRecord.is_late) {
-                                            iconTooltip += ` [Late ${dayRecord.late_display || ''}]`;
-                                          }
-                                        } else if (dayRecord.status === 'present' || dayRecord.status === 'working') {
-                                          icon = '✓';
-                                          iconColor = dayRecord.is_late ? 'text-warning' : 'text-success';
-                                          iconTooltip = dayRecord.is_late ? `Present (Late ${dayRecord.late_display || ''})` : 'Present';
-                                          if (dayRecord.total_hours) {
-                                            iconTooltip += ` - ${dayRecord.total_hours}h`;
-                                          }
-                                        } else if (dayRecord.status === 'half_day') {
-                                          icon = '½';
-                                          iconColor = 'text-warning';
-                                          iconTooltip = `Half Day - ${dayRecord.total_hours || 0}h`;
-                                          if (dayRecord.is_late) {
-                                            iconTooltip += ` (Late ${dayRecord.late_display || ''})`;
-                                          }
-                                        } else if (dayRecord.status === 'on_leave') {
-                                          icon = 'L';
-                                          iconColor = 'text-purple';
-                                          iconTooltip = `On Leave - ${dayRecord.leave_type || 'Leave'}`;
-                                        } else if (dayRecord.status === 'holiday') {
-                                          icon = '🎉';
-                                          iconColor = 'text-warning';
-                                          iconTooltip = `Holiday - ${dayRecord.holiday_name || 'Holiday'}`;
-                                        } else if (dayRecord.status === 'weekend') {
-                                          icon = <FaMoon size={12} />;
-                                          iconColor = 'text-secondary';
-                                          iconTooltip = 'Weekend Off';
-                                        } else if (dayRecord.status === 'absent') {
-                                          icon = '✗';
-                                          iconColor = 'text-danger';
-                                          iconTooltip = 'Absent';
-                                        }
-
-                                        return (
-                                          <span
-                                            title={iconTooltip}
-                                            className={iconColor}
-                                            style={{ cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}
-                                          >
-                                            {typeof icon === 'string' ? icon : icon}
-                                            {dayRecord.is_late && dayRecord.status !== 'on_leave' && dayRecord.status !== 'holiday' && dayRecord.status !== 'weekend' && dayRecord.overtime_hours <= 0 && (
-                                              <sup className="text-warning fw-bold">*</sup>
-                                            )}
-                                          </span>
-                                        );
-                                      })()}
-                                    </>
-                                  ) : '-'}
-                                </td>
+                                <th key={i} style={{ padding: '3px 2px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', borderRight: '1px solid #f3f4f6', minWidth: 30, position: 'sticky', top: 0, zIndex: 2, background: isToday ? '#1e40af' : isWknd ? '#eff6ff' : '#f9fafb' }}>
+                                  <div style={{ color: isToday ? '#fff' : isWknd ? '#1d4ed8' : '#374151', fontSize: 11, fontWeight: 800, lineHeight: 1.1 }}>{dn}</div>
+                                  <div style={{ color: isToday ? '#bfdbfe' : isWknd ? '#3b82f6' : '#9ca3af', fontSize: 9, lineHeight: 1.2 }}>{mon}</div>
+                                  <div style={{ color: isToday ? '#93c5fd' : isWknd ? '#93c5fd' : '#d1d5db', fontSize: 9, lineHeight: 1.2 }}>{dow}</div>
+                                </th>
                               );
                             })}
-                            <td className="text-center"><Badge bg="success" pill>{empStats.present}</Badge></td>
-                            <td className="text-center"><Badge bg="warning" pill>{empStats.half_day}</Badge></td>
-                            <td className="text-center"><Badge bg="purple" pill style={{ backgroundColor: '#6f42c1' }}>{empStats.on_leave || 0}</Badge></td>
-                            <td className="text-center d-none d-md-table-cell"><Badge bg="warning" pill style={{ backgroundColor: '#ffc107' }}>{empStats.holiday || 0}</Badge></td>
-                            <td className="text-center d-none d-md-table-cell"><Badge bg="secondary" pill><FaMoon className="me-1" size={10} /> {empStats.weekend || 0}</Badge></td>
-                            <td className="text-center"><Badge bg="danger" pill>{empStats.absent}</Badge></td>
-                            <td className="text-center d-none d-lg-table-cell">
-                              {empStats.late_count > 0 ? (
-                                <Badge bg="warning" pill className="text-nowrap" style={{ backgroundColor: '#fd7e14' }} title={`Total: ${formatLateDisplay(empStats.total_late_minutes)}`}>
-                                  ⚠️ {empStats.late_count}
-                                </Badge>
-                              ) : (
-                                <Badge bg="secondary" pill className="text-nowrap">0</Badge>
-                              )}
-                            </td>
-                            <td className="text-center d-none d-lg-table-cell">
-                              {empStats.overtime_hours > 0 ? (
-                                <Badge bg="success" pill className="text-nowrap">
-                                  ⏰ {empStats.overtime_hours}h
-                                </Badge>
-                              ) : (
-                                <Badge bg="secondary" pill className="text-nowrap">0</Badge>
-                              )}
-                            </td>
-                            <td className="text-center d-none d-xl-table-cell">
-                              {empStats.overtime_amount > 0 ? (
-                                <Badge bg="info" pill className="text-nowrap">
-                                  ₹{empStats.overtime_amount}
-                                </Badge>
-                              ) : (
-                                <Badge bg="secondary" pill className="text-nowrap">₹0</Badge>
-                              )}
-                            </td>
-                            <td className="text-center d-none d-xl-table-cell">
-                              {empStats.comp_off_count > 0 ? (
-                                <Badge bg="purple" pill className="text-nowrap" style={{ backgroundColor: '#9b59b6' }} title={`Total Days: ${empStats.total_comp_off_days.toFixed(1)}`}>
-                                  <FaTrophy className="me-1" size={8} /> {empStats.comp_off_count}
-                                </Badge>
-                              ) : (
-                                <Badge bg="secondary" pill className="text-nowrap">0</Badge>
-                              )}
-                            </td>
-                            <td className="text-center">
-                              <strong className="text-nowrap">{empStats.avg_hours ? formatHours(empStats.avg_hours) : '0h'}</strong>
-                              <br />
-                              <small className="text-muted d-none d-sm-inline">({empStats.total_hours.toFixed(1)}h / {empStats.working_days_count}d)</small>
-                            </td>
+                            {/* Summary column headers */}
+                            {SUMMARY_COLS.map(({ key, label, bg, color, title }) => (
+                              <th key={key} title={title} style={{ padding: '4px 2px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', borderLeft: key === 'P' ? '2px solid #d1d5db' : '1px solid #f3f4f6', minWidth: 30, position: 'sticky', top: 0, zIndex: 2, background: bg }}>
+                                <span style={{ fontSize: 10, fontWeight: 800, color }}>{label}</span>
+                              </th>
+                            ))}
+                            <th style={{ padding: '4px 6px', textAlign: 'center', borderBottom: '2px solid #e5e7eb', borderLeft: '1px solid #e5e7eb', minWidth: 52, position: 'sticky', top: 0, zIndex: 2, background: '#f9fafb' }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, color: '#374151' }}>Avg Hrs</span>
+                            </th>
                           </tr>
-                        );
-                      })
-                    ) : (
-                      <tr>
-                        <td colSpan={daysInMonth + 15} className="text-center py-4">No attendance data</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                        </thead>
+                        <tbody>
+                          {empIds.length > 0 ? empIds.map((empId, idx) => {
+                            const empStats   = monthlyStats[empId];
+                            const empRecords = monthlyAttendance.filter(r => r.employee_id === empId);
+                            const rowBg      = idx % 2 === 0 ? '#fff' : '#fafafa';
+
+                            return (
+                              <tr key={empId} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                                <td style={{ padding: '4px 10px', position: 'sticky', left: 0, zIndex: 1, background: rowBg, borderRight: '2px solid #d1d5db', whiteSpace: 'nowrap' }}>
+                                  <div style={{ fontWeight: 600, color: '#111827', fontSize: 11 }}>{empStats.name}</div>
+                                  <div style={{ fontSize: 9, color: '#9ca3af' }}>{empId}</div>
+                                </td>
+                                {cycleDateList.map((d, i) => {
+                                  const yr  = d.getFullYear();
+                                  const mo  = String(d.getMonth() + 1).padStart(2, '0');
+                                  const dy  = String(d.getDate()).padStart(2, '0');
+                                  const ds  = `${yr}-${mo}-${dy}`;
+                                  const rec = empRecords.find(r => r.date === ds);
+                                  const cs  = rec ? (STATUS_CELL[rec.status] || { bg: '#f3f4f6', color: '#6b7280', label: '?' }) : null;
+                                  const isTd = d.toDateString() === new Date().toDateString();
+                                  return (
+                                    <td key={i} title={rec?.tooltip} style={{ padding: '2px 1px', textAlign: 'center', background: isTd ? '#eff6ff' : rowBg, borderRight: '1px solid #f3f4f6' }}>
+                                      {rec ? (
+                                        <span style={{ position: 'relative', display: 'inline-block' }}>
+                                          <span style={{ display: 'inline-block', background: cs.bg, color: cs.color, borderRadius: 3, padding: '1px 2px', fontSize: 10, fontWeight: 700, minWidth: 26, textAlign: 'center', lineHeight: 1.5 }}>{cs.label}</span>
+                                          {rec.is_late && rec.status !== 'weekend' && rec.status !== 'holiday' && (
+                                            <span style={{ position: 'absolute', top: -3, right: -3, color: '#ea580c', fontSize: 8, fontWeight: 900, lineHeight: 1 }}>⚠</span>
+                                          )}
+                                          {rec.overtime_hours > 0 && (
+                                            <span style={{ position: 'absolute', top: -3, left: -3, color: '#15803d', fontSize: 8, fontWeight: 900, lineHeight: 1 }}>+</span>
+                                          )}
+                                        </span>
+                                      ) : (
+                                        <span style={{ color: '#e5e7eb', fontSize: 10 }}>·</span>
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                                {/* Summary cells */}
+                                {SUMMARY_COLS.map(({ key, bg, color, val }) => {
+                                  const v = val(empStats);
+                                  return (
+                                    <td key={key} style={{ padding: '3px 2px', textAlign: 'center', background: rowBg, borderLeft: key === 'P' ? '2px solid #d1d5db' : '1px solid #f3f4f6' }}>
+                                      {v !== 0
+                                        ? <span style={{ background: bg, color, borderRadius: 4, padding: '1px 4px', fontSize: 10, fontWeight: 700 }}>{v}</span>
+                                        : <span style={{ color: '#d1d5db', fontSize: 10 }}>—</span>}
+                                    </td>
+                                  );
+                                })}
+                                <td style={{ padding: '3px 6px', textAlign: 'center', background: rowBg, borderLeft: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>
+                                  <span style={{ fontSize: 10, fontWeight: 700, color: '#374151' }}>{empStats.avg_hours ? formatHours(empStats.avg_hours) : '—'}</span>
+                                  <div style={{ fontSize: 9, color: '#9ca3af' }}>{empStats.total_hours ? empStats.total_hours.toFixed(0) + 'h' : ''}</div>
+                                </td>
+                              </tr>
+                            );
+                          }) : (
+                            <tr>
+                              <td colSpan={cycleDateList.length + SUMMARY_COLS.length + 2} style={{ textAlign: 'center', padding: '32px', color: '#9ca3af', fontSize: 13 }}>
+                                No attendance data for this period
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                );
+            })()}
           </Card.Body>
         </Card>
       )}

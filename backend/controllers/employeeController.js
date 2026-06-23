@@ -126,13 +126,14 @@ exports.createEmployee = async (req, res) => {
     try {
         console.log('='.repeat(50));
         console.log('CREATE EMPLOYEE REQUEST RECEIVED');
-        console.log('Request Body:', JSON.stringify(req.body, null, 2));
         console.log('='.repeat(50));
 
         const {
             first_name,
             middle_name,
             last_name,
+            email,
+            password,
             dob,
             position,
             joining_date,
@@ -150,6 +151,7 @@ exports.createEmployee = async (req, res) => {
         const requiredFields = {
             first_name,
             last_name,
+            email,
             dob,
             position,
             joining_date,
@@ -172,6 +174,10 @@ exports.createEmployee = async (req, res) => {
                 message: 'Missing required fields',
                 missingFields: missingFields
             });
+        }
+
+        if (!password || password.length < 6) {
+            return res.status(400).json({ success: false, message: 'Initial password is required and must be at least 6 characters' });
         }
 
         // Format dates
@@ -207,26 +213,8 @@ exports.createEmployee = async (req, res) => {
         // We'll do sequential operations with error handling
 
         try {
-            // Insert employee
-            console.log('Inserting employee with data:', {
-                employee_id: employeeId,
-                first_name,
-                middle_name: middle_name || null,
-                last_name,
-                dob: formattedDob,
-                position,
-                joining_date: formattedJoiningDate,
-                address,
-                department,
-                reporting_manager: reporting_manager || null,
-                employment_type: employment_type || 'Full Time',
-                salary: parseFloat(salary),
-                emergency_contact: emergency_contact || null,
-                shift_timing: shift_timing || '9:00 AM - 6:00 PM',
-                contract_policy: contract_policy || null,
-                joining_month_count: monthsCompleted,
-                can_apply_leave: canApplyLeave
-            });
+            // Hash password before insertion
+            const hashedPassword = await bcrypt.hash(password, 10);
 
             const { data: employeeData, error: employeeError } = await supabase
                 .from('employees')
@@ -235,6 +223,8 @@ exports.createEmployee = async (req, res) => {
                     first_name,
                     middle_name: middle_name || null,
                     last_name,
+                    email: email.trim().toLowerCase(),
+                    password: hashedPassword,
                     dob: formattedDob,
                     position,
                     joining_date: formattedJoiningDate,
@@ -254,26 +244,6 @@ exports.createEmployee = async (req, res) => {
             if (employeeError) throw employeeError;
 
             console.log('Employee inserted successfully. ID:', employeeData[0].id);
-
-            // Create user account for employee
-            const hashedPassword = await bcrypt.hash('Welcome@123', 10);
-            const email = `emp_${employeeId.toLowerCase()}@ems.com`;
-
-            console.log('Creating user account with email:', email);
-
-            const { data: userData, error: userError } = await supabase
-                .from('users')
-                .insert([{
-                    employee_id: employeeId,
-                    email: email,
-                    password: hashedPassword,
-                    role: 'employee'
-                }])
-                .select();
-
-            if (userError) throw userError;
-
-            console.log('User account created successfully. User ID:', userData[0].id);
 
             // Initialize leave balance for current year (0 leaves initially)
             try {
@@ -302,31 +272,22 @@ exports.createEmployee = async (req, res) => {
                 console.log('Leave balance table might not exist, skipping...', balanceError.message);
             }
 
-            console.log('Employee creation completed successfully');
-            console.log('Login credentials:');
-            console.log('Email:', email);
-            console.log('Password: Welcome@123');
+            console.log('Employee creation completed successfully. EmployeeId:', employeeId);
 
             res.status(201).json({
                 success: true,
                 message: 'Employee created successfully',
                 employeeId,
-                id: employeeData[0].id,
-                email: email,
-                loginCredentials: {
-                    email: email,
-                    password: 'Welcome@123'
-                }
+                id: employeeData[0].id
             });
 
         } catch (error) {
             console.error('Transaction failed, rolling back...');
 
-            // Try to clean up if employee was created but user creation failed
-            if (error.message.includes('user') && employeeId) {
+            if (employeeId) {
                 try {
                     await supabase.from('employees').delete().eq('employee_id', employeeId);
-                    console.log('Cleaned up employee record after user creation failure');
+                    console.log('Cleaned up employee record after failure');
                 } catch (cleanupError) {
                     console.error('Failed to clean up employee:', cleanupError);
                 }

@@ -21,6 +21,8 @@ import axios from '../../config/axios';
 import API_ENDPOINTS from '../../config/api';
 import { useNavigate, useParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
+import SalarySlipManager from './SalarySlipManager';
+import AttendanceCalendar from './AttendanceCalendar';
 
 ChartJS.register(
   CategoryScale, LinearScale, BarElement,
@@ -827,39 +829,8 @@ const EmployeeProfileView = () => {
                 { label: 'In-Hand Salary', value: fmtCurrency(employee.in_hand_salary), color: '#6366f1', icon: <FaCreditCard /> },
               ].map(s => <Col xs={12} md={6} key={s.label}><StatCard {...s} /></Col>)}
             </Row>
-
-            <Section title={`Payroll Records (${salaryList.length})`} icon={<FaChartLine />} color="#22c55e">
-              {salaryList.length === 0 ? (
-                <p style={{ color: '#9ca3af', textAlign: 'center', padding: 30, fontSize: 13 }}>No payroll records available</p>
-              ) : (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead>
-                      <tr style={{ background: '#f9fafb' }}>
-                        {['Month','Year','Gross','In-Hand','Deductions','Net Pay','Status'].map(h => (
-                          <th key={h} style={{ padding: '8px 12px', fontWeight: 700, color: '#374151', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {salaryList.map((s, i) => (
-                        <tr key={i} style={{ borderBottom: '1px solid #f3f4f6', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                          <td style={{ padding: '8px 12px' }}>{s.month_name || s.month}</td>
-                          <td style={{ padding: '8px 12px' }}>{s.year}</td>
-                          <td style={{ padding: '8px 12px', fontWeight: 600 }}>{fmtCurrency(s.gross_salary)}</td>
-                          <td style={{ padding: '8px 12px', color: '#22c55e', fontWeight: 600 }}>{fmtCurrency(s.in_hand_salary)}</td>
-                          <td style={{ padding: '8px 12px', color: '#ef4444' }}>{fmtCurrency(s.total_deductions)}</td>
-                          <td style={{ padding: '8px 12px', fontWeight: 800, color: '#6366f1' }}>{fmtCurrency(s.net_pay || s.in_hand_salary)}</td>
-                          <td style={{ padding: '8px 12px' }}>
-                            <span style={{ background: '#dcfce7', color: '#16a34a', borderRadius: 10, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{s.status || 'Paid'}</span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </Section>
+            <SalarySlipManager employee={employee} />
+            <AttendanceCalendar employee={employee} />
           </>
         )}
 

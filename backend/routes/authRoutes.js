@@ -1,9 +1,26 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 const supabase = require('../config/supabase');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
+
+const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: { success: false, message: 'Too many login attempts. Please try again in 15 minutes.' },
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
+const passwordLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 5,
+    message: { success: false, message: 'Too many password reset attempts. Please try again in 1 hour.' },
+    standardHeaders: true,
+    legacyHeaders: false
+});
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || (JWT_SECRET ? JWT_SECRET + '_refresh' : undefined);
@@ -21,7 +38,7 @@ function generateTokens(payload) {
 }
 
 // Login
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
     const startTime = Date.now();
     try {
         const { email, identifier, password } = req.body;
@@ -32,19 +49,6 @@ router.post('/login', async (req, res) => {
         if (!loginId || !password) {
             console.log('❌ [LOGIN] rejected — missing credentials');
             return res.status(400).json({ success: false, message: 'Employee ID / Email and password are required' });
-        }
-
-        // Admin hardcoded login
-        if (loginId === 'hr@b2bindemand.com' && password === 'Hr3007') {
-            const payload = { id: 1, email: loginId, role: 'admin', employeeId: 'HR001' };
-            const { accessToken, refreshToken } = generateTokens(payload);
-            console.log(`✅ [LOGIN] hardcoded admin — ${Date.now() - startTime}ms`);
-            return res.json({
-                success: true,
-                token: accessToken,
-                refreshToken,
-                user: { id: 1, email: loginId, role: 'admin', employeeId: 'HR001', firstName: 'HR', lastName: 'Admin', department: 'Human Resources', designation: 'HR Manager' }
-            });
         }
 
         // Detect whether the input is an email address or an employee ID
@@ -155,11 +159,6 @@ router.post('/refresh', async (req, res) => {
 
         // Get fresh user data
         let user = null;
-        if (decoded.employeeId === 'HR001') {
-            const { accessToken: newAccess, refreshToken: newRefresh } = generateTokens({ id: decoded.id, email: decoded.email, role: decoded.role, employeeId: decoded.employeeId });
-            return res.json({ success: true, token: newAccess, refreshToken: newRefresh });
-        }
-
         let data, error;
         try {
             const result = await supabase
@@ -222,10 +221,6 @@ router.post('/verify', async (req, res) => {
         } catch (err) {
             if (err.name === 'TokenExpiredError') return res.status(401).json({ success: false, message: 'Token expired', code: 'TOKEN_EXPIRED' });
             return res.status(401).json({ success: false, message: 'Invalid token', code: 'INVALID_TOKEN' });
-        }
-
-        if (decoded.employeeId === 'HR001') {
-            return res.json({ success: true, user: { id: decoded.id, email: decoded.email, role: 'admin', employeeId: 'HR001', firstName: 'HR', lastName: 'Admin' } });
         }
 
         if (!decoded.id) {
@@ -294,7 +289,9 @@ router.post('/register', async (req, res) => {
             return res.status(400).json({ success: false, message: 'User with this email or employee ID already exists' });
         }
 
-        const hashedPassword = await bcrypt.hash(password || 'Welcome@123', 10);
+        if (!password) return res.status(400).json({ success: false, message: 'Password is required' });
+        if (password.length < 6) return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+        const hashedPassword = await bcrypt.hash(password, 10);
 
         const { data: newUser, error } = await supabase.from('employees').insert([{
             employee_id, email, first_name, last_name,
@@ -338,9 +335,11 @@ router.post('/change-password', async (req, res) => {
 
         let isValid = false;
         if (user.password) {
-            try { isValid = await bcrypt.compare(currentPassword, user.password); } catch { isValid = currentPassword === user.password; }
+            isValid = await bcrypt.compare(currentPassword, user.password);
+        } else {
+            // Employee has no hash yet — Welcome@123 is their temporary default credential
+            isValid = (currentPassword === 'Welcome@123');
         }
-        if (!isValid) isValid = currentPassword === 'Welcome@123' || currentPassword === user.employee_id?.toLowerCase();
 
         if (!isValid) return res.status(401).json({ success: false, message: 'Current password is incorrect' });
 
@@ -359,7 +358,7 @@ router.post('/change-password', async (req, res) => {
 });
 
 // Forgot password
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', passwordLimiter, async (req, res) => {
     try {
         const { email } = req.body;
         if (!email) return res.status(400).json({ success: false, message: 'Email is required' });
@@ -410,9 +409,20 @@ router.post('/reset-password', async (req, res) => {
     }
 });
 
-// Direct password reset by email (no token — employee sets new password from login page)
-router.post('/reset-password-direct', async (req, res) => {
+// Admin-only: reset any employee's password directly
+router.post('/reset-password-direct', passwordLimiter, async (req, res) => {
     try {
+        // Require a valid admin JWT token
+        const adminToken = req.headers['authorization']?.split(' ')[1];
+        if (!adminToken) return res.status(401).json({ success: false, message: 'Authentication required' });
+        let caller;
+        try { caller = jwt.verify(adminToken, JWT_SECRET); } catch {
+            return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+        }
+        if (caller.role !== 'admin') {
+            return res.status(403).json({ success: false, message: 'Admin access required to reset passwords' });
+        }
+
         const { email, newPassword } = req.body;
 
         if (!email || !newPassword) {

@@ -840,6 +840,7 @@ exports.clockIn = async (req, res) => {
         const response = {
             success: true,
             message,
+            attendance_id: insertedAttendance?.[0]?.id || null,
             clock_in: now,
             clock_in_ist: clockInISTValue,
             shift_time: shiftDisplay,
@@ -1583,7 +1584,16 @@ exports.getAttendanceReport = async (req, res) => {
 
             const existingClockOut = existing.clock_out_ist || existing.clock_out;
             const newClockOut = record.clock_out_ist || record.clock_out;
-            if (newClockOut && !existingClockOut) {
+            // An import record has no clock_in/clock_out — Excel status is source of truth
+            const newIsImport = !record.clock_in && !record.clock_in_ist && record.status;
+            const existingIsImport = !existing.clock_in && !existing.clock_in_ist && existing.status;
+
+            if (newIsImport && !existingIsImport) {
+                // Import record always wins over a raw clock-in record
+                dedupedAttendanceMap[key] = record;
+            } else if (!newIsImport && existingIsImport) {
+                // Keep existing import record
+            } else if (newClockOut && !existingClockOut) {
                 dedupedAttendanceMap[key] = record;
             } else if (newClockOut && existingClockOut) {
                 const existingMs = toUTCMs(existingClockOut);
@@ -1608,8 +1618,21 @@ exports.getAttendanceReport = async (req, res) => {
 
             // Use shift history - new shift wont affect old records
             const shiftTiming = await getEffectiveShiftTiming(record.employee_id, record.attendance_date, record.shift_time_used || employee.shift_timing);
-            const late = recalculateLate(record.clock_in_ist, record.clock_in, shiftTiming, record.attendance_date);
 
+            // Trust stored late_minutes if explicitly set (Excel import clears to 0 = on time).
+            // Only recalculate from clock_in when late_minutes is null (old records with no stored value).
+            let late;
+            if (record.late_minutes !== null && record.late_minutes !== undefined) {
+                late = {
+                    is_late: record.late_minutes > 0,
+                    late_minutes: record.late_minutes,
+                    late_display: formatLateTime(record.late_minutes),
+                };
+            } else {
+                late = recalculateLate(record.clock_in_ist, record.clock_in, shiftTiming, record.attendance_date);
+            }
+
+            // DB status is source of truth; fall back to clock data only when null
             let status = record.status;
             if (!status) {
                 if (record.clock_in && !record.clock_out) status = 'working';
@@ -2426,8 +2449,21 @@ exports.getEmployeeAttendanceReport = async (req, res) => {
 
             // Use shift history - new shift wont affect old records
             const shiftTiming = await getEffectiveShiftTiming(record.employee_id, record.attendance_date, record.shift_time_used || employee.shift_timing);
-            const late = recalculateLate(record.clock_in_ist, record.clock_in, shiftTiming, record.attendance_date);
 
+            // Trust stored late_minutes if explicitly set (Excel import clears to 0 = on time).
+            // Only recalculate from clock_in when late_minutes is null (old records with no stored value).
+            let late;
+            if (record.late_minutes !== null && record.late_minutes !== undefined) {
+                late = {
+                    is_late: record.late_minutes > 0,
+                    late_minutes: record.late_minutes,
+                    late_display: formatLateTime(record.late_minutes),
+                };
+            } else {
+                late = recalculateLate(record.clock_in_ist, record.clock_in, shiftTiming, record.attendance_date);
+            }
+
+            // DB status is source of truth; fall back to clock data only when null
             let status = record.status;
             if (!status) {
                 if (record.clock_in && !record.clock_out) status = 'working';
@@ -3320,6 +3356,392 @@ exports.fixOrphanedAttendance = async (req, res) => {
         console.error('❌ fixOrphanedAttendance error:', error);
         if (res) res.status(500).json({ success: false, message: error.message });
         return { fixed: 0, skipped: 0, error: error.message };
+    }
+};
+
+// ── Attendance Import / Export ─────────────────────────────────────────────────
+
+const VALID_CODES = new Set(['P', 'A', 'HD', 'L', 'WO', 'H', 'CO']);
+
+// Maps full-word values (as they appear in custom Excel sheets) to short codes.
+// All lookups are done after .toUpperCase() so case variants are handled automatically.
+const WORD_TO_CODE = {
+    // Present
+    'PRESENT':      'P',
+    'WORKING':      'P',
+    // Absent
+    'ABSENT':       'A',
+    'LEFT':         'A',
+    // Half Day
+    'HALF DAY':     'HD',
+    'HALFDAY':      'HD',
+    'HALF-DAY':     'HD',
+    // Leave
+    'LEAVE':        'L',
+    // Week Off
+    'WEEK OFF':     'WO',
+    'WEEKLY OFF':   'WO',
+    'WEEKOFF':      'WO',
+    'WEEK-OFF':     'WO',
+    // Holiday
+    'HOLIDAY':      'H',
+    // Comp Off
+    'COMP OFF':     'CO',
+    'COMPOFF':      'CO',
+    'COMP-OFF':     'CO',
+    // New Joinee = Present (employee joined and was present)
+    'NEW JOINEE':   'P',
+    'NEW JOINER':   'P',
+    // NCNS (No Call No Show) = Absent
+    'NCNS':         'A',
+};
+
+const CODE_TO_STATUS = {
+    P:  'present',
+    A:  'absent',
+    HD: 'half_day',
+    L:  'leave',
+    WO: 'week_off',
+    H:  'holiday',
+    CO: 'comp_off',
+};
+
+const STATUS_TO_CODE = {
+    present:   'P',
+    absent:    'A',
+    half_day:  'HD',
+    leave:     'L',
+    week_off:  'WO',
+    holiday:   'H',
+    comp_off:  'CO',
+};
+
+exports.validateAttendanceImport = async (req, res) => {
+    try {
+        const { month, year, records } = req.body;
+        if (!month || !year || !Array.isArray(records)) {
+            return res.status(400).json({ success: false, message: 'month, year, and records[] are required' });
+        }
+
+        const { data: employees, error: empError } = await supabase
+            .from('employees')
+            .select('employee_id, first_name, middle_name, last_name')
+            .eq('is_active', true);
+        if (empError) throw empError;
+
+        // Build lookups: by employee_id AND by normalized name
+        // Each employee gets two keys:
+        //   "first last"               — matches Excel names with no middle name
+        //   "first middle last"        — matches Excel names that include middle name
+        const empById = {};
+        const empByName = {};
+        (employees || []).forEach(e => {
+            empById[e.employee_id] = e;
+
+            const normalize = (s) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+            // Key without middle name
+            const shortKey = normalize(`${e.first_name} ${e.last_name}`);
+            if (shortKey) empByName[shortKey] = e;
+
+            // Key with middle name (only when middle name exists)
+            if (e.middle_name && e.middle_name.trim()) {
+                const fullKey = normalize(`${e.first_name} ${e.middle_name} ${e.last_name}`);
+                if (fullKey) empByName[fullKey] = e;
+            }
+        });
+
+        // Salary period: 26th of previous month → end of selected month.
+        // Days 26+ in a custom ordinal sheet belong to the previous month.
+        const m = parseInt(month), y = parseInt(year);
+        const prevM = m === 1 ? 12 : m - 1;
+        const prevY = m === 1 ? y - 1 : y;
+        const periodStart = `${prevY}-${String(prevM).padStart(2,'0')}-26`;
+        const periodEnd   = `${y}-${String(m).padStart(2,'0')}-${String(new Date(y, m, 0).getDate()).padStart(2,'0')}`;
+
+        const validMap = new Map(); // keyed by resolved employee_id to deduplicate
+        const errors = [];
+        const notFoundNames = [];
+        let skippedNotFound = 0;
+
+        for (const record of records) {
+            const { employee_id, employee_name, dates } = record;
+
+            // Resolve employee: name-based match has priority, employee_id is fallback
+            let emp = null;
+            if (employee_name) {
+                const normalized = employee_name.toLowerCase().replace(/\s+/g, ' ').trim();
+                emp = empByName[normalized] || null;
+            }
+            if (!emp && employee_id) {
+                emp = empById[employee_id] || null;
+            }
+
+            // Not found in DB → skip silently, keep existing attendance untouched
+            if (!emp) {
+                skippedNotFound++;
+                notFoundNames.push(employee_name || employee_id || '(blank)');
+                continue;
+            }
+
+            const resolvedId = emp.employee_id;
+            const empName    = `${emp.first_name} ${emp.last_name}`;
+            const rowErrors  = [];
+            const cleanDates = {};
+
+            for (const [date, rawCode] of Object.entries(dates || {})) {
+                const raw = String(rawCode || '').trim().toUpperCase();
+                if (!raw) continue;
+
+                // Normalize full-word values (e.g. "HOLIDAY" → "H", "ABSENT" → "A")
+                const code = Object.prototype.hasOwnProperty.call(WORD_TO_CODE, raw)
+                    ? WORD_TO_CODE[raw]
+                    : raw;
+                if (!code) continue; // null mapping (e.g. "NEW JOINEE") — skip silently
+
+                const d = new Date(date);
+                if (isNaN(d.getTime())) { rowErrors.push(`Invalid date: ${date}`); continue; }
+                // Accept dates within the salary period: 26th of previous month → end of selected month
+                if (date < periodStart || date > periodEnd) {
+                    rowErrors.push(`Date ${date} is outside the salary period (${periodStart} to ${periodEnd})`); continue;
+                }
+                if (!VALID_CODES.has(code)) { rowErrors.push(`"${raw}" on ${date} — not a recognised code`); continue; }
+                cleanDates[date] = code;
+            }
+
+            // Report errors for any unrecognised dates (but still import the clean ones)
+            if (rowErrors.length > 0) {
+                errors.push({ employee_id: resolvedId, employee_name: empName, errors: rowErrors });
+            }
+            // Always keep the valid dates — don't discard the whole record on partial errors
+            if (Object.keys(cleanDates).length > 0) {
+                if (validMap.has(resolvedId)) {
+                    validMap.get(resolvedId).dates = { ...validMap.get(resolvedId).dates, ...cleanDates };
+                } else {
+                    validMap.set(resolvedId, { employee_id: resolvedId, employee_name: empName, dates: cleanDates });
+                }
+            }
+        }
+
+        const valid = Array.from(validMap.values());
+
+        // Preview summary per valid employee
+        const preview = valid.map(r => {
+            const counts = { P: 0, A: 0, HD: 0, L: 0, WO: 0, H: 0, CO: 0 };
+            Object.values(r.dates).forEach(c => { if (counts[c] !== undefined) counts[c]++; });
+            return { employee_id: r.employee_id, employee_name: r.employee_name, ...counts };
+        });
+
+        console.log(`[AttendanceImport] DB employees (${employees.length}):`, Object.keys(empByName).slice(0, 10));
+        console.log(`[AttendanceImport] Not matched names (${notFoundNames.length}):`, notFoundNames.slice(0, 10));
+
+        res.json({
+            success: true,
+            valid_count: valid.length,
+            error_count: errors.length,
+            skipped_not_found: skippedNotFound,
+            not_found_names: notFoundNames,
+            valid_records: valid,
+            preview,
+            errors,
+        });
+    } catch (error) {
+        console.error('❌ validateAttendanceImport:', error);
+        res.status(500).json({ success: false, message: 'Validation failed', error: error.message });
+    }
+};
+
+exports.importAttendance = async (req, res) => {
+    try {
+        const { month, year, file_name, records } = req.body;
+        if (!month || !year || !Array.isArray(records)) {
+            return res.status(400).json({ success: false, message: 'month, year, and records[] are required' });
+        }
+
+        const m = parseInt(month);
+        const y = parseInt(year);
+
+        // Pre-query existing records for the full salary cycle so we know their PKs
+        const prevM = m === 1 ? 12 : m - 1;
+        const prevY = m === 1 ? y - 1 : y;
+        const startDate = `${prevY}-${String(prevM).padStart(2, '0')}-26`;
+        const endDate   = `${y}-${String(m).padStart(2, '0')}-${new Date(y, m, 0).getDate()}`;
+
+        const { data: existing } = await supabase
+            .from('attendance')
+            .select('id, employee_id, attendance_date')
+            .gte('attendance_date', startDate)
+            .lte('attendance_date', endDate);
+
+        const existingMap = {};
+        // Normalize attendance_date to YYYY-MM-DD — Supabase may return timestamp with T suffix
+        (existing || []).forEach(r => {
+            const dateKey = r.attendance_date ? String(r.attendance_date).split('T')[0] : r.attendance_date;
+            existingMap[`${r.employee_id}__${dateKey}`] = r.id;
+        });
+
+        const toInsert = [];
+        const toUpdate = [];
+
+        for (const record of records) {
+            const { employee_id, dates } = record;
+            for (const [date, rawCode] of Object.entries(dates || {})) {
+                const code = String(rawCode).toUpperCase();
+                if (!VALID_CODES.has(code)) continue;
+
+                const status = CODE_TO_STATUS[code];
+                const isHol = code === 'H';
+                const isWO  = code === 'WO';
+                const isPaidFullDay = code === 'P' || code === 'CO';
+                const totalHours   = isPaidFullDay ? 9 : code === 'HD' ? 4.5 : 0;
+                const totalMinutes = isPaidFullDay ? 540 : code === 'HD' ? 270 : 0;
+
+                const payload = {
+                    employee_id,
+                    attendance_date: date,
+                    status,
+                    is_holiday:    isHol || isWO,
+                    holiday_name:  isHol ? 'Holiday' : isWO ? 'Week Off' : null,
+                    total_hours:   totalHours,
+                    total_minutes: totalMinutes,
+                    late_minutes:  0,  // Excel is source of truth — no late marks on import
+                };
+
+                const existingId = existingMap[`${employee_id}__${date}`];
+                if (existingId) {
+                    toUpdate.push({ id: existingId, ...payload });
+                } else {
+                    toInsert.push(payload);
+                }
+            }
+        }
+
+        let insertedCount = 0, updatedCount = 0, failedCount = 0;
+        const dbErrors = [];
+
+        // Batch inserts (500 per call)
+        for (let i = 0; i < toInsert.length; i += 500) {
+            const batch = toInsert.slice(i, i + 500);
+            const { error } = await supabase.from('attendance').insert(batch);
+            if (error) {
+                failedCount += batch.length;
+                console.error('❌ insert batch:', error);
+                const msg = error.message || error.details || JSON.stringify(error);
+                if (!dbErrors.includes(msg)) dbErrors.push(msg);
+            } else {
+                insertedCount += batch.length;
+            }
+        }
+
+        // Parallel updates — 100 concurrent calls at a time instead of one-by-one
+        for (let i = 0; i < toUpdate.length; i += 100) {
+            const batch = toUpdate.slice(i, i + 100);
+            const results = await Promise.all(
+                batch.map(async ({ id, ...payload }) => {
+                    try {
+                        return await supabase.from('attendance').update(payload).eq('id', id);
+                    } catch (e) {
+                        return { error: e };
+                    }
+                })
+            );
+            results.forEach(({ error }) => {
+                if (error) {
+                    failedCount++;
+                    const msg = error?.message || error?.details || JSON.stringify(error);
+                    if (msg && !dbErrors.includes(msg)) dbErrors.push(msg);
+                } else {
+                    updatedCount++;
+                }
+            });
+        }
+
+        // Log import
+        try {
+            await supabase.from('attendance_import_logs').insert([{
+                month: m,
+                year: y,
+                file_name: file_name || null,
+                total_records: records.length,
+                inserted_records: insertedCount,
+                updated_records: updatedCount,
+                failed_records: failedCount,
+                imported_by: req.user?.employeeId || req.user?.id || 'admin',
+            }]);
+        } catch (logErr) {
+            console.error('⚠️ Import log failed (non-critical):', logErr.message);
+        }
+
+        res.json({
+            success: true,
+            message: `Import complete — ${insertedCount} inserted, ${updatedCount} updated, ${failedCount} failed`,
+            inserted: insertedCount,
+            updated: updatedCount,
+            failed: failedCount,
+            db_errors: dbErrors,
+        });
+    } catch (error) {
+        console.error('❌ importAttendance:', error);
+        res.status(500).json({ success: false, message: 'Import failed', error: error.message });
+    }
+};
+
+exports.exportAttendanceData = async (req, res) => {
+    try {
+        const { month, year } = req.query;
+        if (!month || !year) {
+            return res.status(400).json({ success: false, message: 'month and year are required' });
+        }
+        const m = parseInt(month);
+        const y = parseInt(year);
+        const startDate = `${y}-${String(m).padStart(2, '0')}-01`;
+        const endDate   = `${y}-${String(m).padStart(2, '0')}-${new Date(y, m, 0).getDate()}`;
+
+        const [{ data: attendance, error: attErr }, { data: employees, error: empErr }] = await Promise.all([
+            supabase.from('attendance').select('employee_id, attendance_date, status')
+                .gte('attendance_date', startDate).lte('attendance_date', endDate),
+            supabase.from('employees').select('employee_id, first_name, last_name')
+                .eq('is_active', true).order('employee_id'),
+        ]);
+        if (attErr) throw attErr;
+        if (empErr) throw empErr;
+
+        const attMap = {};
+        for (const r of (attendance || [])) {
+            if (!attMap[r.employee_id]) attMap[r.employee_id] = {};
+            const code = STATUS_TO_CODE[r.status] || r.status?.toUpperCase() || 'A';
+            attMap[r.employee_id][r.attendance_date] = code;
+        }
+
+        const records = (employees || []).map(emp => ({
+            employee_id:   emp.employee_id,
+            employee_name: `${emp.first_name} ${emp.last_name}`,
+            dates: attMap[emp.employee_id] || {},
+        }));
+
+        res.json({ success: true, month: m, year: y, start_date: startDate, end_date: endDate, records });
+    } catch (error) {
+        console.error('❌ exportAttendanceData:', error);
+        res.status(500).json({ success: false, message: 'Export failed', error: error.message });
+    }
+};
+
+exports.getImportHistory = async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('attendance_import_logs')
+            .select('*')
+            .order('imported_at', { ascending: false })
+            .limit(30);
+
+        if (error) {
+            if (error.code === '42P01') return res.json({ success: true, history: [] });
+            throw error;
+        }
+        res.json({ success: true, history: data || [] });
+    } catch (error) {
+        console.error('❌ getImportHistory:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch history', error: error.message });
     }
 };
 

@@ -217,10 +217,11 @@ const Sidebar = () => {
           {user?.role === 'admin' ? (
             <>
               <Section label="Management" />
-              <NavItem to="/admin/employees"         icon={<FaUsers />}       label="Employees" />
-              <NavItem to="/admin/leave-requests"    icon={<FaCalendarAlt />} label="Leave Requests" />
-              <NavItem to="/admin/attendance/reports" icon={<FaClock />}      label="Attendance" />
-              <NavItem to="/admin/ratings"           icon={<FaStar />}        label="Employee Ratings" />
+              <NavItem to="/admin/employees"          icon={<FaUsers />}       label="Employees" />
+              <NavItem to="/admin/leave-requests"     icon={<FaCalendarAlt />} label="Leave Requests" />
+              <NavItem to="/admin/attendance/reports" icon={<FaClock />}       label="Attendance" />
+              <NavItem to="/admin/ratings"            icon={<FaStar />}        label="Employee Ratings" />
+              <NavItem to="/admin/payroll"            icon={<FaMoneyBill />}   label="Payroll" />
 
               <Section label="Admin Tools" />
               <NavItem to="/admin/teams"             icon={<FaLayerGroup />}  label="Teams" />

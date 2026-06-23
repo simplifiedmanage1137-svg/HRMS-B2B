@@ -918,17 +918,13 @@ router.get('/:employeeId/documents', async (req, res) => {
 });
 
 
-// Download specific document - WITHOUT requiring token (since it's accessed via blob URL)
-router.get('/:employeeId/documents/:documentType', async (req, res) => {
+// Download specific document
+router.get('/:employeeId/documents/:documentType', verifyToken, async (req, res) => {
     try {
         const { employeeId, documentType } = req.params;
         const { inline } = req.query;
 
         console.log('📥 Document download request:', { employeeId, documentType });
-
-        // Note: We're NOT checking for token here because this endpoint is accessed
-        // via blob URLs. The token check happens in the initial API call that fetches the blob.
-        // If you want to keep it secure, you can check referrer or implement a temporary token system.
 
         const { data, error } = await supabase
             .from('employees')

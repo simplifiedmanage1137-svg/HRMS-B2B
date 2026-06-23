@@ -94,6 +94,12 @@ export const API_ENDPOINTS = {
   ATTENDANCE_AUTO_CLOSE_STALE: ep('/api/attendance/auto-close-stale'),
   ATTENDANCE_UPDATE_HISTORICAL_LATE_MARKS: ep('/api/attendance/update-historical-late-marks'),
 
+  // Attendance Import / Export
+  ATTENDANCE_IMPORT_VALIDATE: ep('/api/attendance/import/validate'),
+  ATTENDANCE_IMPORT:          ep('/api/attendance/import'),
+  ATTENDANCE_EXPORT:          (month, year) => ep(`/api/attendance/export?month=${month}&year=${year}`),
+  ATTENDANCE_IMPORT_HISTORY:  ep('/api/attendance/import-history'),
+
   // Comp-Off
   COMP_OFF_BALANCE: (employeeId) => ep(`/api/attendance/comp-off/${employeeId}`),
   COMP_OFF_HISTORY: (employeeId) => ep(`/api/attendance/comp-off/${employeeId}/history`),
@@ -103,10 +109,12 @@ export const API_ENDPOINTS = {
     ep(`/api/attendance/overtime/${employeeId}/${month}/${year}`),
 
   // Salary
-  SALARY:          ep('/api/salary'),
-  SALARY_EMPLOYEE: (employeeId) => ep(`/api/salary/employee/${employeeId}`),
-  SALARY_BY_ID:    (id) => ep(`/api/salary/${id}`),
-  SALARY_GENERATE: ep('/api/salary/generate'),
+  SALARY:               ep('/api/salary'),
+  SALARY_EMPLOYEE:      (employeeId) => ep(`/api/salary/employee/${employeeId}`),
+  SALARY_BY_ID:         (id) => ep(`/api/salary/${id}`),
+  SALARY_GENERATE:      ep('/api/salary/generate'),
+  SALARY_BULK_PAYROLL:  (month, year) => ep(`/api/salary/bulk?month=${month}&year=${year}`),
+  SALARY_ADJUSTMENT:    ep('/api/salary/adjustment'),
 
   // Notifications
   NOTIFICATIONS:        ep('/api/notifications'),

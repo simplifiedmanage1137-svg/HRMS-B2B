@@ -549,10 +549,9 @@ const Attendance = () => {
         }
       } else {
         console.log('⚠️ No attendance data for today');
-        // ✅ CRITICAL: Don't clear attendance/session if server has an active session
-        // This handles cross-midnight: attendance_date is yesterday, but session is still active
+        // Don't clear attendance if it already has a valid clock-in (handles brief API lag after clock-in)
         if (!serverSession) {
-          setAttendance(null);
+          setAttendance(prev => prev?.clock_in ? prev : null);
           setHasClockedOutToday(false);
         }
         // If serverSession exists but no todayAttendance = cross-midnight case
@@ -1349,6 +1348,7 @@ const Attendance = () => {
       setActiveSession(null);
 
       const newAttendance = {
+        id: response.data.attendance_id || null,
         clock_in: clockInIST,
         clock_in_ist: clockInIST,
         clock_in_display: formatTimeIST(clockInIST),
@@ -1370,8 +1370,7 @@ const Attendance = () => {
       saveSessionToStorage(session);
       setHasClockedOutToday(false);
 
-      // ✅ Force fetch today's attendance again to ensure consistency
-      await fetchTodayAttendance();
+      // Refresh history and missed clock-outs; attendance state is already set from API response above
       await fetchAttendanceHistory();
       await fetchMissedClockOuts();
 
@@ -1881,7 +1880,7 @@ const Attendance = () => {
 
   useEffect(() => {
     if (user?.employeeId) fetchAttendanceHistory();
-  }, [user?.employeeId, attendance]);
+  }, [user?.employeeId]);
 
   // Removed: auto-polling for attendance history (was causing excessive DB requests)
 

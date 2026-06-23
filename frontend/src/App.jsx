@@ -34,6 +34,7 @@ const AdminBroadcast      = lazy(() => import('./components/Admin/AdminBroadcast
 const EmployeeProfileView = lazy(() => import('./components/Admin/EmployeeProfileView'));
 const AdminRatings        = lazy(() => import('./components/Admin/AdminRatings'));
 const Teams               = lazy(() => import('./components/Admin/Teams'));
+const PayrollAdjustment   = lazy(() => import('./components/Admin/PayrollAdjustment'));
 
 // Manager — lazy loaded
 const ManagerDashboard = lazy(() => import('./components/Manager/Dashboard'));
@@ -231,6 +232,13 @@ function AppContent() {
             <Route path="/admin/ratings" element={
               <PrivateRoute allowedRoles={['admin']}>
                 <AdminRatings />
+              </PrivateRoute>
+            } />
+
+            {/* Payroll Adjustment */}
+            <Route path="/admin/payroll" element={
+              <PrivateRoute allowedRoles={['admin']}>
+                <PayrollAdjustment />
               </PrivateRoute>
             } />
 

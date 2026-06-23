@@ -41,6 +41,12 @@ module.exports = (supabase, authenticateToken, requireAdmin) => {
     router.get('/comp-off/:employee_id', authenticateToken, attendanceController.getCompOffBalance);
     router.get('/comp-off/:employee_id/history', authenticateToken, attendanceController.getCompOffHistory);
 
+    // ── Attendance Import / Export (Admin only) ──────────────────────────────
+    router.post('/import/validate', authenticateToken, requireAdmin, attendanceController.validateAttendanceImport);
+    router.post('/import',          authenticateToken, requireAdmin, attendanceController.importAttendance);
+    router.get('/export',           authenticateToken, requireAdmin, attendanceController.exportAttendanceData);
+    router.get('/import-history',   authenticateToken, requireAdmin, attendanceController.getImportHistory);
+
     // Auto-close stale sessions (Admin only)
     router.post('/auto-close-stale', authenticateToken, requireAdmin, async (req, res) => {
         const result = await attendanceController.autoCloseStaleSessions();

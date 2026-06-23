@@ -8,8 +8,8 @@
     "dev": "nodemon server.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "echo Build step not required",
-    "accrual:monthly": "node cron/leaveAccrual.js monthly",
-    "accrual:yearly": "node cron/leaveAccrual.js yearly"
+    "accrual:monthly": "node cron/leaveAccrualJob.js monthly",
+    "accrual:yearly": "node cron/leaveAccrualJob.js yearly"
   },
   "keywords": [],
   "author": "",
@@ -25,9 +25,7 @@
     "express-validator": "^7.3.1",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
-    "mysql2": "^3.19.0",
     "node-cron": "^4.2.1",
-    "resend": "^6.12.4",
     "uuid": "^8.3.2"
   },
   "devDependencies": {

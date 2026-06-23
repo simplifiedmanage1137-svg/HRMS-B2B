@@ -764,3 +764,364 @@ exports.updateSalarySlip = async (req, res) => {
         });
     }
 };
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Salary Earned Adjustment — helpers + endpoints
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Parse numeric shift hours from a string like "9:00 AM - 6:00 PM"
+const parseShiftHours = (shiftTiming) => {
+    try {
+        if (!shiftTiming) return 8;
+        const parts = shiftTiming.split('-').map(s => s.trim());
+        if (parts.length < 2) return 8;
+        const toMinutes = (str) => {
+            const [time, period] = str.trim().split(' ');
+            let [h, m] = (time || '').split(':').map(Number);
+            h = h || 0; m = m || 0;
+            if ((period || '').toUpperCase() === 'PM' && h !== 12) h += 12;
+            if ((period || '').toUpperCase() === 'AM' && h === 12) h = 0;
+            return h * 60 + m;
+        };
+        const diff = toMinutes(parts[1]) - toMinutes(parts[0]);
+        return diff > 0 ? parseFloat((diff / 60).toFixed(2)) : 8;
+    } catch { return 8; }
+};
+
+// Core adjustment calculation — mirrors frontend live calc exactly
+const calcAdjustment = (monthlySalary, salaryEarned, totalWorkingDays, shiftHours) => {
+    const monthly  = parseFloat(monthlySalary)    || 0;
+    const earned   = parseFloat(salaryEarned) >= 0 ? parseFloat(parseFloat(salaryEarned).toFixed(2)) : monthly;
+    const wDays    = parseFloat(totalWorkingDays)  || 22;
+    const sHours   = parseFloat(shiftHours)        || 8;
+
+    const difference = parseFloat((earned - monthly).toFixed(2));
+
+    let adjOvertimeAmount  = 0;
+    let adjDeductionAmount = 0;
+    if (difference > 0)      adjOvertimeAmount  = parseFloat(difference.toFixed(2));
+    else if (difference < 0) adjDeductionAmount = parseFloat(Math.abs(difference).toFixed(2));
+
+    const perDaySalary    = wDays  > 0 ? monthly / wDays  : 0;
+    const perHourSalary   = sHours > 0 ? perDaySalary / sHours : 0;
+    const adjOvertimeHours = perHourSalary > 0
+        ? parseFloat((adjOvertimeAmount / perHourSalary).toFixed(2))
+        : 0;
+
+    const finalPayableSalary = parseFloat(
+        Math.max(0, monthly + adjOvertimeAmount - adjDeductionAmount).toFixed(2)
+    );
+
+    return {
+        salary_earned:        parseFloat(earned.toFixed(2)),
+        earned_difference:    difference,
+        adj_overtime_amount:  adjOvertimeAmount,
+        adj_overtime_hours:   adjOvertimeHours,
+        adj_deduction_amount: adjDeductionAmount,
+        final_payable_salary: finalPayableSalary,
+    };
+};
+
+// POST /api/salary/adjustment — save salary earned OR overtime for one employee + month
+exports.saveSalaryAdjustment = async (req, res) => {
+    try {
+        const { employee_id, month, year, salary_earned, shift_hours, overtime_amount } = req.body;
+
+        if (!employee_id || !month || !year) {
+            return res.status(400).json({ success: false, message: 'employee_id, month and year are required' });
+        }
+
+        // ── OT-DIRECT MODE ───────────────────────────────────────────────────────
+        // When overtime_amount is passed directly (₹150/hr rate),
+        // we bypass the salary_earned→diff calculation and update OT fields only.
+        if (overtime_amount !== undefined) {
+            const otAmount = Math.max(0, parseFloat(overtime_amount) || 0);
+            const otHours  = parseFloat((otAmount / 150).toFixed(2));
+
+            const employee = await getEmployeeDetails(employee_id);
+            if (!employee) return res.status(404).json({ success: false, message: 'Employee not found' });
+            const monthlySalary = parseFloat(employee.in_hand_salary || employee.gross_salary || employee.salary || 0);
+            const dt = monthlySalary > 0 ? 200 : 0;
+
+            const { data: existingSlip } = await supabase
+                .from('salary_slips')
+                .select('id, basic_salary, net_salary')
+                .eq('employee_id', employee_id)
+                .eq('month', parseInt(month))
+                .eq('year',  parseInt(year))
+                .maybeSingle();
+
+            const basicSalary = parseFloat(existingSlip?.basic_salary || 0);
+            const netSalary   = parseFloat(Math.max(0, basicSalary + otAmount - dt).toFixed(2));
+
+            const otPayload = {
+                overtime_amount: otAmount,
+                overtime_hours:  otHours,
+                net_salary:      netSalary,
+                updated_at:      new Date().toISOString(),
+            };
+
+            let resultSlip;
+            if (existingSlip) {
+                const { data, error } = await supabase
+                    .from('salary_slips')
+                    .update(otPayload)
+                    .eq('id', existingSlip.id)
+                    .select()
+                    .single();
+                if (error) throw error;
+                resultSlip = data;
+            } else {
+                // No slip yet — create a minimal stub so OT is persisted
+                const cycle = getCycleDates(parseInt(month), parseInt(year));
+                const totalWD = calculateWorkingDaysInCycle(cycle.startDate, cycle.endDate);
+                const { data, error } = await supabase
+                    .from('salary_slips')
+                    .insert([{
+                        employee_id,
+                        month:              parseInt(month),
+                        year:               parseInt(year),
+                        cycle_start_date:   cycle.startDateStr,
+                        cycle_end_date:     cycle.endDateStr,
+                        monthly_salary:     monthlySalary,
+                        total_working_days: totalWD,
+                        per_day_salary:     totalWD > 0 ? parseFloat((monthlySalary / totalWD).toFixed(2)) : 0,
+                        present_days:       0,
+                        half_days:          0,
+                        absent_days:        0,
+                        paid_leave_days:    0,
+                        unpaid_leave_days:  0,
+                        unpaid_deduction:   0,
+                        basic_salary:       0,
+                        overtime_amount:    otAmount,
+                        overtime_hours:     otHours,
+                        dt,
+                        net_salary:         netSalary,
+                        is_paid:            false,
+                        generated_date:     new Date().toISOString(),
+                    }])
+                    .select()
+                    .single();
+                if (error) throw error;
+                resultSlip = data;
+            }
+
+            return res.json({
+                success: true,
+                message: `Overtime ₹${otAmount} (${otHours} hrs) saved`,
+                salarySlip: resultSlip,
+            });
+        }
+        // ── END OT-DIRECT MODE ───────────────────────────────────────────────────
+        if (salary_earned !== undefined && parseFloat(salary_earned) < 0) {
+            return res.status(400).json({ success: false, message: 'Salary earned cannot be negative' });
+        }
+
+        const employee = await getEmployeeDetails(employee_id);
+        if (!employee) {
+            return res.status(404).json({ success: false, message: 'Employee not found' });
+        }
+
+        const monthlySalary = parseFloat(employee.in_hand_salary || employee.gross_salary || employee.salary || 0);
+        const resolvedShiftHours = parseFloat(shift_hours) > 0
+            ? parseFloat(shift_hours)
+            : parseShiftHours(employee.shift_timing);
+
+        // Get existing slip for working days
+        const { data: existingSlip } = await supabase
+            .from('salary_slips')
+            .select('id, total_working_days')
+            .eq('employee_id', employee_id)
+            .eq('month', parseInt(month))
+            .eq('year',  parseInt(year))
+            .maybeSingle();
+
+        const cycle = getCycleDates(parseInt(month), parseInt(year));
+        const totalWorkingDays = existingSlip?.total_working_days
+            || calculateWorkingDaysInCycle(cycle.startDate, cycle.endDate);
+
+        const earnedValue = salary_earned !== undefined && salary_earned !== ''
+            ? parseFloat(salary_earned)
+            : monthlySalary;
+
+        const adj = calcAdjustment(monthlySalary, earnedValue, totalWorkingDays, resolvedShiftHours);
+
+        // Calculate absent days implied by the deduction (deduction ÷ per-day rate)
+        const perDaySalary = totalWorkingDays > 0 ? monthlySalary / totalWorkingDays : 0;
+        const impliedAbsentDays = adj.adj_deduction_amount > 0 && perDaySalary > 0
+            ? Math.round(adj.adj_deduction_amount / perDaySalary)
+            : 0;
+
+        const fixedDeductions = monthlySalary > 0 ? 200 : 0; // DT ₹200 only
+
+        // basic_salary = what the employee earned (before fixed deductions)
+        // For OT case:  earned(49900) - OT(1900) = monthly(48000) ← base pay
+        // For short case: earned(41350) - 0 = 41350 ← reduced pay
+        const adjBasicSalary = parseFloat((adj.salary_earned - adj.adj_overtime_amount).toFixed(2));
+        const adjNetSalary   = parseFloat(Math.max(0, adj.salary_earned - fixedDeductions).toFixed(2));
+
+        // Core payload — only uses columns that always exist in salary_slips
+        // NOTE: absent_days is NOT included here — it stays from generateSalarySlip (attendance-based)
+        const corePayload = {
+            basic_salary:     adjBasicSalary,
+            net_salary:       adjNetSalary,
+            overtime_amount:  adj.adj_overtime_amount,
+            overtime_hours:   adj.adj_overtime_hours,
+            unpaid_deduction: 0,
+            dt:               monthlySalary > 0 ? 200 : 0,
+            updated_at:       new Date().toISOString(),
+        };
+
+        // Extended payload — uses migration columns; silently skipped if migration not run
+        const extPayload = {
+            salary_earned:        adj.salary_earned,
+            earned_difference:    adj.earned_difference,
+            adj_overtime_amount:  adj.adj_overtime_amount,
+            adj_overtime_hours:   adj.adj_overtime_hours,
+            adj_deduction_amount: adj.adj_deduction_amount,
+            final_payable_salary: adj.final_payable_salary,
+            shift_hours:          resolvedShiftHours,
+        };
+
+        let resultSlip;
+
+        if (existingSlip) {
+            const { data, error } = await supabase
+                .from('salary_slips')
+                .update(corePayload)
+                .eq('id', existingSlip.id)
+                .select()
+                .single();
+            if (error) throw error;
+            resultSlip = data;
+
+            // Try saving extended adj_ columns — silently skip if migration not yet run
+            await supabase
+                .from('salary_slips')
+                .update(extPayload)
+                .eq('id', existingSlip.id)
+                .catch(() => {});
+        } else {
+            // No attendance-based slip yet — create a stub with adjustment only
+            const totalWD = calculateWorkingDaysInCycle(cycle.startDate, cycle.endDate);
+            const impliedPresentDays = Math.max(0, totalWD - impliedAbsentDays);
+            const { data, error } = await supabase
+                .from('salary_slips')
+                .insert([{
+                    employee_id,
+                    month:              parseInt(month),
+                    year:               parseInt(year),
+                    cycle_start_date:   cycle.startDateStr,
+                    cycle_end_date:     cycle.endDateStr,
+                    monthly_salary:     monthlySalary,
+                    total_working_days: totalWD,
+                    per_day_salary:     totalWD > 0 ? parseFloat((monthlySalary / totalWD).toFixed(2)) : 0,
+                    present_days:       impliedPresentDays,
+                    half_days:          0,
+                    absent_days:        impliedAbsentDays,
+                    paid_leave_days:    0,
+                    unpaid_leave_days:  0,
+                    unpaid_deduction:   0,
+                    basic_salary:       adjBasicSalary,
+                    overtime_hours:     adj.adj_overtime_hours,
+                    overtime_amount:    adj.adj_overtime_amount,
+                    dt:                 monthlySalary > 0 ? 200 : 0,
+                    net_salary:         adjNetSalary,
+                    is_paid:            false,
+                    generated_date:     new Date().toISOString(),
+                }])
+                .select()
+                .single();
+            if (error) throw error;
+            resultSlip = data;
+        }
+
+        res.json({ success: true, message: 'Salary adjustment saved', salarySlip: resultSlip, adjustment: adj });
+
+    } catch (error) {
+        console.error('Error saving salary adjustment:', error?.message, error?.code, error?.details, error?.hint);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to save salary adjustment',
+            error: error?.message,
+            code: error?.code,
+            details: error?.details,
+        });
+    }
+};
+
+// GET /api/salary/bulk?month=M&year=YYYY — all employees + their adjustment data
+exports.getBulkPayroll = async (req, res) => {
+    try {
+        const { month, year } = req.query;
+        if (!month || !year) {
+            return res.status(400).json({ success: false, message: 'month and year are required' });
+        }
+
+        const [{ data: employees, error: empErr }, { data: slips, error: slipErr }] = await Promise.all([
+            supabase
+                .from('employees')
+                .select('employee_id, first_name, last_name, designation, department, in_hand_salary, gross_salary, salary, shift_timing, status')
+                .eq('status', 'active')
+                .order('first_name', { ascending: true }),
+            supabase
+                .from('salary_slips')
+                .select('*')
+                .eq('month', parseInt(month))
+                .eq('year',  parseInt(year)),
+        ]);
+
+        if (empErr) throw empErr;
+        if (slipErr) throw slipErr;
+
+        const slipMap = {};
+        (slips || []).forEach(s => { slipMap[s.employee_id] = s; });
+
+        const cycle = getCycleDates(parseInt(month), parseInt(year));
+        const defaultWD = calculateWorkingDaysInCycle(cycle.startDate, cycle.endDate);
+
+        const records = (employees || []).map(emp => {
+            const monthlySalary   = parseFloat(emp.in_hand_salary || emp.gross_salary || emp.salary || 0);
+            const slip            = slipMap[emp.employee_id] || null;
+            const totalWorkingDays = slip?.total_working_days || defaultWD;
+            const shiftHours      = slip?.shift_hours || parseShiftHours(emp.shift_timing) || 8;
+
+            let adj;
+            if (slip?.salary_earned != null) {
+                adj = calcAdjustment(monthlySalary, slip.salary_earned, totalWorkingDays, shiftHours);
+            } else {
+                // No manual adjustment yet — show defaults
+                adj = {
+                    salary_earned:        monthlySalary,
+                    earned_difference:    0,
+                    adj_overtime_amount:  0,
+                    adj_overtime_hours:   0,
+                    adj_deduction_amount: 0,
+                    final_payable_salary: slip ? parseFloat(slip.net_salary || monthlySalary) : monthlySalary,
+                };
+            }
+
+            return {
+                employee_id:        emp.employee_id,
+                first_name:         emp.first_name,
+                last_name:          emp.last_name,
+                designation:        emp.designation || '',
+                department:         emp.department  || '',
+                monthly_salary:     monthlySalary,
+                shift_hours:        shiftHours,
+                total_working_days: totalWorkingDays,
+                has_slip:           !!slip,
+                slip_id:            slip?.id   || null,
+                net_salary:         slip?.net_salary != null ? parseFloat(slip.net_salary) : null,
+                is_paid:            slip?.is_paid || false,
+                ...adj,
+            };
+        });
+
+        res.json({ success: true, month: parseInt(month), year: parseInt(year), records });
+
+    } catch (error) {
+        console.error('Error fetching bulk payroll:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch payroll data', error: error.message });
+    }
+};
