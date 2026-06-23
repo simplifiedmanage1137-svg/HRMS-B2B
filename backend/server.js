@@ -1,12 +1,9 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const path = require('path');
-const fs = require('fs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
-const cron = require('node-cron');
 
 dotenv.config();
 
@@ -16,7 +13,7 @@ const missingEnv = REQUIRED_ENV.filter(k => !process.env[k]);
 if (missingEnv.length > 0) {
     console.error('❌ MISSING REQUIRED ENVIRONMENT VARIABLES:');
     missingEnv.forEach(k => console.error(`   - ${k}`));
-    console.error('   Copy backend/.env.example to backend/.env and fill in the values.');
+    console.error('   Set these in the Vercel dashboard (or backend/.env for local dev).');
     process.exit(1);
 }
 
@@ -44,19 +41,17 @@ const attendanceController = require('./controllers/attendanceController');
 const app = express();
 
 // ─── Environment ─────────────────────────────────────────────────────────────
-const isProduction = process.env.NODE_ENV === 'production' || !!process.env.RENDER_EXTERNAL_URL;
+const isProduction = process.env.NODE_ENV === 'production' || !!process.env.VERCEL;
 const PORT = process.env.PORT || 5000;
 
 console.log('='.repeat(70));
 console.log('🚀 SERVER INITIALIZING');
 console.log(`   Environment : ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
-console.log(`   Port        : ${PORT}`);
+console.log(`   Runtime     : ${process.env.VERCEL ? 'Vercel Serverless' : 'Node.js'}`);
 console.log('='.repeat(70));
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
-// Hard-coded allowed origins (covers all known deployments)
 const ALLOWED_ORIGINS = new Set([
-    // Local development
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:3000',
@@ -65,18 +60,15 @@ const ALLOWED_ORIGINS = new Set([
     'http://127.0.0.1:5174',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:3001',
-    // Production Vercel frontends
     'https://hrms-p-test.vercel.app',
     'https://hrms-b2-bindemand-a31u.vercel.app',
-    // Render backend (for internal calls / health checks)
     'https://hrms-p-test-1.onrender.com',
 ]);
 
-// Also pull any extra origins from the env var (comma-separated)
 if (process.env.ALLOWED_ORIGINS) {
     process.env.ALLOWED_ORIGINS.split(',').forEach(o => {
-        const trimmed = o.trim();
-        if (trimmed) ALLOWED_ORIGINS.add(trimmed);
+        const t = o.trim();
+        if (t) ALLOWED_ORIGINS.add(t);
     });
 }
 
@@ -85,55 +77,34 @@ ALLOWED_ORIGINS.forEach(o => console.log(`   - ${o}`));
 
 const corsOptions = {
     origin(origin, callback) {
-        // Allow requests with no origin (curl, Postman, server-to-server)
         if (!origin) return callback(null, true);
 
-        // Allow all localhost / 127.0.0.1 regardless of port (dev convenience)
         if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
             return callback(null, true);
         }
-
-        // Allow private LAN origins (192.168.x, 10.x, 172.16-31.x)
         if (/^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(origin)) {
             return callback(null, true);
         }
-
-        // Allow any *.vercel.app preview deployment
+        // Any *.vercel.app preview deployment
         if (/^https:\/\/[a-zA-Z0-9-]+-[a-zA-Z0-9-]+\.vercel\.app$/.test(origin)) {
             return callback(null, true);
         }
-
         if (ALLOWED_ORIGINS.has(origin)) return callback(null, true);
 
-        // Blocked — return null (no error object) so Express does NOT throw;
-        // instead we return false which tells the cors middleware to omit the
-        // Access-Control-Allow-Origin header, producing a clean CORS rejection.
         console.warn(`⛔ CORS blocked: ${origin}`);
         return callback(null, false);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: [
-        'Content-Type',
-        'Authorization',
-        'X-Requested-With',
-        'Accept',
-        'Origin',
-        'employee-id',
-        'X-Employee-Id',
+        'Content-Type', 'Authorization', 'X-Requested-With',
+        'Accept', 'Origin', 'employee-id', 'X-Employee-Id',
     ],
-    // Cache preflight for 24 h
     maxAge: 86400,
-    // Make cors() send the actual allowed origin back (not '*') so
-    // credentials work correctly
     optionsSuccessStatus: 204,
 };
 
-// Apply CORS before EVERYTHING else so preflight OPTIONS responses are
-// handled immediately and always carry the correct headers.
 app.use(cors(corsOptions));
-// Explicitly handle OPTIONS preflight for every route so nothing slips
-// through if a route handler accidentally swallows the request.
 
 // ─── Body parsers ─────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '50mb' }));
@@ -145,45 +116,14 @@ app.use((req, _res, next) => {
     next();
 });
 
-// ─── Upload directories ───────────────────────────────────────────────────────
-const createUploadDirectories = () => {
-    const dirs = [
-        path.join(__dirname, 'uploads'),
-        path.join(__dirname, 'uploads', 'profiles'),
-        path.join(__dirname, 'uploads', 'documents'),
-        path.join(__dirname, 'uploads', 'announcements'),
-        path.join(__dirname, 'uploads', 'office-events'),
-        path.join(__dirname, 'logs'),
-    ];
-    dirs.forEach(dir => {
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-            console.log(`✅ Created: ${dir}`);
-        }
-    });
-    return dirs[0]; // uploadsDir
-};
-
-const uploadsDir = createUploadDirectories();
-
-app.use('/uploads', express.static(uploadsDir));
-
-// ─── Multer ───────────────────────────────────────────────────────────────────
+// ─── Multer (memory storage — no local disk in serverless) ───────────────────
+// Individual routes upload buffers to Supabase Storage via lib/supabaseStorage.js
 const uploadDocuments = multer({
-    storage: multer.diskStorage({
-        destination(_req, _file, cb) {
-            cb(null, path.join(__dirname, 'uploads', 'documents'));
-        },
-        filename(_req, file, cb) {
-            const suffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-            const ext = path.extname(file.originalname);
-            cb(null, `${file.fieldname.replace(/[^a-zA-Z0-9]/g, '_')}-${suffix}${ext}`);
-        },
-    }),
+    storage: multer.memoryStorage(),
     limits: { fileSize: 10 * 1024 * 1024 },
     fileFilter(_req, file, cb) {
         const ok = /jpeg|jpg|png|pdf|doc|docx/.test(
-            path.extname(file.originalname).toLowerCase()
+            require('path').extname(file.originalname).toLowerCase()
         );
         cb(ok ? null : new Error('Only images and documents are allowed'), ok);
     },
@@ -224,19 +164,19 @@ app.use('/api/auth',   authRoutes);
 app.use('/api/public', loginFeedRoutes);
 
 // ─── Protected routes ─────────────────────────────────────────────────────────
-app.use('/api/employees',       authenticateToken, employeeRoutes);
-app.use('/api/leaves',          authenticateToken, leaveRoutes);
-app.use('/api/attendance',      authenticateToken, attendanceRoutes(supabase, authenticateToken, requireAdmin));
-app.use('/api/salary',          authenticateToken, salaryRoutes);
-app.use('/api/notifications',   authenticateToken, notificationRoutes);
-app.use('/api/admin-updates',   authenticateToken, adminUpdateRoutes);
+app.use('/api/employees',        authenticateToken, employeeRoutes);
+app.use('/api/leaves',           authenticateToken, leaveRoutes);
+app.use('/api/attendance',       authenticateToken, attendanceRoutes(supabase, authenticateToken, requireAdmin));
+app.use('/api/salary',           authenticateToken, salaryRoutes);
+app.use('/api/notifications',    authenticateToken, notificationRoutes);
+app.use('/api/admin-updates',    authenticateToken, adminUpdateRoutes);
 app.use('/api/employee-updates', authenticateToken, employeeUpdateRoutes);
 app.use('/api/update-responses', authenticateToken, updateResponseRoutes);
-app.use('/api/notices',         authenticateToken, noticeRoutes);
-app.use('/api/notice-board',    authenticateToken, noticeBoardRoutes);
-app.use('/api/announcements',   authenticateToken, announcementRoutes);
-app.use('/api/ratings',         ratingRoutes(authenticateToken, requireAdmin));
-app.use('/api/teams',           authenticateToken, teamRoutes);
+app.use('/api/notices',          authenticateToken, noticeRoutes);
+app.use('/api/notice-board',     authenticateToken, noticeBoardRoutes);
+app.use('/api/announcements',    authenticateToken, announcementRoutes);
+app.use('/api/ratings',          ratingRoutes(authenticateToken, requireAdmin));
+app.use('/api/teams',            authenticateToken, teamRoutes);
 
 // ─── Utility endpoints ────────────────────────────────────────────────────────
 app.get('/', (_req, res) => res.json({
@@ -251,7 +191,7 @@ app.get('/api/health', (_req, res) => res.json({
     message: 'Server is healthy',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-    port: PORT,
+    runtime: process.env.VERCEL ? 'vercel-serverless' : 'node',
 }));
 
 // ─── 404 handler ──────────────────────────────────────────────────────────────
@@ -260,30 +200,14 @@ app.use((req, res) => {
 });
 
 // ─── Global error handler ─────────────────────────────────────────────────────
-// Must have 4 parameters for Express to treat it as an error handler.
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-    // Always log full stack — visible in Render logs regardless of environment
     console.error(`❌ [GLOBAL ERROR] ${req.method} ${req.path}`);
     console.error(`   name   : ${err.name}`);
     console.error(`   message: ${err.message}`);
     console.error(`   stack  :\n${err.stack}`);
 
-    if (isProduction) {
-        try {
-            const logDir = path.join(__dirname, 'logs');
-            if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-            fs.appendFileSync(
-                path.join(logDir, 'errors.log'),
-                `${new Date().toISOString()} ${req.method} ${req.path} — ${err.stack}\n`
-            );
-        } catch (_) { /* log write failure must not mask the original error */ }
-    }
-
-    if (res.headersSent) {
-        console.error('❌ [GLOBAL ERROR] Headers already sent — cannot send error response');
-        return;
-    }
+    if (res.headersSent) return;
 
     if (err instanceof multer.MulterError) {
         return res.status(400).json({ success: false, message: 'File upload error', error: err.message });
@@ -302,169 +226,85 @@ app.use((err, req, res, next) => {
     });
 });
 
-// ─── Cron jobs ────────────────────────────────────────────────────────────────
-const logCronActivity = (type, message, duration = null) => {
-    const logDir = path.join(__dirname, 'logs');
-    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-    fs.appendFileSync(
-        path.join(logDir, 'cron-jobs.log'),
-        JSON.stringify({ timestamp: new Date().toISOString(), type, message, duration }) + '\n'
-    );
-};
+// ─── Local development server ─────────────────────────────────────────────────
+// In Vercel this block never executes — api/index.js wraps the exported app.
+if (require.main === module) {
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log('='.repeat(70));
+        console.log('🚀 SERVER STARTED (local)');
+        console.log(`   http://localhost:${PORT}`);
+        console.log('='.repeat(70));
 
-// Hourly: auto-close stale sessions
-cron.schedule('0 * * * *', async () => {
-    const t = Date.now();
-    try {
-        const result = await attendanceController.autoCloseStaleSessions();
-        const ms = Date.now() - t;
-        console.log(`✅ Auto-close: ${result.closedCount} sessions closed in ${ms}ms`);
-        logCronActivity('AUTO_CLOSE', `${result.closedCount} sessions closed`, ms);
-    } catch (err) {
-        console.error('❌ Auto-close cron error:', err);
-        logCronActivity('AUTO_CLOSE_ERROR', err.message);
-    }
-});
+        supabase.from('employees').select('count', { count: 'exact', head: true }).then(({ error }) => {
+            if (error) console.error(`❌ Supabase connection FAILED: ${error.message}`);
+            else console.log('✅ Supabase connected');
+        });
 
-// Daily 23:59: mark absent
-cron.schedule('59 23 * * *', async () => {
-    const t = Date.now();
-    try {
-        const result = await attendanceController.markAbsentAtDayEnd();
-        const ms = Date.now() - t;
-        console.log(`✅ Absent marking done in ${ms}ms: ${result.message}`);
-        logCronActivity('END_OF_DAY', result.message, ms);
-    } catch (err) {
-        console.error('❌ End-of-day cron error:', err);
-        logCronActivity('END_OF_DAY_ERROR', err.message);
-    }
-});
+        // Repair orphaned attendance records / stale sessions on local startup
+        setTimeout(async () => {
+            try {
+                const fix = await attendanceController.fixOrphanedAttendance(null, null);
+                console.log(`✅ Orphan fix: ${fix.fixed} fixed, ${fix.skipped} skipped`);
 
-// Weekly Sunday 02:00: DB cleanup
-cron.schedule('0 2 * * 0', async () => {
-    const t = Date.now();
-    try {
-        const thirtyAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-        const ninetyAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+                const { data: staleSessions } = await supabase
+                    .from('attendance_sessions')
+                    .select('session_id, employee_id')
+                    .eq('is_active', true);
 
-        await supabase.from('attendance_sessions')
-            .delete().eq('is_active', false).lt('clock_out_time', thirtyAgo);
+                let staleFixed = 0;
+                for (const s of (staleSessions || [])) {
+                    const { data: clocked } = await supabase
+                        .from('attendance')
+                        .select('id, clock_out')
+                        .eq('employee_id', s.employee_id)
+                        .eq('session_id', s.session_id)
+                        .not('clock_out', 'is', null)
+                        .maybeSingle();
 
-        await supabase.from('regularization_requests')
-            .delete().in('status', ['approved', 'rejected']).lt('created_at', ninetyAgo);
+                    if (clocked) {
+                        await supabase.from('attendance_sessions')
+                            .update({ is_active: false, clock_out_time: clocked.clock_out })
+                            .eq('session_id', s.session_id)
+                            .eq('employee_id', s.employee_id);
+                        staleFixed++;
+                        continue;
+                    }
 
-        const ms = Date.now() - t;
-        console.log(`✅ Weekly cleanup done in ${ms}ms`);
-        logCronActivity('WEEKLY_CLEANUP', 'done', ms);
-    } catch (err) {
-        console.error('❌ Weekly cleanup error:', err);
-        logCronActivity('WEEKLY_CLEANUP_ERROR', err.message);
-    }
-});
+                    const { data: any } = await supabase
+                        .from('attendance')
+                        .select('id')
+                        .eq('employee_id', s.employee_id)
+                        .eq('session_id', s.session_id)
+                        .maybeSingle();
 
-console.log('⏰ Cron jobs scheduled');
-
-// ─── Start server ─────────────────────────────────────────────────────────────
-app.listen(PORT, '0.0.0.0', () => {
-    console.log('='.repeat(70));
-    console.log('🚀 SERVER STARTED');
-    console.log(`   http://localhost:${PORT}`);
-    console.log(`   ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
-    console.log(`   Public URL: ${process.env.RENDER_EXTERNAL_URL || 'not set'}`);
-    console.log('='.repeat(70));
-
-    // Verify Supabase connection
-    supabase.from('employees').select('count', { count: 'exact', head: true }).then(({ error }) => {
-        if (error) {
-            console.error(`❌ Supabase connection FAILED: ${error.message}`);
-        } else {
-            console.log('✅ Supabase connected');
-        }
+                    if (!any) {
+                        await supabase.from('attendance_sessions')
+                            .update({ is_active: false, clock_out_time: new Date().toISOString() })
+                            .eq('session_id', s.session_id)
+                            .eq('employee_id', s.employee_id);
+                        staleFixed++;
+                    }
+                }
+                console.log(`✅ Stale session fix: ${staleFixed} fixed`);
+            } catch (err) {
+                console.error('❌ Startup fix error:', err.message);
+            }
+        }, 3000);
     });
 
-    // Startup fix: repair orphaned attendance records and stale sessions
-    setTimeout(async () => {
-        try {
-            console.log('🔧 Running startup attendance fixes...');
-            const fix = await attendanceController.fixOrphanedAttendance(null, null);
-            console.log(`✅ Orphan fix: ${fix.fixed} fixed, ${fix.skipped} skipped`);
-
-            const { data: staleSessions } = await supabase
-                .from('attendance_sessions')
-                .select('session_id, employee_id')
-                .eq('is_active', true);
-
-            let staleFixed = 0;
-            for (const s of (staleSessions || [])) {
-                const { data: clocked } = await supabase
-                    .from('attendance')
-                    .select('id, clock_out')
-                    .eq('employee_id', s.employee_id)
-                    .eq('session_id', s.session_id)
-                    .not('clock_out', 'is', null)
-                    .maybeSingle();
-
-                if (clocked) {
-                    await supabase.from('attendance_sessions')
-                        .update({ is_active: false, clock_out_time: clocked.clock_out })
-                        .eq('session_id', s.session_id)
-                        .eq('employee_id', s.employee_id);
-                    staleFixed++;
-                    continue;
-                }
-
-                const { data: any } = await supabase
-                    .from('attendance')
-                    .select('id')
-                    .eq('employee_id', s.employee_id)
-                    .eq('session_id', s.session_id)
-                    .maybeSingle();
-
-                if (!any) {
-                    await supabase.from('attendance_sessions')
-                        .update({ is_active: false, clock_out_time: new Date().toISOString() })
-                        .eq('session_id', s.session_id)
-                        .eq('employee_id', s.employee_id);
-                    staleFixed++;
-                }
-            }
-            console.log(`✅ Stale session fix: ${staleFixed} fixed`);
-        } catch (err) {
-            console.error('❌ Startup fix error:', err.message);
-        }
-    }, 3000);
-});
-
-// ─── Graceful shutdown ────────────────────────────────────────────────────────
-const shutdown = () => {
-    console.log('\n🛑 Shutting down gracefully...');
-    const logDir = path.join(__dirname, 'logs');
-    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-    fs.appendFileSync(path.join(logDir, 'server.log'), `${new Date().toISOString()} - shutdown\n`);
-    process.exit(0);
-};
-
-process.on('SIGTERM', shutdown);
-process.on('SIGINT',  shutdown);
+    process.on('SIGTERM', () => { console.log('\n🛑 Shutting down...'); process.exit(0); });
+    process.on('SIGINT',  () => { console.log('\n🛑 Shutting down...'); process.exit(0); });
+}
 
 process.on('uncaughtException', (err) => {
     console.error('❌ Uncaught exception:', err.stack);
-    if (isProduction) {
-        const logDir = path.join(__dirname, 'logs');
-        if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-        fs.appendFileSync(path.join(logDir, 'errors.log'), `${new Date().toISOString()} - ${err.stack}\n`);
-        process.exit(1);
-    }
+    if (isProduction) process.exit(1);
 });
 
 process.on('unhandledRejection', (reason) => {
     console.error('❌ Unhandled rejection:', reason);
-    if (isProduction) {
-        const logDir = path.join(__dirname, 'logs');
-        if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-        fs.appendFileSync(path.join(logDir, 'errors.log'), `${new Date().toISOString()} - Rejection: ${reason}\n`);
-        process.exit(1);
-    }
+    if (isProduction) process.exit(1);
 });
 
+// ─── Export for Vercel serverless (api/index.js imports this) ────────────────
 module.exports = app;

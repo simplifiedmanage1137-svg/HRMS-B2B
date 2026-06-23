@@ -2,28 +2,16 @@ const express = require('express');
 const router = express.Router();
 const supabase = require('../config/supabase');
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const { uploadFile, deleteFile } = require('../lib/supabaseStorage');
 
-// Multer config — save to uploads/announcements/
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const dir = path.join(__dirname, '../uploads/announcements');
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        cb(null, dir);
-    },
-    filename: (req, file, cb) => {
-        const ext = path.extname(file.originalname).toLowerCase();
-        cb(null, `announcement-${Date.now()}${ext}`);
-    }
-});
+// Memory storage — announcement images go to Supabase Storage (no local disk in serverless)
 const upload = multer({
-    storage,
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
         if (/^image\/(jpeg|jpg|png|gif|webp)$/.test(file.mimetype)) cb(null, true);
         else cb(new Error('Only image files allowed (jpg, png, gif, webp)'));
-    }
+    },
 });
 
 // GET /api/announcements — all active announcements (all authenticated users)
@@ -57,11 +45,16 @@ router.post('/', upload.single('image'), async (req, res) => {
             return res.status(400).json({ success: false, message: 'Title and message are required' });
         }
 
-        // Build image URL if file uploaded
+        // Upload image to Supabase Storage if provided
         let image_url = null;
         if (req.file) {
-            const baseUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 5000}`;
-            image_url = `${baseUrl}/uploads/announcements/${req.file.filename}`;
+            const { publicUrl } = await uploadFile(
+                req.file.buffer,
+                req.file.originalname,
+                'announcements',
+                req.file.mimetype
+            );
+            image_url = publicUrl;
         }
 
         const { data, error } = await supabase
@@ -97,11 +90,9 @@ router.delete('/:id', async (req, res) => {
             .from('announcements').delete().eq('id', req.params.id);
         if (error) throw error;
 
-        // Delete image file if exists
+        // Remove image from Supabase Storage if one was attached
         if (ann?.image_url) {
-            const filename = ann.image_url.split('/').pop();
-            const filePath = path.join(__dirname, '../uploads/announcements', filename);
-            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+            await deleteFile(ann.image_url).catch(e => console.warn('⚠️ Image delete skipped:', e.message));
         }
 
         res.json({ success: true, message: 'Announcement deleted' });

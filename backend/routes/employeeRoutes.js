@@ -3,39 +3,18 @@ const router = express.Router();
 const supabase = require('../config/supabase');
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
 const { verifyToken, isAdmin, isAdminOrManager } = require('../middleware/auth');
+const { uploadFile, deleteFile, folderForField } = require('../lib/supabaseStorage');
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        const uploadDir = path.join(__dirname, '../uploads/documents');
-        if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir, { recursive: true });
-        }
-        cb(null, uploadDir);
-    },
-    filename: function (req, file, cb) {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        const ext = path.extname(file.originalname);
-        cb(null, file.fieldname + '-' + uniqueSuffix + ext);
-    }
-});
-
+// Memory storage — files are uploaded to Supabase Storage (no local disk in serverless)
 const upload = multer({
-    storage: storage,
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
-        const allowedTypes = /jpeg|jpg|png|pdf|doc|docx/;
-        const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-        const mimetype = allowedTypes.test(file.mimetype);
-
-        if (mimetype && extname) {
-            return cb(null, true);
-        } else {
-            cb(new Error('Only images and documents are allowed'));
-        }
-    }
+        const allowed = /jpeg|jpg|png|pdf|doc|docx/;
+        const ok = allowed.test(path.extname(file.originalname).toLowerCase()) && allowed.test(file.mimetype);
+        cb(ok ? null : new Error('Only images and documents are allowed'), ok);
+    },
 });
 
 // Generate Employee ID with 2-digit sequence based on joining date
@@ -772,77 +751,46 @@ router.delete('/:id/hard', verifyToken, isAdmin, async (req, res) => {
 
 // ============== DOCUMENT MANAGEMENT ==============
 
-// Upload documents
+// Upload documents — buffers go directly to Supabase Storage (no disk write)
 router.post('/:employeeId/documents', verifyToken, upload.any(), async (req, res) => {
     try {
         const { employeeId } = req.params;
         const files = req.files;
 
-        console.log('📥 Document upload request received for employee:', employeeId);
-        console.log('📦 Files received:', files?.length || 0);
+        console.log('📥 Document upload for employee:', employeeId, '| files:', files?.length || 0);
 
         if (!files || files.length === 0) {
-            return res.status(400).json({
-                success: false,
-                message: 'No files uploaded'
-            });
+            return res.status(400).json({ success: false, message: 'No files uploaded' });
         }
 
         const documentUpdates = {};
 
-        files.forEach(file => {
-            const fieldName = file.fieldname;
-            documentUpdates[fieldName] = file.filename;
-            console.log(`📄 File mapping: ${fieldName} -> ${file.filename}`);
-        });
-
-        console.log('📝 Updating employee with documents:', documentUpdates);
-
-        // Update employee record with document names
-        if (Object.keys(documentUpdates).length > 0) {
-            const { data, error } = await supabase
-                .from('employees')
-                .update(documentUpdates)
-                .eq('employee_id', employeeId)
-                .select();
-
-            if (error) {
-                console.error('❌ Database update error:', error);
-                throw error;
-            }
-
-            console.log('✅ Database updated successfully. Updated fields:', data);
+        for (const file of files) {
+            const folder = folderForField(file.fieldname);
+            const { publicUrl } = await uploadFile(file.buffer, file.originalname, folder, file.mimetype);
+            documentUpdates[file.fieldname] = publicUrl;
+            console.log(`📄 Uploaded ${file.fieldname} → ${publicUrl}`);
         }
 
-        // Fetch the updated employee to verify
-        const { data: updatedEmployee, error: fetchError } = await supabase
+        const { data, error } = await supabase
             .from('employees')
-            .select('*')
-            .eq('employee_id', employeeId);
+            .update(documentUpdates)
+            .eq('employee_id', employeeId)
+            .select();
 
-        if (fetchError) {
-            console.error('❌ Error fetching updated employee:', fetchError);
-        } else {
-            console.log('📊 Updated employee documents:', {
-                profile_image: updatedEmployee[0]?.profile_image,
-                appointment_letter: updatedEmployee[0]?.appointment_letter,
-            });
-        }
+        if (error) throw error;
 
+        console.log('✅ DB updated with document URLs');
         res.json({
             success: true,
             message: 'Documents uploaded successfully',
             documents: documentUpdates,
-            updated_employee: updatedEmployee[0]
+            updated_employee: data[0],
         });
 
     } catch (error) {
         console.error('❌ Error uploading documents:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to upload documents',
-            error: error.message
-        });
+        res.status(500).json({ success: false, message: 'Failed to upload documents', error: error.message });
     }
 });
 
@@ -918,13 +866,10 @@ router.get('/:employeeId/documents', async (req, res) => {
 });
 
 
-// Download specific document
+// Download / view a specific document — redirects to the Supabase Storage URL
 router.get('/:employeeId/documents/:documentType', verifyToken, async (req, res) => {
     try {
         const { employeeId, documentType } = req.params;
-        const { inline } = req.query;
-
-        console.log('📥 Document download request:', { employeeId, documentType });
 
         const { data, error } = await supabase
             .from('employees')
@@ -933,68 +878,33 @@ router.get('/:employeeId/documents/:documentType', verifyToken, async (req, res)
             .single();
 
         if (error || !data || !data[documentType]) {
-            return res.status(404).json({
-                success: false,
-                message: 'Document not found'
-            });
+            return res.status(404).json({ success: false, message: 'Document not found' });
         }
 
-        const filename = data[documentType];
-        const filePath = path.join(__dirname, '../uploads/documents', filename);
+        const url = data[documentType];
 
-        if (!fs.existsSync(filePath)) {
-            return res.status(404).json({
-                success: false,
-                message: 'File not found on server'
-            });
+        // Documents stored as Supabase Storage public URLs — redirect the browser directly
+        if (url.startsWith('http')) {
+            return res.redirect(url);
         }
 
-        // Set appropriate headers for viewing/downloading
-        if (inline === 'true') {
-            res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
-        } else {
-            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        }
-
-        // Set content type based on file extension
-        const ext = path.extname(filename).toLowerCase();
-        const mimeTypes = {
-            '.pdf': 'application/pdf',
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg',
-            '.png': 'image/png',
-            '.gif': 'image/gif',
-            '.doc': 'application/msword',
-            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            '.txt': 'text/plain'
-        };
-
-        if (mimeTypes[ext]) {
-            res.setHeader('Content-Type', mimeTypes[ext]);
-        }
-
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Access-Control-Allow-Origin', '*');
-
-        console.log('📤 Sending file:', filename);
-        res.sendFile(filePath);
+        // Legacy: file was stored as a bare filename before the Supabase migration
+        return res.status(410).json({
+            success: false,
+            message: 'Document predates cloud storage — please re-upload.',
+        });
 
     } catch (error) {
-        console.error('❌ Error downloading document:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to download document',
-            error: error.message
-        });
+        console.error('❌ Error fetching document:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch document', error: error.message });
     }
 });
 
-// Delete specific document
+// Delete a specific document — removes from Supabase Storage then clears DB field
 router.delete('/:employeeId/documents/:documentType', verifyToken, async (req, res) => {
     try {
         const { employeeId, documentType } = req.params;
 
-        // Get filename first
         const { data, error: fetchError } = await supabase
             .from('employees')
             .select(documentType)
@@ -1003,17 +913,11 @@ router.delete('/:employeeId/documents/:documentType', verifyToken, async (req, r
 
         if (fetchError) throw fetchError;
 
-        if (data && data[documentType]) {
-            const filename = data[documentType];
-            const filePath = path.join(__dirname, '../uploads/documents', filename);
-
-            // Delete file from filesystem
-            if (fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath);
-            }
+        // Delete from Supabase Storage (handles both URL and bare-path formats)
+        if (data?.[documentType]) {
+            await deleteFile(data[documentType]);
         }
 
-        // Update database
         const { error: updateError } = await supabase
             .from('employees')
             .update({ [documentType]: null })
@@ -1021,18 +925,11 @@ router.delete('/:employeeId/documents/:documentType', verifyToken, async (req, r
 
         if (updateError) throw updateError;
 
-        res.json({
-            success: true,
-            message: 'Document deleted successfully'
-        });
+        res.json({ success: true, message: 'Document deleted successfully' });
 
     } catch (error) {
         console.error('Error deleting document:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to delete document',
-            error: error.message
-        });
+        res.status(500).json({ success: false, message: 'Failed to delete document', error: error.message });
     }
 });
 
