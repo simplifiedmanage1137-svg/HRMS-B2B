@@ -320,12 +320,12 @@ if (require.main === module) {
 
 process.on('uncaughtException', (err) => {
     console.error('❌ Uncaught exception:', err.stack);
-    if (isProduction) process.exit(1);
+    if (isProduction && !process.env.VERCEL) process.exit(1);
 });
 
 process.on('unhandledRejection', (reason) => {
     console.error('❌ Unhandled rejection:', reason);
-    if (isProduction) process.exit(1);
+    if (isProduction && !process.env.VERCEL) process.exit(1);
 });
 
 // ─── Export for Vercel serverless (api/index.js imports this) ────────────────
