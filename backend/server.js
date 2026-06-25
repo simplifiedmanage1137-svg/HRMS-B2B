@@ -15,10 +15,9 @@ console.log("FRONTEND_URL =", JSON.stringify(process.env.FRONTEND_URL));
 const REQUIRED_ENV = ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY'];
 const missingEnv = REQUIRED_ENV.filter(k => !process.env[k]);
 if (missingEnv.length > 0) {
-    console.error('❌ MISSING REQUIRED ENVIRONMENT VARIABLES:');
-    missingEnv.forEach(k => console.error(`   - ${k}`));
-    console.error('   Set these in the Vercel dashboard (or backend/.env for local dev).');
-    process.exit(1);
+    const msg = `MISSING ENV VARS: ${missingEnv.join(', ')}`;
+    console.error('❌', msg);
+    throw new Error(msg);
 }
 
 const supabase = require('./config/supabase');
