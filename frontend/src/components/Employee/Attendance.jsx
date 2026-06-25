@@ -113,7 +113,6 @@ const Attendance = () => {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [canClockOut, setCanClockOut] = useState(false);
-  const [clockOutSecondsLeft, setClockOutSecondsLeft] = useState(null);
 
   const STORAGE_KEY = `attendance_session_${user?.employeeId}`;
 
@@ -1577,33 +1576,13 @@ const Attendance = () => {
     return () => clearInterval(interval);
   }, [attendance?.clock_in, attendance?.clock_out]);
 
-  // 15-minute clock-out cooldown after clock-in
   useEffect(() => {
-    if (!attendance?.clock_in || attendance?.clock_out) {
-      setCanClockOut(false);
-      setClockOutSecondsLeft(null);
-      return;
-    }
-    const COOLDOWN_MS = 15 * 60 * 1000;
-    const raw = attendance.clock_in;
-    const clockInMs = raw.includes('T')
-      ? new Date(raw.endsWith('Z') || raw.includes('+') ? raw : raw + 'Z').getTime()
-      : new Date(raw.replace(' ', 'T') + '+05:30').getTime();
-    const availableAt = clockInMs + COOLDOWN_MS;
-    const tick = () => {
-      const remaining = Math.ceil((availableAt - Date.now()) / 1000);
-      if (remaining <= 0) {
-        setCanClockOut(true);
-        setClockOutSecondsLeft(0);
-      } else {
-        setCanClockOut(false);
-        setClockOutSecondsLeft(remaining);
-      }
-    };
-    tick();
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
-  }, [attendance?.clock_in, attendance?.clock_out]);
+    setCanClockOut(false);
+    const isClockedIn = (!!attendance?.clock_in || !!activeSession) && !attendance?.clock_out;
+    if (!isClockedIn) return;
+    const timer = setTimeout(() => setCanClockOut(true), 3000);
+    return () => clearTimeout(timer);
+  }, [attendance?.clock_in, attendance?.clock_out, !!activeSession]);
 
   useEffect(() => {
     // Only create virtual session for TODAY's incomplete record
@@ -1673,65 +1652,16 @@ const Attendance = () => {
     );
   };
 
-  // In Attendance.jsx - Replace renderClockButton function
-
   const renderClockButton = () => {
-    const REGULARIZATION_THRESHOLD = 15;
-    const currentHours = attendance?.total_hours || 0;
-
-    // ✅ PRIMARY signal: active session from server
     const hasActiveSession = !!activeSession;
-
-    // ✅ FALLBACK: attendance exists with clock_in but no clock_out (cross-midnight safety net)
     const hasOpenAttendance = !!attendance?.clock_in && !attendance?.clock_out;
 
-    // Has employee fully clocked out today?
     const nowISTDateStr = nowIST().split(' ')[0];
     const attendanceIsToday = attendance?.attendance_date === nowISTDateStr;
     const isClockedOut = attendanceIsToday && !!attendance?.clock_in && !!attendance?.clock_out;
 
-    // ✅ Show Clock Out if: active session OR open attendance (no clock_out yet)
     if (hasActiveSession || hasOpenAttendance) {
-      // But first check if hours >= 15 for regularization
-      if (currentHours >= REGULARIZATION_THRESHOLD) {
-        return (
-          <div className="text-center">
-            <Button
-              variant="warning"
-              size="lg"
-              className="w-100 py-3"
-              onClick={() => {
-                const pseudoRecord = {
-                  id: attendance?.id,
-                  attendance_date: attendance?.attendance_date,
-                  clock_in: attendance?.clock_in,
-                  clock_in_ist: attendance?.clock_in_ist,
-                  clock_in_display: attendance?.clock_in_display,
-                  has_clock_out: false,
-                  is_regularized: false,
-                  regularization_requested: false
-                };
-                handleOpenRegularizationModal(pseudoRecord);
-              }}
-              disabled={loading || submittingRequest}
-            >
-              {loading || submittingRequest ? (
-                <><Spinner size="sm" animation="border" className="me-2" />Processing...</>
-              ) : (
-                <><FaRegClock className="me-2" />Request Regularization</>
-              )}
-            </Button>
-            <small className="text-muted d-block mt-2">
-              Working {currentHours.toFixed(1)}h — Exceeded {REGULARIZATION_THRESHOLD}h limit
-            </small>
-          </div>
-        );
-      }
-
-      // Still in 15-min cooldown — show nothing
-      if (!canClockOut) {
-        return null;
-      }
+      if (!canClockOut) return null;
 
       return (
         <div className="text-center">
@@ -1742,11 +1672,6 @@ const Attendance = () => {
               <><FaSignOutAlt className="me-2" />Clock Out</>
             )}
           </Button>
-          {currentHours > 0 && (
-            <small className="text-muted d-block mt-2">
-              Working: {currentHours.toFixed(1)}h / {REGULARIZATION_THRESHOLD}h limit
-            </small>
-          )}
         </div>
       );
     }
