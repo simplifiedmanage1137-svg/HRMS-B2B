@@ -51,8 +51,22 @@ const PORT = process.env.PORT || 5000;
 console.log('='.repeat(70));
 console.log('🚀 SERVER INITIALIZING');
 console.log(`   Environment : ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
-console.log(`   Runtime     : ${process.env.VERCEL ? 'Vercel Serverless' : 'Node.js'}`);
+console.log(`   Runtime     : ${process.env.VERCEL ? 'Vercel Service' : 'Node.js'}`);
 console.log('='.repeat(70));
+
+// ─── Vercel service prefix stripping ─────────────────────────────────────────
+// When deployed as a Vercel service with routePrefix "/_/backend", Vercel
+// forwards the FULL path (e.g. /_/backend/api/auth/login) without stripping
+// the prefix. This middleware strips it so Express sees /api/auth/login.
+if (process.env.VERCEL) {
+    const SERVICE_PREFIX = '/_/backend';
+    app.use((req, _res, next) => {
+        if (req.url.startsWith(SERVICE_PREFIX)) {
+            req.url = req.url.slice(SERVICE_PREFIX.length) || '/';
+        }
+        next();
+    });
+}
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 const ALLOWED_ORIGINS = new Set([
@@ -180,6 +194,7 @@ const requireAdmin = (req, res, next) => {
 };
 
 // ─── Public routes ────────────────────────────────────────────────────────────
+console.log('Auth routes mounted at /api/auth');
 app.use('/api/auth',   authRoutes);
 app.use('/api/public', loginFeedRoutes);
 // Cron endpoints — no JWT, auth via CRON_SECRET (called by Vercel scheduler)
@@ -201,6 +216,12 @@ app.use('/api/ratings',          ratingRoutes(authenticateToken, requireAdmin));
 app.use('/api/teams',            authenticateToken, teamRoutes);
 
 // ─── Utility endpoints ────────────────────────────────────────────────────────
+app.get('/health', (_req, res) => res.json({
+    ok: true,
+    timestamp: new Date().toISOString(),
+    runtime: process.env.VERCEL ? 'vercel-service' : 'node',
+}));
+
 app.get('/', (_req, res) => res.json({
     name: 'HRMS API',
     version: '2.0.0',
@@ -213,7 +234,7 @@ app.get('/api/health', (_req, res) => res.json({
     message: 'Server is healthy',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-    runtime: process.env.VERCEL ? 'vercel-serverless' : 'node',
+    runtime: process.env.VERCEL ? 'vercel-service' : 'node',
 }));
 
 // ─── 404 handler ──────────────────────────────────────────────────────────────
@@ -253,6 +274,8 @@ app.use((err, req, res, next) => {
 // as a module rather than executing it directly with `node server.js`.
 if (require.main === module || process.env.VERCEL) {
     app.listen(PORT, '0.0.0.0', () => {
+        console.log('='.repeat(70));
+        console.log('Backend service started');
         console.log('='.repeat(70));
         console.log('🚀 SERVER STARTED');
         console.log(`   Port        : ${PORT}`);
