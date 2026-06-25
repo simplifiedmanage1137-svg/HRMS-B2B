@@ -211,11 +211,6 @@ const Sidebar = () => {
         {/* ── Navigation ── */}
         <nav className="hrms-sidebar__nav">
 
-          <Section label="Overview" />
-          <div style={{ display: 'none' }}>
-            <NavItem to="/" end icon={<FaTachometerAlt />} label="Dashboard" />
-          </div>
-
           {user?.role === 'admin' ? (
             <>
               <Section label="Management" />
@@ -239,6 +234,8 @@ const Sidebar = () => {
             </>
           ) : user?.role === 'manager' ? (
             <>
+              <Section label="Overview" />
+              <NavItem to="/" end icon={<FaTachometerAlt />} label="Dashboard" />
               <Section label="My Space" />
               <NavItem to="/profile"     icon={<FaUserCircle />}  label="My Profile" />
               <NavItem to="/attendance" icon={<FaFingerprint />} label="Daily Attendance" />
@@ -250,6 +247,8 @@ const Sidebar = () => {
             </>
           ) : (
             <>
+              <Section label="Overview" />
+              <NavItem to="/" end icon={<FaTachometerAlt />} label="Dashboard" />
               <Section label="My Space" />
               <NavItem to="/profile"                 icon={<FaUserCircle />}  label="My Profile" />
               <NavItem to="/attendance"              icon={<FaFingerprint />} label="Daily Attendance" />
