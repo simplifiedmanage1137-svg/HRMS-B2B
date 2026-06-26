@@ -167,7 +167,7 @@ function AppContent() {
 
             {/* Admin Routes */}
             <Route path="/admin/dashboard" element={
-              <PrivateRoute allowedRoles={['admin']}>
+              <PrivateRoute allowedRoles={['admin', 'desktop_support']}>
                 <AdminDashboard />
               </PrivateRoute>
             } />
