@@ -805,6 +805,13 @@ const AdminDashboard = () => {
   const [exportDateRange, setExportDateRange] = useState({ start: '', end: '' });
   const [exporting, setExporting] = useState(false);
 
+  const [leaveBalancesLoaded, setLeaveBalancesLoaded] = useState(false);
+  const [leaveBalancesLoading, setLeaveBalancesLoading] = useState(false);
+  const [leaveBalancePage, setLeaveBalancePage] = useState(1);
+  const [birthdayPage, setBirthdayPage] = useState(1);
+  const [anniversaryPage, setAnniversaryPage] = useState(1);
+  const ITEMS_PER_PAGE = 15;
+
   // Birthday and Anniversary states
   const [allBirthdays, setAllBirthdays] = useState([]);
   const [allAnniversaries, setAllAnniversaries] = useState([]);
@@ -876,100 +883,51 @@ const AdminDashboard = () => {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
+      const today = new Date().toISOString().split('T')[0];
 
-      const employeesRes = await axios.get(API_ENDPOINTS.EMPLOYEES);
+      const [employeesRes, attendanceRes, leavesRes] = await Promise.all([
+        axios.get(API_ENDPOINTS.EMPLOYEES),
+        axios.get(`${API_ENDPOINTS.ATTENDANCE_REPORT}?start=${today}&end=${today}`),
+        axios.get(`${API_ENDPOINTS.LEAVES}?all=true`)
+      ]);
+
+      // Process employees
       let employees = [];
       if (employeesRes.data) {
-        if (Array.isArray(employeesRes.data)) {
-          employees = employeesRes.data;
-        } else if (employeesRes.data.data && Array.isArray(employeesRes.data.data)) {
-          employees = employeesRes.data.data;
-        } else if (employeesRes.data.employees && Array.isArray(employeesRes.data.employees)) {
-          employees = employeesRes.data.employees;
-        }
+        if (Array.isArray(employeesRes.data)) employees = employeesRes.data;
+        else if (employeesRes.data.data) employees = employeesRes.data.data;
+        else if (employeesRes.data.employees) employees = employeesRes.data.employees;
       }
-
-      console.log('Total employees fetched:', employees.length);
       setTotalEmployees(employees.length);
       setStats(prevStats => ({ ...prevStats, total: employees.length }));
-
-      fetchCompleteEvents(employees);
-
-      const balancesPromises = employees.map(async (emp) => {
-        try {
-          const balanceRes = await axios.get(API_ENDPOINTS.LEAVE_BALANCE(emp.employee_id));
-          console.log(`✅ Leave balance for ${emp.employee_id} (${emp.first_name}):`, {
-            total_accrued: balanceRes.data.total_accrued,
-            used: balanceRes.data.used,
-            pending: balanceRes.data.pending,
-            available: balanceRes.data.available,
-            months_completed_in_year: balanceRes.data.months_completed_in_year,
-            is_probation_complete: balanceRes.data.is_probation_complete
-          });
-
-          return {
-            ...emp,
-            leaveBalance: {
-              available: parseFloat(balanceRes.data.available) || 0,
-              total_accrued: parseFloat(balanceRes.data.total_accrued) || 0,
-              used: parseFloat(balanceRes.data.used) || 0,
-              pending: parseFloat(balanceRes.data.pending) || 0,
-              comp_off_balance: parseFloat(balanceRes.data.comp_off_balance) || 0,
-              months_completed: balanceRes.data.months_completed_in_year || balanceRes.data.months_completed || 0,
-              total_months_from_joining: balanceRes.data.total_months_from_joining || 0,
-              is_probation_complete: balanceRes.data.is_probation_complete || false,
-              is_eligible: balanceRes.data.is_eligible || false
-            }
-          };
-        } catch (error) {
-          console.error(`❌ Error fetching leave balance for ${emp.employee_id}:`, error);
-          return {
-            ...emp,
-            leaveBalance: {
-              available: 0,
-              total_accrued: 0,
-              used: 0,
-              pending: 0,
-              comp_off_balance: 0,
-              months_completed: 0,
-              total_months_from_joining: 0,
-              is_probation_complete: false,
-              is_eligible: false
-            }
-          };
-        }
-      });
-
-      const employeesWithBalance = await Promise.all(balancesPromises);
-
-      console.log('\n📊 FINAL LEAVE BALANCES:');
-      employeesWithBalance.forEach(emp => {
-        console.log(`${emp.employee_id} | ${emp.first_name} ${emp.last_name}: Total Accrued = ${emp.leaveBalance?.total_accrued}, Available = ${emp.leaveBalance?.available}`);
-      });
-
-      setEmployeeLeaveBalances(employeesWithBalance);
-
-      await refreshLeaveRequests();
-      await refreshAttendanceData();
-
       setRecentEmployees(employees.slice(-5));
-      setLastUpdated(new Date());
-
+      fetchCompleteEvents(employees);
       const deptMap = {};
       employees.forEach(emp => {
-        if (emp.department) {
-          deptMap[emp.department] = (deptMap[emp.department] || 0) + 1;
-        }
+        if (emp.department) deptMap[emp.department] = (deptMap[emp.department] || 0) + 1;
       });
       setDepartmentChartData({
         labels: Object.keys(deptMap),
-        datasets: [{
-          data: Object.values(deptMap),
-          backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#FF6384', '#36A2EB'],
-          borderWidth: 0
-        }]
+        datasets: [{ data: Object.values(deptMap), backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#FF6384', '#36A2EB'], borderWidth: 0 }]
       });
 
+      // Process attendance
+      const attendanceData = attendanceRes.data.attendance || [];
+      const clockedInData = attendanceData.filter(a => a.clock_in);
+      setTodayAttendance(clockedInData);
+      setFilteredAttendance(clockedInData);
+      updateStats(attendanceData);
+
+      // Process leaves
+      let allLeaves = [];
+      if (Array.isArray(leavesRes.data)) allLeaves = leavesRes.data;
+      else if (leavesRes.data?.data) allLeaves = leavesRes.data.data;
+      else if (leavesRes.data?.leaves) allLeaves = leavesRes.data.leaves;
+      const pendingLeaves = allLeaves.filter(leave => leave.status === 'pending');
+      setLeaveRequests(pendingLeaves);
+      setFilteredLeaveRequests(pendingLeaves);
+
+      setLastUpdated(new Date());
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
       setMessage({ type: 'danger', text: error.response?.data?.message || 'Failed to load dashboard data' });
@@ -980,8 +938,8 @@ const AdminDashboard = () => {
 
   const handleRegularizationApproved = (employeeId) => {
     console.log(`Regularization approved for employee: ${employeeId}`);
-    fetchDashboardData();
     refreshAttendanceData();
+    refreshLeaveRequests();
   };
 
   const fetchCompleteEvents = (employees = null) => {
@@ -1206,6 +1164,54 @@ const AdminDashboard = () => {
       console.error('Error response:', error.response?.data);
       setLeaveRequests([]);
       setFilteredLeaveRequests([]);
+    }
+  };
+
+  const loadLeaveBalances = async () => {
+    try {
+      setLeaveBalancesLoading(true);
+      const employeesRes = await axios.get(API_ENDPOINTS.EMPLOYEES);
+      let employees = [];
+      if (employeesRes.data) {
+        if (Array.isArray(employeesRes.data)) employees = employeesRes.data;
+        else if (employeesRes.data.data) employees = employeesRes.data.data;
+        else if (employeesRes.data.employees) employees = employeesRes.data.employees;
+      }
+
+      const balancesPromises = employees.map(async (emp) => {
+        try {
+          const balanceRes = await axios.get(API_ENDPOINTS.LEAVE_BALANCE(emp.employee_id));
+          return {
+            ...emp,
+            leaveBalance: {
+              available: parseFloat(balanceRes.data.available) || 0,
+              total_accrued: parseFloat(balanceRes.data.total_accrued) || 0,
+              used: parseFloat(balanceRes.data.used) || 0,
+              pending: parseFloat(balanceRes.data.pending) || 0,
+              comp_off_balance: parseFloat(balanceRes.data.comp_off_balance) || 0,
+              months_completed: balanceRes.data.months_completed_in_year || balanceRes.data.months_completed || 0,
+              total_months_from_joining: balanceRes.data.total_months_from_joining || 0,
+              is_probation_complete: balanceRes.data.is_probation_complete || false,
+              is_eligible: balanceRes.data.is_eligible || false
+            }
+          };
+        } catch {
+          return {
+            ...emp,
+            leaveBalance: { available: 0, total_accrued: 0, used: 0, pending: 0, comp_off_balance: 0, months_completed: 0, total_months_from_joining: 0, is_probation_complete: false, is_eligible: false }
+          };
+        }
+      });
+
+      const employeesWithBalance = await Promise.all(balancesPromises);
+      setEmployeeLeaveBalances(employeesWithBalance);
+      setLeaveBalancesLoaded(true);
+      setLeaveBalancePage(1);
+    } catch (error) {
+      console.error('Error loading leave balances:', error);
+      setMessage({ type: 'danger', text: 'Failed to load leave balances' });
+    } finally {
+      setLeaveBalancesLoading(false);
     }
   };
 
@@ -1468,6 +1474,8 @@ const AdminDashboard = () => {
             size="sm"
             onClick={() => {
               fetchDashboardData();
+              setLeaveBalancesLoaded(false);
+              setEmployeeLeaveBalances([]);
             }}
           >
             <FaSyncAlt className="me-1" size={12} />
@@ -1565,14 +1573,14 @@ const AdminDashboard = () => {
                     type="text"
                     placeholder="Search by name or ID..."
                     value={anniversarySearch}
-                    onChange={(e) => setAnniversarySearch(e.target.value)}
+                    onChange={(e) => { setAnniversarySearch(e.target.value); setAnniversaryPage(1); }}
                     className="border-0 bg-transparent"
                     size="sm"
                   />
                 </div>
               </Col>
               <Col xs={6} md={2}>
-                <Form.Select size="sm" value={anniversaryFilter} onChange={(e) => setAnniversaryFilter(e.target.value)}>
+                <Form.Select size="sm" value={anniversaryFilter} onChange={(e) => { setAnniversaryFilter(e.target.value); setAnniversaryPage(1); }}>
                   <option value="all">All Anniversaries</option>
                   <option value="today">Today's Anniversaries</option>
                   <option value="upcoming">Upcoming</option>
@@ -1581,7 +1589,7 @@ const AdminDashboard = () => {
                 </Form.Select>
               </Col>
               <Col xs={6} md={2}>
-                <Form.Select size="sm" value={anniversaryDepartmentFilter} onChange={(e) => setAnniversaryDepartmentFilter(e.target.value)}>
+                <Form.Select size="sm" value={anniversaryDepartmentFilter} onChange={(e) => { setAnniversaryDepartmentFilter(e.target.value); setAnniversaryPage(1); }}>
                   <option value="all">All Departments</option>
                   {uniqueDepartments.map(dept => (
                     <option key={dept} value={dept}>{dept}</option>
@@ -1589,7 +1597,7 @@ const AdminDashboard = () => {
                 </Form.Select>
               </Col>
               <Col xs={6} md={2}>
-                <Form.Select size="sm" value={anniversarySort} onChange={(e) => setAnniversarySort(e.target.value)}>
+                <Form.Select size="sm" value={anniversarySort} onChange={(e) => { setAnniversarySort(e.target.value); setAnniversaryPage(1); }}>
                   <option value="date">Sort by Date</option>
                   <option value="name">Sort by Name</option>
                   <option value="department">Sort by Dept</option>
@@ -1609,89 +1617,89 @@ const AdminDashboard = () => {
                   setAnniversaryDepartmentFilter('all');
                   setAnniversarySort('date');
                   setAnniversarySortOrder('asc');
+                  setAnniversaryPage(1);
                 }} className="w-100">
                   <FaFilter className="me-1" size={12} /> Clear
                 </Button>
               </Col>
             </Row>
 
-            <div className="table-responsive" style={{ maxHeight: 'calc(100vh - 350px)', overflowY: 'auto' }}>
-              <Table striped hover className="mb-0 align-middle">
-                <thead className="bg-light sticky-top">
-                  <tr className="small">
-                    <th className="fw-normal text-center" style={{ width: '5%' }}>#</th>
-                    <th className="fw-normal" style={{ width: '20%' }}>Employee</th>
-                    <th className="fw-normal d-none d-md-table-cell" style={{ width: '15%' }}>Department</th>
-                    <th className="fw-normal" style={{ width: '12%' }}>Joining Date</th>
-                    <th className="fw-normal" style={{ width: '15%' }}>Years</th>
-                    <th className="fw-normal" style={{ width: '10%' }}>Status</th>
-                    <th className="fw-normal" style={{ width: '8%' }}>Celebration</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredAnniversaries.length > 0 ? (
-                    filteredAnniversaries.map((emp, index) => (
-                      <tr key={emp.id} className={emp.status === 'today' ? 'table-warning' : ''}>
-                        <td className="text-center">{index + 1}</td>
-                        <td className="small">
-                          <div className="fw-semibold text-truncate" style={{ maxWidth: '150px' }}>
-                            {emp.first_name} {emp.last_name}
-                          </div>
-                          <small className="text-muted">{emp.employee_id}</small>
-                        </td>
-                        <td className="small d-none d-md-table-cell text-truncate" style={{ maxWidth: '120px' }}>
-                          {emp.department}
-                        </td>
-                        <td className="small">
-                          <Badge bg="light" text="dark" pill className="px-2 py-1">
-                            <FaCalendarAlt className="me-1" size={10} />
-                            {formatDate(emp.joining_date)}
-                          </Badge>
-                        </td>
-                        <td className="small">
-                          <Badge bg="warning" pill className="px-2 py-1">
-                            <FaStar className="me-1" size={10} />
-                            {emp.yearsCompleted} Year{emp.yearsCompleted !== 1 ? 's' : ''}
-                          </Badge>
-                        </td>
-                        <td className="small">
-                          {emp.status === 'today' ? (
-                            <Badge bg="success" pill className="px-2 py-1">
-                              <FaTrophy className="me-1" size={10} /> Today
-                            </Badge>
-                          ) : emp.status === 'upcoming' ? (
-                            <Badge bg="info" pill>Upcoming</Badge>
-                          ) : (
-                            <Badge bg="secondary" pill>Past</Badge>
-                          )}
-                        </td>
-                        <td className="small">
-                          {emp.yearsCompleted === 1 && <Badge bg="info" pill>1st Year 🎉</Badge>}
-                          {emp.yearsCompleted === 5 && <Badge bg="primary" pill>5 Years 🏆</Badge>}
-                          {emp.yearsCompleted === 10 && <Badge bg="success" pill>10 Years 🎊</Badge>}
-                          {emp.yearsCompleted === 20 && <Badge bg="danger" pill>20 Years 👑</Badge>}
-                          {![1, 5, 10, 20].includes(emp.yearsCompleted) && emp.yearsCompleted > 0 && (
-                            <Badge bg="secondary" pill>{emp.yearsCompleted} Years</Badge>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan="7" className="text-center py-4">
-                        <FaTrophy size={40} className="text-muted mb-2 opacity-50" />
-                        <p className="text-muted mb-0">No anniversaries found matching the filters</p>
-                      </td>
-                    </tr>
+            {(() => {
+              const annTotalPages = Math.ceil(filteredAnniversaries.length / ITEMS_PER_PAGE);
+              const annPageData = filteredAnniversaries.slice((anniversaryPage - 1) * ITEMS_PER_PAGE, anniversaryPage * ITEMS_PER_PAGE);
+              return (
+                <>
+                  <div className="table-responsive">
+                    <Table striped hover className="mb-0 align-middle">
+                      <thead className="bg-light sticky-top">
+                        <tr className="small">
+                          <th className="fw-normal text-center" style={{ width: '5%' }}>#</th>
+                          <th className="fw-normal" style={{ width: '20%' }}>Employee</th>
+                          <th className="fw-normal d-none d-md-table-cell" style={{ width: '15%' }}>Department</th>
+                          <th className="fw-normal" style={{ width: '12%' }}>Joining Date</th>
+                          <th className="fw-normal" style={{ width: '15%' }}>Years</th>
+                          <th className="fw-normal" style={{ width: '10%' }}>Status</th>
+                          <th className="fw-normal" style={{ width: '8%' }}>Celebration</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {annPageData.length > 0 ? (
+                          annPageData.map((emp, index) => {
+                            const globalIndex = (anniversaryPage - 1) * ITEMS_PER_PAGE + index + 1;
+                            return (
+                              <tr key={emp.id} className={emp.status === 'today' ? 'table-warning' : ''}>
+                                <td className="text-center">{globalIndex}</td>
+                                <td className="small">
+                                  <div className="fw-semibold text-truncate" style={{ maxWidth: '150px' }}>{emp.first_name} {emp.last_name}</div>
+                                  <small className="text-muted">{emp.employee_id}</small>
+                                </td>
+                                <td className="small d-none d-md-table-cell text-truncate" style={{ maxWidth: '120px' }}>{emp.department}</td>
+                                <td className="small"><Badge bg="light" text="dark" pill className="px-2 py-1"><FaCalendarAlt className="me-1" size={10} />{formatDate(emp.joining_date)}</Badge></td>
+                                <td className="small"><Badge bg="warning" pill className="px-2 py-1"><FaStar className="me-1" size={10} />{emp.yearsCompleted} Year{emp.yearsCompleted !== 1 ? 's' : ''}</Badge></td>
+                                <td className="small">
+                                  {emp.status === 'today' ? <Badge bg="success" pill className="px-2 py-1"><FaTrophy className="me-1" size={10} /> Today</Badge>
+                                    : emp.status === 'upcoming' ? <Badge bg="info" pill>Upcoming</Badge>
+                                    : <Badge bg="secondary" pill>Past</Badge>}
+                                </td>
+                                <td className="small">
+                                  {emp.yearsCompleted === 1 && <Badge bg="info" pill>1st Year 🎉</Badge>}
+                                  {emp.yearsCompleted === 5 && <Badge bg="primary" pill>5 Years 🏆</Badge>}
+                                  {emp.yearsCompleted === 10 && <Badge bg="success" pill>10 Years 🎊</Badge>}
+                                  {emp.yearsCompleted === 20 && <Badge bg="danger" pill>20 Years 👑</Badge>}
+                                  {![1, 5, 10, 20].includes(emp.yearsCompleted) && emp.yearsCompleted > 0 && <Badge bg="secondary" pill>{emp.yearsCompleted} Years</Badge>}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan="7" className="text-center py-4">
+                              <FaTrophy size={40} className="text-muted mb-2 opacity-50" />
+                              <p className="text-muted mb-0">No anniversaries found matching the filters</p>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </Table>
+                  </div>
+                  {annTotalPages > 1 && (
+                    <div className="d-flex justify-content-between align-items-center mt-3">
+                      <small className="text-muted">Showing {((anniversaryPage - 1) * ITEMS_PER_PAGE) + 1}–{Math.min(anniversaryPage * ITEMS_PER_PAGE, filteredAnniversaries.length)} of {filteredAnniversaries.length} anniversaries</small>
+                      <ButtonGroup size="sm">
+                        <Button variant="outline-secondary" onClick={() => setAnniversaryPage(p => Math.max(1, p - 1))} disabled={anniversaryPage === 1}><FaArrowLeft size={11} /></Button>
+                        <Button variant="outline-secondary" disabled>Page {anniversaryPage} of {annTotalPages}</Button>
+                        <Button variant="outline-secondary" onClick={() => setAnniversaryPage(p => Math.min(annTotalPages, p + 1))} disabled={anniversaryPage === annTotalPages}><FaArrowRight size={11} /></Button>
+                      </ButtonGroup>
+                    </div>
                   )}
-                </tbody>
-              </Table>
-            </div>
-            {filteredAnniversaries.length > 0 && (
-              <div className="mt-3 text-center text-muted small">
-                Showing {filteredAnniversaries.length} of {allAnniversaries.length} anniversaries
-              </div>
-            )}
+                  {filteredAnniversaries.length > 0 && (
+                    <div className="mt-2 text-center text-muted small">
+                      Showing {filteredAnniversaries.length} of {allAnniversaries.length} anniversaries
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </Card.Body>
         </Card>
       )}
@@ -1708,14 +1716,14 @@ const AdminDashboard = () => {
                     type="text"
                     placeholder="Search by name or ID..."
                     value={birthdaySearch}
-                    onChange={(e) => setBirthdaySearch(e.target.value)}
+                    onChange={(e) => { setBirthdaySearch(e.target.value); setBirthdayPage(1); }}
                     className="border-0 bg-transparent"
                     size="sm"
                   />
                 </div>
               </Col>
               <Col xs={6} md={2}>
-                <Form.Select size="sm" value={birthdayFilter} onChange={(e) => setBirthdayFilter(e.target.value)}>
+                <Form.Select size="sm" value={birthdayFilter} onChange={(e) => { setBirthdayFilter(e.target.value); setBirthdayPage(1); }}>
                   <option value="all">All Birthdays</option>
                   <option value="today">Today's Birthdays</option>
                   <option value="upcoming">Upcoming</option>
@@ -1724,7 +1732,7 @@ const AdminDashboard = () => {
                 </Form.Select>
               </Col>
               <Col xs={6} md={2}>
-                <Form.Select size="sm" value={birthdayDepartmentFilter} onChange={(e) => setBirthdayDepartmentFilter(e.target.value)}>
+                <Form.Select size="sm" value={birthdayDepartmentFilter} onChange={(e) => { setBirthdayDepartmentFilter(e.target.value); setBirthdayPage(1); }}>
                   <option value="all">All Departments</option>
                   {uniqueDepartments.map(dept => (
                     <option key={dept} value={dept}>{dept}</option>
@@ -1732,7 +1740,7 @@ const AdminDashboard = () => {
                 </Form.Select>
               </Col>
               <Col xs={6} md={2}>
-                <Form.Select size="sm" value={birthdaySort} onChange={(e) => setBirthdaySort(e.target.value)}>
+                <Form.Select size="sm" value={birthdaySort} onChange={(e) => { setBirthdaySort(e.target.value); setBirthdayPage(1); }}>
                   <option value="date">Sort by Date</option>
                   <option value="name">Sort by Name</option>
                   <option value="department">Sort by Dept</option>
@@ -1751,86 +1759,86 @@ const AdminDashboard = () => {
                   setBirthdayDepartmentFilter('all');
                   setBirthdaySort('date');
                   setBirthdaySortOrder('asc');
+                  setBirthdayPage(1);
                 }} className="w-100">
                   <FaFilter className="me-1" size={12} /> Clear
                 </Button>
               </Col>
             </Row>
 
-            <div className="table-responsive" style={{ maxHeight: 'calc(100vh - 350px)', overflowY: 'auto' }}>
-              <Table striped hover className="mb-0 align-middle">
-                <thead className="bg-light sticky-top">
-                  <tr className="small">
-                    <th className="fw-normal text-center" style={{ width: '5%' }}>#</th>
-                    <th className="fw-normal" style={{ width: '25%' }}>Employee</th>
-                    <th className="fw-normal d-none d-md-table-cell" style={{ width: '20%' }}>Department</th>
-                    <th className="fw-normal" style={{ width: '15%' }}>Birthday</th>
-                    <th className="fw-normal" style={{ width: '10%' }}>Age</th>
-                    <th className="fw-normal" style={{ width: '15%' }}>Status</th>
-                    <th className="fw-normal" style={{ width: '10%' }}>Days Left</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredBirthdays.length > 0 ? (
-                    filteredBirthdays.map((emp, index) => (
-                      <tr key={emp.id} className={emp.status === 'today' ? 'table-danger' : ''}>
-                        <td className="text-center">{index + 1}</td>
-                        <td className="small">
-                          <div className="fw-semibold text-truncate" style={{ maxWidth: '150px' }}>
-                            {emp.first_name} {emp.last_name}
-                          </div>
-                          <small className="text-muted">{emp.employee_id}</small>
-                        </td>
-                        <td className="small d-none d-md-table-cell text-truncate" style={{ maxWidth: '120px' }}>
-                          {emp.department}
-                        </td>
-                        <td className="small">
-                          <Badge bg="light" text="dark" pill className="px-2 py-1">
-                            <FaBirthdayCake className="me-1" size={10} />
-                            {emp.birthdayDate}
-                          </Badge>
-                        </td>
-                        <td className="small">
-                          <Badge bg="secondary" pill className="px-2 py-1">
-                            {emp.age} yrs
-                          </Badge>
-                        </td>
-                        <td className="small">
-                          {emp.status === 'today' ? (
-                            <Badge bg="danger" pill className="px-2 py-1">
-                              <FaBirthdayCake className="me-1" size={10} /> Today 🎂
-                            </Badge>
-                          ) : emp.status === 'upcoming' ? (
-                            <Badge bg="info" pill>Upcoming</Badge>
-                          ) : (
-                            <Badge bg="secondary" pill>Past</Badge>
-                          )}
-                        </td>
-                        <td className="small">
-                          {emp.status === 'today' ? (
-                            <Badge bg="danger" pill>🎉 Today!</Badge>
-                          ) : (
-                            <Badge bg="light" text="dark" pill>{emp.daysLeft} days</Badge>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan="7" className="text-center py-4">
-                        <FaBirthdayCake size={40} className="text-muted mb-2 opacity-50" />
-                        <p className="text-muted mb-0">No birthdays found matching the filters</p>
-                      </td>
-                    </tr>
+            {(() => {
+              const bdTotalPages = Math.ceil(filteredBirthdays.length / ITEMS_PER_PAGE);
+              const bdPageData = filteredBirthdays.slice((birthdayPage - 1) * ITEMS_PER_PAGE, birthdayPage * ITEMS_PER_PAGE);
+              return (
+                <>
+                  <div className="table-responsive">
+                    <Table striped hover className="mb-0 align-middle">
+                      <thead className="bg-light sticky-top">
+                        <tr className="small">
+                          <th className="fw-normal text-center" style={{ width: '5%' }}>#</th>
+                          <th className="fw-normal" style={{ width: '25%' }}>Employee</th>
+                          <th className="fw-normal d-none d-md-table-cell" style={{ width: '20%' }}>Department</th>
+                          <th className="fw-normal" style={{ width: '15%' }}>Birthday</th>
+                          <th className="fw-normal" style={{ width: '10%' }}>Age</th>
+                          <th className="fw-normal" style={{ width: '15%' }}>Status</th>
+                          <th className="fw-normal" style={{ width: '10%' }}>Days Left</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {bdPageData.length > 0 ? (
+                          bdPageData.map((emp, index) => {
+                            const globalIndex = (birthdayPage - 1) * ITEMS_PER_PAGE + index + 1;
+                            return (
+                              <tr key={emp.id} className={emp.status === 'today' ? 'table-danger' : ''}>
+                                <td className="text-center">{globalIndex}</td>
+                                <td className="small">
+                                  <div className="fw-semibold text-truncate" style={{ maxWidth: '150px' }}>{emp.first_name} {emp.last_name}</div>
+                                  <small className="text-muted">{emp.employee_id}</small>
+                                </td>
+                                <td className="small d-none d-md-table-cell text-truncate" style={{ maxWidth: '120px' }}>{emp.department}</td>
+                                <td className="small"><Badge bg="light" text="dark" pill className="px-2 py-1"><FaBirthdayCake className="me-1" size={10} />{emp.birthdayDate}</Badge></td>
+                                <td className="small"><Badge bg="secondary" pill className="px-2 py-1">{emp.age} yrs</Badge></td>
+                                <td className="small">
+                                  {emp.status === 'today' ? <Badge bg="danger" pill className="px-2 py-1"><FaBirthdayCake className="me-1" size={10} /> Today 🎂</Badge>
+                                    : emp.status === 'upcoming' ? <Badge bg="info" pill>Upcoming</Badge>
+                                    : <Badge bg="secondary" pill>Past</Badge>}
+                                </td>
+                                <td className="small">
+                                  {emp.status === 'today' ? <Badge bg="danger" pill>🎉 Today!</Badge>
+                                    : <Badge bg="light" text="dark" pill>{emp.daysLeft} days</Badge>}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan="7" className="text-center py-4">
+                              <FaBirthdayCake size={40} className="text-muted mb-2 opacity-50" />
+                              <p className="text-muted mb-0">No birthdays found matching the filters</p>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </Table>
+                  </div>
+                  {bdTotalPages > 1 && (
+                    <div className="d-flex justify-content-between align-items-center mt-3">
+                      <small className="text-muted">Showing {((birthdayPage - 1) * ITEMS_PER_PAGE) + 1}–{Math.min(birthdayPage * ITEMS_PER_PAGE, filteredBirthdays.length)} of {filteredBirthdays.length} birthdays</small>
+                      <ButtonGroup size="sm">
+                        <Button variant="outline-secondary" onClick={() => setBirthdayPage(p => Math.max(1, p - 1))} disabled={birthdayPage === 1}><FaArrowLeft size={11} /></Button>
+                        <Button variant="outline-secondary" disabled>Page {birthdayPage} of {bdTotalPages}</Button>
+                        <Button variant="outline-secondary" onClick={() => setBirthdayPage(p => Math.min(bdTotalPages, p + 1))} disabled={birthdayPage === bdTotalPages}><FaArrowRight size={11} /></Button>
+                      </ButtonGroup>
+                    </div>
                   )}
-                </tbody>
-              </Table>
-            </div>
-            {filteredBirthdays.length > 0 && (
-              <div className="mt-3 text-center text-muted small">
-                Showing {filteredBirthdays.length} of {allBirthdays.length} birthdays
-              </div>
-            )}
+                  {filteredBirthdays.length > 0 && (
+                    <div className="mt-2 text-center text-muted small">
+                      Showing {filteredBirthdays.length} of {allBirthdays.length} birthdays
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </Card.Body>
         </Card>
       )}
@@ -2531,202 +2539,146 @@ const AdminDashboard = () => {
                 <FaBalanceScale className="me-2 text-dark" />
                 <span>Employee Leave Balances</span>
               </h5>
-              <div className="d-flex gap-2">
-                <InputGroup size="sm" style={{ width: '250px' }}>
-                  <InputGroup.Text><FaSearch size={12} /></InputGroup.Text>
-                  <Form.Control
-                    type="text"
-                    placeholder="Search by name or ID..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
-                  {searchTerm && (
-                    <Button
-                      variant="outline-secondary"
-                      onClick={() => setSearchTerm('')}
-                      size="sm"
-                    >
-                      <FaTimesCircle size={12} />
-                    </Button>
-                  )}
-                </InputGroup>
-                <Badge bg="light" text="dark" className="px-3 py-2">
-                  {filteredEmployees.length} / {employeeLeaveBalances.length} Employees
-                </Badge>
-              </div>
+              {leaveBalancesLoaded && (
+                <div className="d-flex gap-2">
+                  <InputGroup size="sm" style={{ width: '250px' }}>
+                    <InputGroup.Text><FaSearch size={12} /></InputGroup.Text>
+                    <Form.Control
+                      type="text"
+                      placeholder="Search by name or ID..."
+                      value={searchTerm}
+                      onChange={(e) => { setSearchTerm(e.target.value); setLeaveBalancePage(1); }}
+                    />
+                    {searchTerm && (
+                      <Button variant="outline-secondary" onClick={() => { setSearchTerm(''); setLeaveBalancePage(1); }} size="sm">
+                        <FaTimesCircle size={12} />
+                      </Button>
+                    )}
+                  </InputGroup>
+                  <Badge bg="light" text="dark" className="px-3 py-2">
+                    {filteredEmployees.length} / {employeeLeaveBalances.length} Employees
+                  </Badge>
+                </div>
+              )}
             </Card.Header>
             <Card.Body>
-              <div className="mb-3">
-                <div className="d-flex flex-wrap gap-2 align-items-center">
-                  <small className="text-muted me-2">Filter by Department:</small>
-                  <ButtonGroup size="sm">
-                    <Button
-                      variant={filterDepartment === 'all' ? 'primary' : 'outline-secondary'}
-                      onClick={() => setFilterDepartment('all')}
-                    >
-                      All
-                    </Button>
-                    {departments.filter(d => d !== 'all').map(dept => (
-                      <Button
-                        key={dept}
-                        variant={filterDepartment === dept ? 'primary' : 'outline-secondary'}
-                        onClick={() => setFilterDepartment(dept)}
-                      >
-                        {dept}
-                      </Button>
-                    ))}
-                  </ButtonGroup>
-                  {(searchTerm || filterDepartment !== 'all') && (
-                    <Button
-                      variant="outline-danger"
-                      size="sm"
-                      onClick={() => {
-                        setSearchTerm('');
-                        setFilterDepartment('all');
-                        setSortBy('name');
-                      }}
-                    >
-                      Clear Filters
-                    </Button>
-                  )}
+              {!leaveBalancesLoaded && !leaveBalancesLoading && (
+                <div className="text-center py-5">
+                  <FaBalanceScale size={40} className="text-muted mb-3 opacity-25" />
+                  <p className="text-muted mb-3">Leave balance data is not loaded to keep the dashboard fast.</p>
+                  <Button variant="outline-primary" onClick={loadLeaveBalances}>
+                    <FaBalanceScale className="me-2" size={13} />
+                    Load Leave Balances
+                  </Button>
                 </div>
-              </div>
+              )}
 
-              <div className="table-responsive" style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                <Table striped hover size="sm" className="mb-0">
-                  <thead className="bg-light sticky-top" style={{ top: 0, zIndex: 10 }}>
-                    <tr className="small">
-                      <th className="fw-normal text-center">#</th>
-                      <th className="fw-normal" style={{ cursor: 'pointer' }} onClick={() => setSortBy('name')}>
-                        Employee
-                        {sortBy === 'name' && <FaSort className="ms-1" size={10} />}
-                      </th>
-                      <th className="fw-normal d-none d-md-table-cell" style={{ cursor: 'pointer' }} onClick={() => setSortBy('department')}>
-                        Department
-                        {sortBy === 'department' && <FaSort className="ms-1" size={10} />}
-                      </th>
-                      <th className="fw-normal">Total Accrued</th>
-                      <th className="fw-normal">Used</th>
-                      <th className="fw-normal" style={{ cursor: 'pointer' }} onClick={() => setSortBy('balance')}>
-                        Available
-                        {sortBy === 'balance' && <FaSort className="ms-1" size={10} />}
-                      </th>
-                      <th className="fw-normal">Status</th>
-                      <th className="fw-normal d-none d-lg-table-cell">Probation</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredEmployees.length > 0 ? (
-                      filteredEmployees.map((emp, index) => {
-                        const totalAccrued = parseFloat(emp.leaveBalance?.total_accrued) || 0;
-                        const used = parseFloat(emp.leaveBalance?.used) || 0;
-                        const available = parseFloat(emp.leaveBalance?.available) || 0;
-                        const monthsCompleted = emp.leaveBalance?.months_completed || 0;
-                        const isProbationComplete = emp.leaveBalance?.is_probation_complete || false;
-                        const displayAvailable = isProbationComplete ? available : totalAccrued;
+              {leaveBalancesLoading && (
+                <div className="text-center py-5">
+                  <Spinner animation="border" variant="primary" />
+                  <p className="text-muted small mt-3">Loading leave balances for all employees...</p>
+                </div>
+              )}
 
-                        let statusColor = 'success';
-                        let statusText = 'Good';
+              {leaveBalancesLoaded && (() => {
+                const leaveBalanceTotalPages = Math.ceil(filteredEmployees.length / ITEMS_PER_PAGE);
+                const leaveBalancePageData = filteredEmployees.slice((leaveBalancePage - 1) * ITEMS_PER_PAGE, leaveBalancePage * ITEMS_PER_PAGE);
+                return (
+                  <>
+                    <div className="mb-3">
+                      <div className="d-flex flex-wrap gap-2 align-items-center">
+                        <small className="text-muted me-2">Filter by Department:</small>
+                        <ButtonGroup size="sm">
+                          <Button variant={filterDepartment === 'all' ? 'primary' : 'outline-secondary'} onClick={() => { setFilterDepartment('all'); setLeaveBalancePage(1); }}>All</Button>
+                          {departments.filter(d => d !== 'all').map(dept => (
+                            <Button key={dept} variant={filterDepartment === dept ? 'primary' : 'outline-secondary'} onClick={() => { setFilterDepartment(dept); setLeaveBalancePage(1); }}>{dept}</Button>
+                          ))}
+                        </ButtonGroup>
+                        {(searchTerm || filterDepartment !== 'all') && (
+                          <Button variant="outline-danger" size="sm" onClick={() => { setSearchTerm(''); setFilterDepartment('all'); setSortBy('name'); setLeaveBalancePage(1); }}>Clear Filters</Button>
+                        )}
+                      </div>
+                    </div>
 
-                        if (displayAvailable <= 0) {
-                          statusColor = 'danger';
-                          statusText = 'No Leaves';
-                        } else if (displayAvailable < 3) {
-                          statusColor = 'warning';
-                          statusText = 'Low';
-                        }
-
-                        const isProbation = !isProbationComplete && monthsCompleted < 6;
-
-                        return (
-                          <tr key={emp.id} className={isProbation ? 'table-light' : ''}>
-                            <td className="text-center small">{index + 1}</td>
-                            <td className="small">
-                              <div className="fw-semibold text-truncate" style={{ maxWidth: '150px' }} title={`${emp.first_name} ${emp.last_name}`}>
-                                {emp.first_name} {emp.last_name}
-                              </div>
-                              <small className="text-muted">{emp.employee_id}</small>
-                              {isProbation && (
-                                <Badge bg="info" pill className="ms-1" style={{ fontSize: '8px' }}>
-                                  Probation
-                                </Badge>
-                              )}
-                            </td>
-                            <td className="small d-none d-md-table-cell text-truncate" style={{ maxWidth: '120px' }} title={emp.department}>
-                              {emp.department || 'N/A'}
-                            </td>
-                            <td className="small fw-bold text-primary">
-                              {totalAccrued.toFixed(1)}
-                            </td>
-                            <td className="small text-danger">
-                              {used.toFixed(1)}
-                            </td>
-                            <td className="small">
-                              <Badge bg={statusColor} pill className="px-2 py-1">
-                                {displayAvailable.toFixed(1)}
-                              </Badge>
-                            </td>
-                            <td className="small">
-                              {displayAvailable <= 0 ? (
-                                <Badge bg="danger" pill>No Leaves</Badge>
-                              ) : displayAvailable < 3 ? (
-                                <Badge bg="warning" pill>Low</Badge>
-                              ) : (
-                                <Badge bg="success" pill>Good</Badge>
-                              )}
-                            </td>
-                            <td className="small d-none d-lg-table-cell">
-                              {isProbation ? (
-                                <Badge bg="info" pill>
-                                  {monthsCompleted}/6 months
-                                </Badge>
-                              ) : (
-                                <Badge bg="success" pill>
-                                  Completed
-                                </Badge>
-                              )}
-                            </td>
+                    <div className="table-responsive">
+                      <Table striped hover size="sm" className="mb-0">
+                        <thead className="bg-light sticky-top" style={{ top: 0, zIndex: 10 }}>
+                          <tr className="small">
+                            <th className="fw-normal text-center">#</th>
+                            <th className="fw-normal" style={{ cursor: 'pointer' }} onClick={() => setSortBy('name')}>Employee{sortBy === 'name' && <FaSort className="ms-1" size={10} />}</th>
+                            <th className="fw-normal d-none d-md-table-cell" style={{ cursor: 'pointer' }} onClick={() => setSortBy('department')}>Department{sortBy === 'department' && <FaSort className="ms-1" size={10} />}</th>
+                            <th className="fw-normal">Total Accrued</th>
+                            <th className="fw-normal">Used</th>
+                            <th className="fw-normal" style={{ cursor: 'pointer' }} onClick={() => setSortBy('balance')}>Available{sortBy === 'balance' && <FaSort className="ms-1" size={10} />}</th>
+                            <th className="fw-normal">Status</th>
+                            <th className="fw-normal d-none d-lg-table-cell">Probation</th>
                           </tr>
-                        );
-                      })
-                    ) : (
-                      <tr>
-                        <td colSpan="8" className="text-center py-4">
-                          <p className="text-muted mb-0 small">No employees found matching your search</p>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </Table>
-              </div>
+                        </thead>
+                        <tbody>
+                          {leaveBalancePageData.length > 0 ? (
+                            leaveBalancePageData.map((emp, index) => {
+                              const globalIndex = (leaveBalancePage - 1) * ITEMS_PER_PAGE + index + 1;
+                              const totalAccrued = parseFloat(emp.leaveBalance?.total_accrued) || 0;
+                              const used = parseFloat(emp.leaveBalance?.used) || 0;
+                              const available = parseFloat(emp.leaveBalance?.available) || 0;
+                              const monthsCompleted = emp.leaveBalance?.months_completed || 0;
+                              const isProbationComplete = emp.leaveBalance?.is_probation_complete || false;
+                              const displayAvailable = isProbationComplete ? available : totalAccrued;
+                              const isProbation = !isProbationComplete && monthsCompleted < 6;
 
-              <div className="mt-3 pt-2 border-top">
-                <div className="d-flex flex-wrap justify-content-between align-items-center gap-2">
-                  <small className="text-muted">
-                    Showing {filteredEmployees.length} of {employeeLeaveBalances.length} employees
-                  </small>
-                  <div className="d-flex gap-3">
-                    <small className="text-muted">
-                      <Badge bg="success" pill className="me-1">&nbsp;</Badge>
-                      Good Balance (&ge;3 days)
-                    </small>
-                    <small className="text-muted">
-                      <Badge bg="warning" pill className="me-1">&nbsp;</Badge>
-                      Low Balance (&lt;3 days)
-                    </small>
-                    <small className="text-muted">
-                      <Badge bg="danger" pill className="me-1">&nbsp;</Badge>
-                      No Balance (0 days)
-                    </small>
-                  </div>
-                </div>
-                <div className="mt-2 text-center">
-                  <small className="text-muted">
-                    <FaInfoCircle className="me-1" size={10} />
-                    Employees on probation see their Total Accrued leaves (usable after probation completion)
-                  </small>
-                </div>
-              </div>
+                              return (
+                                <tr key={emp.id} className={isProbation ? 'table-light' : ''}>
+                                  <td className="text-center small">{globalIndex}</td>
+                                  <td className="small">
+                                    <div className="fw-semibold text-truncate" style={{ maxWidth: '150px' }} title={`${emp.first_name} ${emp.last_name}`}>{emp.first_name} {emp.last_name}</div>
+                                    <small className="text-muted">{emp.employee_id}</small>
+                                    {isProbation && <Badge bg="info" pill className="ms-1" style={{ fontSize: '8px' }}>Probation</Badge>}
+                                  </td>
+                                  <td className="small d-none d-md-table-cell text-truncate" style={{ maxWidth: '120px' }} title={emp.department}>{emp.department || 'N/A'}</td>
+                                  <td className="small fw-bold text-primary">{totalAccrued.toFixed(1)}</td>
+                                  <td className="small text-danger">{used.toFixed(1)}</td>
+                                  <td className="small"><Badge bg={displayAvailable <= 0 ? 'danger' : displayAvailable < 3 ? 'warning' : 'success'} pill className="px-2 py-1">{displayAvailable.toFixed(1)}</Badge></td>
+                                  <td className="small">{displayAvailable <= 0 ? <Badge bg="danger" pill>No Leaves</Badge> : displayAvailable < 3 ? <Badge bg="warning" pill>Low</Badge> : <Badge bg="success" pill>Good</Badge>}</td>
+                                  <td className="small d-none d-lg-table-cell">{isProbation ? <Badge bg="info" pill>{monthsCompleted}/6 months</Badge> : <Badge bg="success" pill>Completed</Badge>}</td>
+                                </tr>
+                              );
+                            })
+                          ) : (
+                            <tr><td colSpan="8" className="text-center py-4"><p className="text-muted mb-0 small">No employees found matching your search</p></td></tr>
+                          )}
+                        </tbody>
+                      </Table>
+                    </div>
+
+                    {leaveBalanceTotalPages > 1 && (
+                      <div className="d-flex justify-content-between align-items-center mt-3">
+                        <small className="text-muted">
+                          Showing {((leaveBalancePage - 1) * ITEMS_PER_PAGE) + 1}–{Math.min(leaveBalancePage * ITEMS_PER_PAGE, filteredEmployees.length)} of {filteredEmployees.length} employees
+                        </small>
+                        <ButtonGroup size="sm">
+                          <Button variant="outline-secondary" onClick={() => setLeaveBalancePage(p => Math.max(1, p - 1))} disabled={leaveBalancePage === 1}><FaArrowLeft size={11} /></Button>
+                          <Button variant="outline-secondary" disabled>Page {leaveBalancePage} of {leaveBalanceTotalPages}</Button>
+                          <Button variant="outline-secondary" onClick={() => setLeaveBalancePage(p => Math.min(leaveBalanceTotalPages, p + 1))} disabled={leaveBalancePage === leaveBalanceTotalPages}><FaArrowRight size={11} /></Button>
+                        </ButtonGroup>
+                      </div>
+                    )}
+
+                    <div className="mt-3 pt-2 border-top">
+                      <div className="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <small className="text-muted">Showing {filteredEmployees.length} of {employeeLeaveBalances.length} employees</small>
+                        <div className="d-flex gap-3">
+                          <small className="text-muted"><Badge bg="success" pill className="me-1">&nbsp;</Badge>Good Balance (&ge;3 days)</small>
+                          <small className="text-muted"><Badge bg="warning" pill className="me-1">&nbsp;</Badge>Low Balance (&lt;3 days)</small>
+                          <small className="text-muted"><Badge bg="danger" pill className="me-1">&nbsp;</Badge>No Balance (0 days)</small>
+                        </div>
+                      </div>
+                      <div className="mt-2 text-center">
+                        <small className="text-muted"><FaInfoCircle className="me-1" size={10} />Employees on probation see their Total Accrued leaves (usable after probation completion)</small>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
             </Card.Body>
           </Card>
         </>

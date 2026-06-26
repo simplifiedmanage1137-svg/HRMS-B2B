@@ -342,7 +342,7 @@ exports.getLeaves = async (req, res) => {
             .from('leaves')
             .select('*, employees!inner(first_name, last_name, department, designation)');
 
-        const isAdmin = userRole === 'admin' && req.query.all === 'true';
+        const isAdmin = (userRole === 'admin' || userRole === 'desktop_support') && req.query.all === 'true';
         const isReportingManager = req.query.reporting_manager === 'true';
         
         console.log('🔍 Query flags:', { isAdmin, isReportingManager });

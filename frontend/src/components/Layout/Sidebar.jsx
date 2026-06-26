@@ -5,7 +5,7 @@ import {
   FaTachometerAlt, FaUsers, FaCalendarAlt, FaMoneyBill,
   FaUserCircle, FaSignOutAlt, FaFingerprint, FaClock,
   FaBell, FaPaperPlane, FaEdit, FaUserTie,
-  FaBullhorn, FaStar, FaChevronRight, FaLayerGroup
+  FaBullhorn, FaStar, FaChevronRight, FaLayerGroup, FaDesktop
 } from 'react-icons/fa';
 import axios from '../../config/axios';
 import API_ENDPOINTS from '../../config/api';
@@ -234,6 +234,8 @@ const Sidebar = () => {
             </>
           ) : user?.role === 'desktop_support' ? (
             <>
+              <Section label="Overview" />
+              <NavItem to="/admin/dashboard" icon={<FaDesktop />} label="Dashboard" />
               <Section label="Management" />
               <NavItem to="/admin/employees" icon={<FaUsers />}      label="Employees" />
               <NavItem to="/admin/teams"     icon={<FaLayerGroup />} label="Teams" />
