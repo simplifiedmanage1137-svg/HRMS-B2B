@@ -790,6 +790,32 @@ router.delete('/:id/hard', verifyToken, isAdmin, async (req, res) => {
     }
 });
 
+// Admin / Desktop Support can reset an employee's password
+router.post('/:id/reset-password', verifyToken, isAdminOrDesktopSupport, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { newPassword } = req.body;
+
+        if (!newPassword) return res.status(400).json({ success: false, message: 'New password is required' });
+        if (newPassword.length < 6) return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+
+        const bcrypt = require('bcryptjs');
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+        const { error } = await supabase
+            .from('employees')
+            .update({ password: hashedPassword, updated_at: new Date().toISOString() })
+            .eq('id', id);
+
+        if (error) throw error;
+
+        return res.json({ success: true, message: 'Password reset successfully' });
+    } catch (error) {
+        console.error('Error resetting password:', error);
+        return res.status(500).json({ success: false, message: 'Failed to reset password' });
+    }
+});
+
 // ============== DOCUMENT MANAGEMENT ==============
 
 // Upload documents — buffers go directly to Supabase Storage (no disk write)

@@ -54,6 +54,7 @@ export const API_ENDPOINTS = {
     ep(`/api/employees/${employeeId}/documents/${documentType}`),
   EMPLOYEE_DELETE: (id) => ep(`/api/employees/${id}`),
   EMPLOYEE_UPDATE_ROLE: (id) => ep(`/api/employees/${id}/role`),
+  EMPLOYEE_RESET_PASSWORD: (id) => ep(`/api/employees/${id}/reset-password`),
   TODAY_EVENTS:    ep('/api/employees/today-events'),
   EMPLOYEE_STATS:  ep('/api/employees/stats/summary'),
 

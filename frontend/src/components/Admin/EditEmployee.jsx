@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Form, Button, Card, Row, Col, Spinner, Alert, Modal, Table, Badge, ProgressBar } from 'react-bootstrap';
-import { FaSave, FaArrowLeft, FaFileAlt, FaFileImage, FaFilePdf, FaDownload, FaEye, FaUpload, FaTrash, FaPlus } from 'react-icons/fa';
+import { FaSave, FaArrowLeft, FaFileAlt, FaFileImage, FaFilePdf, FaDownload, FaEye, FaEyeSlash, FaUpload, FaTrash, FaPlus, FaKey } from 'react-icons/fa';
 import axios from '../../config/axios';
 import API_ENDPOINTS from '../../config/api';
 import { useNotification } from '../../context/NotificationContext';
@@ -54,6 +54,16 @@ const EditEmployee = () => {
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [managers, setManagers] = useState([]);
+
+    // Change password states
+    const [showPasswordModal, setShowPasswordModal] = useState(false);
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [showNewPassword, setShowNewPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const [passwordSaving, setPasswordSaving] = useState(false);
+    const [passwordError, setPasswordError] = useState('');
+    const [passwordSuccess, setPasswordSuccess] = useState('');
 
     // Document states
     const [employeeDocuments, setEmployeeDocuments] = useState([]);
@@ -376,6 +386,32 @@ const EditEmployee = () => {
         }
     };
 
+    const handleChangePassword = async (e) => {
+        e.preventDefault();
+        setPasswordError('');
+        setPasswordSuccess('');
+
+        if (!newPassword) return setPasswordError('New password is required');
+        if (newPassword.length < 6) return setPasswordError('Password must be at least 6 characters');
+        if (newPassword !== confirmPassword) return setPasswordError('Passwords do not match');
+
+        setPasswordSaving(true);
+        try {
+            await axios.post(API_ENDPOINTS.EMPLOYEE_RESET_PASSWORD(id), { newPassword });
+            setPasswordSuccess('Password changed successfully!');
+            setNewPassword('');
+            setConfirmPassword('');
+            setTimeout(() => {
+                setShowPasswordModal(false);
+                setPasswordSuccess('');
+            }, 1500);
+        } catch (error) {
+            setPasswordError(error.response?.data?.message || 'Failed to change password');
+        } finally {
+            setPasswordSaving(false);
+        }
+    };
+
     const handleChange = (e) => {
         const { name, value } = e.target;
         setFormData(prev => ({
@@ -459,9 +495,25 @@ const EditEmployee = () => {
                     </h5>
                 </div>
 
-                <Badge bg="info" className="px-3 py-2 ms-0 ms-md-auto">
-                    ID: {formData.employee_id}
-                </Badge>
+                <div className="d-flex align-items-center gap-2 ms-0 ms-md-auto">
+                    <Button
+                        variant="outline-warning"
+                        size="sm"
+                        onClick={() => {
+                            setNewPassword('');
+                            setConfirmPassword('');
+                            setPasswordError('');
+                            setPasswordSuccess('');
+                            setShowPasswordModal(true);
+                        }}
+                    >
+                        <FaKey className="me-1" size={12} />
+                        Change Password
+                    </Button>
+                    <Badge bg="info" className="px-3 py-2">
+                        ID: {formData.employee_id}
+                    </Badge>
+                </div>
             </div>
 
             {/* Messages */}
@@ -1162,6 +1214,101 @@ const EditEmployee = () => {
                         )}
                     </Button>
                 </Modal.Footer>
+            </Modal>
+
+            {/* Change Password Modal */}
+            <Modal
+                show={showPasswordModal}
+                onHide={() => setShowPasswordModal(false)}
+                centered
+                size="sm"
+            >
+                <Modal.Header closeButton className="bg-warning py-2">
+                    <Modal.Title as="h6" className="mb-0 d-flex align-items-center">
+                        <FaKey className="me-2" size={14} />
+                        Change Password — {formData.first_name} {formData.last_name}
+                    </Modal.Title>
+                </Modal.Header>
+                <Form onSubmit={handleChangePassword}>
+                    <Modal.Body className="p-3">
+                        {passwordError && (
+                            <Alert variant="danger" className="py-2 small" onClose={() => setPasswordError('')} dismissible>
+                                {passwordError}
+                            </Alert>
+                        )}
+                        {passwordSuccess && (
+                            <Alert variant="success" className="py-2 small">
+                                {passwordSuccess}
+                            </Alert>
+                        )}
+
+                        <Form.Group className="mb-3">
+                            <Form.Label className="fw-semibold small">New Password <span className="text-danger">*</span></Form.Label>
+                            <div className="position-relative">
+                                <Form.Control
+                                    type={showNewPassword ? 'text' : 'password'}
+                                    value={newPassword}
+                                    onChange={(e) => setNewPassword(e.target.value)}
+                                    placeholder="Min 6 characters"
+                                    size="sm"
+                                    required
+                                    style={{ paddingRight: '36px' }}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowNewPassword(v => !v)}
+                                    style={{
+                                        position: 'absolute', right: '10px', top: '50%',
+                                        transform: 'translateY(-50%)', background: 'none',
+                                        border: 'none', cursor: 'pointer', color: '#6c757d', padding: 0
+                                    }}
+                                    tabIndex={-1}
+                                >
+                                    {showNewPassword ? <FaEyeSlash size={13} /> : <FaEye size={13} />}
+                                </button>
+                            </div>
+                        </Form.Group>
+
+                        <Form.Group className="mb-1">
+                            <Form.Label className="fw-semibold small">Confirm Password <span className="text-danger">*</span></Form.Label>
+                            <div className="position-relative">
+                                <Form.Control
+                                    type={showConfirmPassword ? 'text' : 'password'}
+                                    value={confirmPassword}
+                                    onChange={(e) => setConfirmPassword(e.target.value)}
+                                    placeholder="Re-enter password"
+                                    size="sm"
+                                    required
+                                    style={{ paddingRight: '36px' }}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowConfirmPassword(v => !v)}
+                                    style={{
+                                        position: 'absolute', right: '10px', top: '50%',
+                                        transform: 'translateY(-50%)', background: 'none',
+                                        border: 'none', cursor: 'pointer', color: '#6c757d', padding: 0
+                                    }}
+                                    tabIndex={-1}
+                                >
+                                    {showConfirmPassword ? <FaEyeSlash size={13} /> : <FaEye size={13} />}
+                                </button>
+                            </div>
+                        </Form.Group>
+                    </Modal.Body>
+                    <Modal.Footer className="py-2">
+                        <Button variant="secondary" size="sm" onClick={() => setShowPasswordModal(false)} disabled={passwordSaving}>
+                            Cancel
+                        </Button>
+                        <Button type="submit" variant="warning" size="sm" disabled={passwordSaving}>
+                            {passwordSaving ? (
+                                <><Spinner size="sm" animation="border" className="me-1" /> Saving...</>
+                            ) : (
+                                <><FaKey className="me-1" size={11} /> Set Password</>
+                            )}
+                        </Button>
+                    </Modal.Footer>
+                </Form>
             </Modal>
 
             {/* View Documents Modal - Responsive */}
