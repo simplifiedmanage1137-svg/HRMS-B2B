@@ -160,8 +160,8 @@ function AppContent() {
           <Routes>
             {/* Dashboard Route - Conditional based on role */}
             <Route path="/" element={
-              <PrivateRoute allowedRoles={['admin', 'manager', 'employee']}>
-                {user?.role === 'admin' ? <AdminDashboard /> : user?.role === 'manager' ? <ManagerDashboard /> : <EmployeeDashboard />}
+              <PrivateRoute allowedRoles={['admin', 'manager', 'employee', 'desktop_support']}>
+                {user?.role === 'admin' || user?.role === 'desktop_support' ? <AdminDashboard /> : user?.role === 'manager' ? <ManagerDashboard /> : <EmployeeDashboard />}
               </PrivateRoute>
             } />
 
@@ -180,13 +180,13 @@ function AppContent() {
             } />
 
             <Route path="/admin/employees" element={
-              <PrivateRoute allowedRoles={['admin']}>
+              <PrivateRoute allowedRoles={['admin', 'desktop_support']}>
                 <EmployeeList />
               </PrivateRoute>
             } />
 
             <Route path="/admin/add-employee" element={
-              <PrivateRoute allowedRoles={['admin']}>
+              <PrivateRoute allowedRoles={['admin', 'desktop_support']}>
                 <AddEmployee />
               </PrivateRoute>
             } />
@@ -243,7 +243,7 @@ function AppContent() {
             } />
 
             <Route path="/admin/teams" element={
-              <PrivateRoute allowedRoles={['admin', 'manager']}>
+              <PrivateRoute allowedRoles={['admin', 'manager', 'desktop_support']}>
                 <Teams />
               </PrivateRoute>
             } />

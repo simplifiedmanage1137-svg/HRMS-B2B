@@ -40,6 +40,13 @@ const isAdminOrManager = (req, res, next) => {
     next();
 };
 
+const isAdminOrDesktopSupport = (req, res, next) => {
+    if (!['admin', 'desktop_support'].includes(req.user?.role)) {
+        return res.status(403).json({ success: false, message: 'Admin access required' });
+    }
+    next();
+};
+
 const isOwnDataOrAdmin = (req, res, next) => {
     const userRole = req.user?.role;
     const userEmployeeId = req.user?.employeeId;
@@ -58,4 +65,4 @@ const isOwnDataOrAdmin = (req, res, next) => {
     return res.status(403).json({ success: false, message: 'Access denied: You can only access your own data' });
 };
 
-module.exports = { verifyToken, isAdmin, isAdminOrManager, isOwnDataOrAdmin };
+module.exports = { verifyToken, isAdmin, isAdminOrManager, isAdminOrDesktopSupport, isOwnDataOrAdmin };

@@ -3,7 +3,7 @@ const router = express.Router();
 const supabase = require('../config/supabase');
 const multer = require('multer');
 const path = require('path');
-const { verifyToken, isAdmin, isAdminOrManager } = require('../middleware/auth');
+const { verifyToken, isAdmin, isAdminOrManager, isAdminOrDesktopSupport } = require('../middleware/auth');
 const { uploadFile, deleteFile, folderForField } = require('../lib/supabaseStorage');
 const { sendShiftChangeEmail } = require('../services/emailService');
 
@@ -340,7 +340,7 @@ router.get('/today-events', async (req, res) => {
 
 // ============== EMPLOYEE CRUD OPERATIONS ==============
 
-router.post('/', verifyToken, isAdmin, async (req, res) => {
+router.post('/', verifyToken, isAdminOrDesktopSupport, async (req, res) => {
     try {
         const employeeData = req.body;
         let retryCount = 0;

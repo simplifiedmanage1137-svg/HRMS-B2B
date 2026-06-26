@@ -1,7 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const supabase = require('../config/supabase');
-const { verifyToken, isAdmin } = require('../middleware/auth');
+const { verifyToken, isAdmin, isAdminOrDesktopSupport } = require('../middleware/auth');
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -32,7 +32,7 @@ const enrichTeams = async (teams) => {
 // ── SPECIFIC routes MUST come before /:id ────────────────────────────────────
 
 // GET /api/teams/manager-settings/:manager_id
-router.get('/manager-settings/:manager_id', verifyToken, isAdmin, async (req, res) => {
+router.get('/manager-settings/:manager_id', verifyToken, isAdminOrDesktopSupport, async (req, res) => {
     try {
         const { manager_id } = req.params;
         const { data, error } = await supabase
@@ -48,7 +48,7 @@ router.get('/manager-settings/:manager_id', verifyToken, isAdmin, async (req, re
 });
 
 // PUT /api/teams/manager-settings/:manager_id
-router.put('/manager-settings/:manager_id', verifyToken, isAdmin, async (req, res) => {
+router.put('/manager-settings/:manager_id', verifyToken, isAdminOrDesktopSupport, async (req, res) => {
     try {
         const { manager_id } = req.params;
         const { login_time, working_days } = req.body;
@@ -70,7 +70,7 @@ router.put('/manager-settings/:manager_id', verifyToken, isAdmin, async (req, re
 });
 
 // GET /api/teams/hierarchy — manager → employees (reporting_manager field)
-router.get('/hierarchy', verifyToken, isAdmin, async (req, res) => {
+router.get('/hierarchy', verifyToken, isAdminOrDesktopSupport, async (req, res) => {
     try {
         const [{ data: managers, error: mErr }, { data: allEmps, error: eErr }, { data: allSettings }] = await Promise.all([
             supabase
@@ -117,7 +117,7 @@ router.get('/hierarchy', verifyToken, isAdmin, async (req, res) => {
 });
 
 // GET /api/teams/managers/list — employees with role = 'manager'
-router.get('/managers/list', verifyToken, isAdmin, async (req, res) => {
+router.get('/managers/list', verifyToken, isAdminOrDesktopSupport, async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('employees')
@@ -134,7 +134,7 @@ router.get('/managers/list', verifyToken, isAdmin, async (req, res) => {
 });
 
 // GET /api/teams/employees/unassigned — employees not yet in any team
-router.get('/employees/unassigned', verifyToken, isAdmin, async (req, res) => {
+router.get('/employees/unassigned', verifyToken, isAdminOrDesktopSupport, async (req, res) => {
     try {
         const { data: assigned } = await supabase.from('team_members').select('employee_id');
         const assignedIds = (assigned || []).map(r => r.employee_id);
@@ -168,7 +168,7 @@ router.get('/', verifyToken, async (req, res) => {
 
         if (role === 'manager') {
             query = query.eq('manager_id', employeeId);
-        } else if (role !== 'admin') {
+        } else if (role !== 'admin' && role !== 'desktop_support') {
             return res.status(403).json({ success: false, message: 'Access denied' });
         }
 
@@ -221,7 +221,7 @@ router.get('/:id', verifyToken, async (req, res) => {
 });
 
 // ── POST /api/teams — create (admin only) ────────────────────────────────────
-router.post('/', verifyToken, isAdmin, async (req, res) => {
+router.post('/', verifyToken, isAdminOrDesktopSupport, async (req, res) => {
     try {
         const { team_name, description, manager_id, status = 'active', member_ids = [] } = req.body;
 
@@ -253,7 +253,7 @@ router.post('/', verifyToken, isAdmin, async (req, res) => {
 });
 
 // ── PUT /api/teams/:id — update (admin only) ─────────────────────────────────
-router.put('/:id', verifyToken, isAdmin, async (req, res) => {
+router.put('/:id', verifyToken, isAdminOrDesktopSupport, async (req, res) => {
     try {
         const { id } = req.params;
         const { team_name, description, manager_id, status, member_ids } = req.body;
@@ -291,7 +291,7 @@ router.put('/:id', verifyToken, isAdmin, async (req, res) => {
 });
 
 // ── DELETE /api/teams/:id — delete (admin only) ──────────────────────────────
-router.delete('/:id', verifyToken, isAdmin, async (req, res) => {
+router.delete('/:id', verifyToken, isAdminOrDesktopSupport, async (req, res) => {
     try {
         const { id } = req.params;
         const { error } = await supabase.from('teams').delete().eq('id', id);
