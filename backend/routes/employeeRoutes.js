@@ -476,7 +476,7 @@ router.patch('/:id/role', verifyToken, isAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const { role } = req.body;
-        const validRoles = ['admin', 'manager', 'employee'];
+        const validRoles = ['admin', 'manager', 'employee', 'desktop_support'];
         if (!validRoles.includes(role)) {
             return res.status(400).json({ success: false, message: `Invalid role. Must be one of: ${validRoles.join(', ')}` });
         }
@@ -506,7 +506,7 @@ router.put('/:id', verifyToken, isAdmin, async (req, res) => {
             delete updates.role;
         }
         if ('role' in updates) {
-            const validRoles = ['admin', 'manager', 'employee'];
+            const validRoles = ['admin', 'manager', 'employee', 'desktop_support'];
             if (!validRoles.includes(updates.role)) {
                 return res.status(400).json({ success: false, message: 'Invalid role value' });
             }
