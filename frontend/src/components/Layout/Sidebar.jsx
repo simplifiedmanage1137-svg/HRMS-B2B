@@ -213,6 +213,8 @@ const Sidebar = () => {
 
           {user?.role === 'admin' ? (
             <>
+              <Section label="Overview" />
+              <NavItem to="/admin/dashboard" icon={<FaTachometerAlt />} label="Dashboard" />
               <Section label="Management" />
               <NavItem to="/admin/employees"          icon={<FaUsers />}       label="Employees" />
               <NavItem to="/admin/leave-requests"     icon={<FaCalendarAlt />} label="Leave Requests" />
