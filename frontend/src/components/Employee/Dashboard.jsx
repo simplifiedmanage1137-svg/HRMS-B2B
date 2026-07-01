@@ -74,7 +74,6 @@ const EmployeeDashboard = () => {
   const { showNotification, todayEvents, fetchTodayEvents } = useNotification();
   const navigate = useNavigate();
   // Attendance card state
-  const [currentTime, setCurrentTime] = useState(new Date());
   const [attendance, setAttendance] = useState(null);
   const [activeSession, setActiveSession] = useState(null);
   const [hasClockedOutToday, setHasClockedOutToday] = useState(false);
@@ -94,11 +93,6 @@ const EmployeeDashboard = () => {
     const p = (n) => String(n).padStart(2, '0');
     return `${ist.getUTCFullYear()}-${p(ist.getUTCMonth()+1)}-${p(ist.getUTCDate())} ${p(ist.getUTCHours())}:${p(ist.getUTCMinutes())}:${p(ist.getUTCSeconds())}`;
   };
-
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     setCanClockOut(false);
@@ -852,7 +846,7 @@ const EmployeeDashboard = () => {
           <Card.Body className="p-3 p-md-4" style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)', borderRadius: '15px' }}>
             <Row className="align-items-center g-3">
               {/* Location */}
-              <Col xs={12} md={3}>
+              <Col xs={12} md={4}>
                 <div className="d-flex flex-column align-items-center align-items-md-start">
                   <small className="text-white-50 mb-1" style={{ fontSize: '11px', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Location Status</small>
                   {getLocationBadge()}
@@ -865,21 +859,8 @@ const EmployeeDashboard = () => {
                 </div>
               </Col>
 
-              {/* Live Clock */}
-              <Col xs={6} md={3}>
-                <div className="text-center">
-                  <small className="text-white-50 d-block mb-1" style={{ fontSize: '11px', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Live Time</small>
-                  <div className="text-white fw-bold" style={{ fontSize: '22px', fontVariantNumeric: 'tabular-nums', letterSpacing: '1px' }}>
-                    {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                  </div>
-                  <small className="text-white-50" style={{ fontSize: '10px' }}>
-                    {currentTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                  </small>
-                </div>
-              </Col>
-
               {/* Clock In / Out Times */}
-              <Col xs={6} md={3}>
+              <Col xs={12} md={4}>
                 <div className="d-flex gap-3 justify-content-center">
                   <div className="text-center">
                     <small className="text-white d-block mb-1" style={{ fontSize: '10px', letterSpacing: '0.5px', textTransform: 'uppercase' }}>In</small>
@@ -911,7 +892,7 @@ const EmployeeDashboard = () => {
               </Col>
 
               {/* Action Button */}
-              <Col xs={12} md={3}>
+              <Col xs={12} md={4}>
                 <div className="d-flex justify-content-center justify-content-md-end">
                   {renderClockButton()}
                 </div>

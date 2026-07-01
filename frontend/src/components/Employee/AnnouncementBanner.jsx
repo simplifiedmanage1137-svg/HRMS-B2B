@@ -22,7 +22,7 @@ const PRIORITY_ORDER = { urgent: 0, high: 1, normal: 2, low: 3 };
 
 const AnnouncementBanner = () => {
   const [announcements, setAnnouncements] = useState([]);
-  const [expanded, setExpanded]           = useState(true);
+  const [expanded, setExpanded]           = useState(false);
   const [viewItem, setViewItem]           = useState(null);
 
   useEffect(() => {

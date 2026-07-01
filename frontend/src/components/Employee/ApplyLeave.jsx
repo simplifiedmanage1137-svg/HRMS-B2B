@@ -57,6 +57,7 @@ const ApplyLeave = () => {
   });
   const [calculatedDays, setCalculatedDays] = useState(1);
   const [errors, setErrors] = useState({});
+  const [managers, setManagers] = useState([]);
 
   const getAvailableLeaveTypes = () => {
     const types = [];
@@ -111,7 +112,8 @@ const ApplyLeave = () => {
       Promise.all([
         fetchEmployeeDetails(),
         fetchLeaveBalance(),
-        fetchRecentLeaves()
+        fetchRecentLeaves(),
+        fetchManagers()
       ]).finally(() => {
         clearTimeout(timeoutId);
       });
@@ -200,6 +202,14 @@ const ApplyLeave = () => {
         months_completed: monthsCompleted
       });
 
+      // Auto-select the employee's assigned reporting manager
+      if (response.data.reporting_manager) {
+        setFormData(prev => ({
+          ...prev,
+          reporting_manager: prev.reporting_manager || response.data.reporting_manager
+        }));
+      }
+
     } catch (error) {
       console.error('Error fetching employee details:', error);
       // Set default values on error
@@ -276,6 +286,15 @@ const ApplyLeave = () => {
     }
   };
 
+  const fetchManagers = async () => {
+    try {
+      const response = await axios.get(API_ENDPOINTS.TEAMS_MANAGERS_LIST);
+      setManagers(response.data.managers || []);
+    } catch (error) {
+      console.error('Error fetching managers:', error);
+    }
+  };
+
   const calculateDays = () => {
     if (!formData.start_date) {
       setCalculatedDays(0);
@@ -328,6 +347,15 @@ const ApplyLeave = () => {
       setFormData(prev => ({
         ...prev,
         end_date: prev.start_date || ''
+      }));
+    }
+
+    // Full Day (default selection): a single-day leave only needs the start date,
+    // so auto-fill end date with it unless the user already picked a different end date
+    if (name === 'start_date' && formData.leave_duration === 'Full Day' && !formData.end_date) {
+      setFormData(prev => ({
+        ...prev,
+        end_date: value
       }));
     }
   };
@@ -744,22 +772,32 @@ const ApplyLeave = () => {
                   <Form.Label className="small fw-semibold text-muted">
                     Reporting Manager <span className="text-danger">*</span>
                   </Form.Label>
-                  <Form.Control
-                    type="text"
+                  <Form.Select
                     name="reporting_manager"
                     value={formData.reporting_manager}
                     onChange={handleChange}
                     size="sm"
-                    placeholder="Enter reporting manager name"
                     isInvalid={!!errors.reporting_manager}
-                  />
+                  >
+                    <option value="">-- Select Manager --</option>
+                    {managers.map(m => {
+                      const fullName = `${m.first_name} ${m.last_name}`.trim();
+                      return (
+                        <option key={m.employee_id} value={fullName}>
+                          {fullName} ({m.designation})
+                        </option>
+                      );
+                    })}
+                  </Form.Select>
                   {errors.reporting_manager && (
                     <Form.Control.Feedback type="invalid">
                       {errors.reporting_manager}
                     </Form.Control.Feedback>
                   )}
                   <Form.Text className="text-muted small">
-                    Leave request will be sent to this manager for approval
+                    {formData.reporting_manager
+                      ? 'Auto-selected from your profile. Change it if needed.'
+                      : 'Leave request will be sent to this manager for approval'}
                   </Form.Text>
                 </Form.Group>
 
@@ -777,11 +815,7 @@ const ApplyLeave = () => {
                     type="submit"
                     variant="primary"
                     size="sm"
-                    disabled={submitting || (
-                      formData.leave_type === 'Comp-Off'
-                        ? calculatedDays > leaveBalance.comp_off_balance
-                        : (leaveBalance.is_eligible && formData.leave_type !== 'Unpaid' && calculatedDays > leaveBalance.available)
-                    )}
+                    disabled={submitting}
                     className="px-4 d-inline-flex align-items-center"
                   >
                     {submitting ? (

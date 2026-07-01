@@ -44,6 +44,18 @@ const numberToWords = (num) => {
   return n2w(Math.abs(Math.round(num)));
 };
 
+// Returns PF/PT/DT breakdown based on slip period:
+// Up to May 2026 → DT ₹200, PF ₹0, PT ₹0
+// June 2026 onwards → PF ₹1800, PT ₹200, DT ₹0
+const getDeductionBreakdown = (slip) => {
+  const m = parseInt(slip?.month || 0);
+  const y = parseInt(slip?.year  || 0);
+  const isAfterMay2026 = y > 2026 || (y === 2026 && m >= 6);
+  return isAfterMay2026
+    ? { pf: 1800, pt: 200, dt: 0 }
+    : { pf: 0, pt: 0, dt: null }; // dt: null = use a.deduction from slip
+};
+
 const getAmounts = (slip, emp) => {
   const monthlySalary    = Number(slip?.monthly_salary)    || Number(emp?.in_hand_salary) || Number(emp?.gross_salary) || 0;
   const basicSalaryRaw   = Number(slip?.basic_salary) || 0;
@@ -73,6 +85,10 @@ const getAmounts = (slip, emp) => {
 
 // ── PDF HTML template ──────────────────────────────────────────────────────────
 const buildPDFHTML = (slip, emp, a, monthName, logoBase64) => {
+  const bd = getDeductionBreakdown(slip);
+  const pfAmt  = bd.pf;
+  const ptAmt  = bd.pt;
+  const dtAmt  = bd.dt !== null ? bd.dt : a.deduction;
   const cycleLabel = slip.cycle_start_date && slip.cycle_end_date
     ? `${new Date(slip.cycle_start_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} – ${new Date(slip.cycle_end_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`
     : `${monthName} ${slip.year}`;
@@ -149,12 +165,12 @@ const buildPDFHTML = (slip, emp, a, monthName, logoBase64) => {
           <td style="width:49%;">
             <div style="font-weight:700;font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Deductions</div>
             <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
-              <tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:7px 0;color:#475569;">Provident Fund (PF)</td><td style="padding:7px 0;text-align:right;">₹0</td></tr>
-              <tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:7px 0;color:#475569;">Professional Tax</td><td style="padding:7px 0;text-align:right;">₹0</td></tr>
+              <tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:7px 0;color:#475569;">Provident Fund (PF)</td><td style="padding:7px 0;text-align:right;">₹${fmtNum(pfAmt)}</td></tr>
+              <tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:7px 0;color:#475569;">Professional Tax</td><td style="padding:7px 0;text-align:right;">₹${fmtNum(ptAmt)}</td></tr>
               <tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:7px 0;color:#475569;">TDS</td><td style="padding:7px 0;text-align:right;">₹0</td></tr>
               ${(a.absentDays + a.unpaidLeaveDays) > 0 ? `<tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:7px 0;color:#dc2626;font-weight:600;">Absent Deduction (${a.absentDays > 0 ? a.absentDays + ' absent' : ''}${a.unpaidLeaveDays > 0 ? (a.absentDays > 0 ? ' + ' : '') + a.unpaidLeaveDays + ' unpaid leave' : ''} × ₹${fmtNum(a.perDaySalary)}/day)</td><td style="padding:7px 0;text-align:right;color:#dc2626;font-weight:700;">₹${fmtNum((a.absentDays + a.unpaidLeaveDays) * a.perDaySalary)}</td></tr>` : ''}
-              <tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:7px 0;color:#b45309;font-weight:600;">DT (Fixed Deduction)</td><td style="padding:7px 0;text-align:right;color:#b45309;font-weight:700;">₹${fmtNum(a.deduction)}</td></tr>
-              <tr style="background:#f8fafc;"><td style="padding:8px 4px;font-weight:700;color:#dc2626;">Total Deductions</td><td style="padding:8px 4px;text-align:right;font-weight:700;color:#dc2626;">₹${fmtNum(a.deduction + (a.absentDays + a.unpaidLeaveDays) * a.perDaySalary)}</td></tr>
+              ${dtAmt > 0 ? `<tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:7px 0;color:#b45309;font-weight:600;">DT (Fixed Deduction)</td><td style="padding:7px 0;text-align:right;color:#b45309;font-weight:700;">₹${fmtNum(dtAmt)}</td></tr>` : ''}
+              <tr style="background:#f8fafc;"><td style="padding:8px 4px;font-weight:700;color:#dc2626;">Total Deductions</td><td style="padding:8px 4px;text-align:right;font-weight:700;color:#dc2626;">₹${fmtNum(pfAmt + ptAmt + dtAmt + (a.absentDays + a.unpaidLeaveDays) * a.perDaySalary)}</td></tr>
             </table>
           </td>
         </tr>
@@ -393,6 +409,10 @@ const SalarySlipManager = ({ employee }) => {
   // ── Slip modal view ────────────────────────────────────────────────────────
   const SlipView = ({ slip }) => {
     const a = getAmounts(slip, employee);
+    const bd = getDeductionBreakdown(slip);
+    const pfAmt = bd.pf;
+    const ptAmt = bd.pt;
+    const dtAmt = bd.dt !== null ? bd.dt : a.deduction;
     const monthName = MONTHS[Number(slip.month) - 1];
     const cycleLabel = slip.cycle_start_date && slip.cycle_end_date
       ? `${fmtDate(slip.cycle_start_date)} – ${fmtDate(slip.cycle_end_date)}`
@@ -471,8 +491,8 @@ const SalarySlipManager = ({ employee }) => {
               <div style={{ background: '#1e3a5f', color: '#fff', padding: '9px 14px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                 Deductions
               </div>
-              <SalaryRow label="Provident Fund (PF)"  value={0} />
-              <SalaryRow label="Professional Tax"      value={0} />
+              <SalaryRow label="Provident Fund (PF)"  value={pfAmt} />
+              <SalaryRow label="Professional Tax"      value={ptAmt} />
               <SalaryRow label="TDS"                   value={0} />
               {(a.absentDays + a.unpaidLeaveDays) > 0 && (
                 <SalaryRow
@@ -481,8 +501,8 @@ const SalarySlipManager = ({ employee }) => {
                   accent="#dc2626"
                 />
               )}
-              <SalaryRow label="DT (Fixed Deduction)"  value={a.deduction} accent="#b45309" />
-              <SalaryRow label="Total Deductions"      value={a.deduction + (a.absentDays + a.unpaidLeaveDays) * a.perDaySalary} bold accent="#dc2626" last />
+              {dtAmt > 0 && <SalaryRow label="DT (Fixed Deduction)" value={dtAmt} accent="#b45309" />}
+              <SalaryRow label="Total Deductions" value={pfAmt + ptAmt + dtAmt + (a.absentDays + a.unpaidLeaveDays) * a.perDaySalary} bold accent="#dc2626" last />
             </div>
           </Col>
         </Row>

@@ -68,9 +68,15 @@ const SalarySlip = () => {
   const currentMonth = today.getMonth() + 1;
   const currentYear = today.getFullYear();
 
-  const [selectedMonth, setSelectedMonth] = useState(currentMonth.toString());
-  const [selectedYear, setSelectedYear] = useState(currentYear);
-  const [availableYears, setAvailableYears] = useState([]);
+  // Salary slips can only be generated for the previous month — current/future months are not eligible
+  const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+  const prevYear = currentMonth === 1 ? currentYear - 1 : currentYear;
+
+  // Locked to the previous month/year — salary slips are only generated for the prior cycle
+  const selectedMonth = prevMonth.toString();
+  const selectedYear = prevYear;
+  const [hasAttendance, setHasAttendance] = useState(true);
+  const [checkingAttendance, setCheckingAttendance] = useState(false);
   const [months] = useState([
     { value: 1, label: 'January' },
     { value: 2, label: 'February' },
@@ -96,14 +102,41 @@ const SalarySlip = () => {
     }
     fetchEmployeeData();
     fetchSalarySlips();
-    generateYearOptions();
   }, [user]);
 
   useEffect(() => {
     if (selectedMonth && selectedYear && user?.employeeId) {
       fetchOvertimeData();
+      checkAttendanceExists();
     }
   }, [selectedMonth, selectedYear, user?.employeeId]);
+
+  // Salary cycle runs 26th of previous month to 25th of the selected month
+  const getCycleDateRange = (month, year) => {
+    const startMonth = month === 1 ? 12 : month - 1;
+    const startYear = month === 1 ? year - 1 : year;
+    const pad = (n) => String(n).padStart(2, '0');
+    return {
+      startDateStr: `${startYear}-${pad(startMonth)}-26`,
+      endDateStr: `${year}-${pad(month)}-25`
+    };
+  };
+
+  const checkAttendanceExists = async () => {
+    try {
+      setCheckingAttendance(true);
+      const { startDateStr, endDateStr } = getCycleDateRange(parseInt(selectedMonth), parseInt(selectedYear));
+      const response = await axios.get(
+        API_ENDPOINTS.ATTENDANCE_EMPLOYEE_REPORT(user.employeeId, startDateStr, endDateStr)
+      );
+      setHasAttendance((response.data.attendance || []).length > 0);
+    } catch (error) {
+      console.error('Error checking attendance for salary slip eligibility:', error);
+      setHasAttendance(false);
+    } finally {
+      setCheckingAttendance(false);
+    }
+  };
 
   const fetchOvertimeData = async () => {
     try {
@@ -123,21 +156,6 @@ const SalarySlip = () => {
     } catch (error) {
       console.error('Error fetching overtime data:', error);
     }
-  };
-
-  const generateYearOptions = () => {
-    const currentYear = new Date().getFullYear();
-    const years = [];
-    if (joiningInfo) {
-      for (let i = joiningInfo.year; i <= currentYear + 1; i++) {
-        years.push(i);
-      }
-    } else {
-      for (let i = 2020; i <= currentYear + 1; i++) {
-        years.push(i);
-      }
-    }
-    setAvailableYears(years);
   };
 
   const generateEligibleMonths = (joiningInfo) => {
@@ -195,7 +213,6 @@ const SalarySlip = () => {
         if (response.data.joiningInfo) {
           setJoiningInfo(response.data.joiningInfo);
           generateEligibleMonths(response.data.joiningInfo);
-          setTimeout(() => generateYearOptions(), 100);
         }
       } else {
         // Show message if any
@@ -257,6 +274,14 @@ const SalarySlip = () => {
       setMessage({
         type: 'warning',
         text: 'Please select month and year'
+      });
+      return;
+    }
+
+    if (!hasAttendance) {
+      setMessage({
+        type: 'danger',
+        text: 'No attendance records found for this period. Salary slip cannot be generated without attendance data.'
       });
       return;
     }
@@ -376,7 +401,11 @@ const SalarySlip = () => {
 
       const { basicSalary, deduction, netSalary, overtimeAmount, overtimeHours, absentDays, unpaidLeaveDays, unpaidDeduction, perDaySalary } = getSlipAmounts(slip);
       const totalAbsentDeduction = (absentDays + unpaidLeaveDays) * perDaySalary;
-      const totalDeductionsForPrint = deduction + totalAbsentDeduction;
+      const bd = getDeductionBreakdown(slip);
+      const pfAmt = bd.pf;
+      const ptAmt = bd.pt;
+      const dtAmt = bd.dt !== null ? bd.dt : deduction;
+      const totalDeductionsForPrint = pfAmt + ptAmt + dtAmt + totalAbsentDeduction;
 
       let logoBase64 = '';
       try {
@@ -451,18 +480,18 @@ const SalarySlip = () => {
             </tr>
           </thead>
           <tbody>
-            <tr><td style="padding: 4px 4px;">PF (Provident Fund)</td><td style="text-align: right; padding: 4px 4px;">0</td></tr>
-            <tr><td style="padding: 4px 4px;">Professional Tax</td><td style="text-align: right; padding: 4px 4px;">0</td></tr>
+            <tr><td style="padding: 4px 4px;">PF (Provident Fund)</td><td style="text-align: right; padding: 4px 4px;">${pfAmt > 0 ? formatCurrency(pfAmt) : '0'}</td></tr>
+            <tr><td style="padding: 4px 4px;">Professional Tax</td><td style="text-align: right; padding: 4px 4px;">${ptAmt > 0 ? formatCurrency(ptAmt) : '0'}</td></tr>
             <tr><td style="padding: 4px 4px;">TDS</td><td style="text-align: right; padding: 4px 4px;">0</td></tr>
             ${totalAbsentDeduction > 0 ? `
             <tr style="background-color: #ffe0e0;">
               <td style="padding: 4px 4px; color: #d9534f;">Absent Deduction (${absentDays > 0 ? absentDays + ' absent' : ''}${unpaidLeaveDays > 0 ? (absentDays > 0 ? ' + ' : '') + unpaidLeaveDays + ' unpaid leave' : ''} × ₹${formatCurrency(perDaySalary)}/day)</td>
               <td style="text-align: right; font-weight: bold; color: #d9534f; padding: 4px 4px;">₹${formatCurrency(totalAbsentDeduction)}</td>
             </tr>` : ''}
-            <tr style="background-color: #fff3cd;">
+            ${dtAmt > 0 ? `<tr style="background-color: #fff3cd;">
               <td style="font-weight: bold; padding: 4px 4px;">DT (Fixed Deduction)</td>
-              <td style="text-align: right; font-weight: bold; color: #d9534f; padding: 4px 4px;">${formatCurrency(deduction)}</td>
-            </tr>
+              <td style="text-align: right; font-weight: bold; color: #d9534f; padding: 4px 4px;">${formatCurrency(dtAmt)}</td>
+            </tr>` : ''}
             <tr style="background-color: #f2f2f2;">
               <td style="font-weight: bold; padding: 4px 4px;">Total Deductions</td>
               <td style="text-align: right; font-weight: bold; color: #d9534f; padding: 4px 4px;">${formatCurrency(totalDeductionsForPrint)}</td>
@@ -478,7 +507,7 @@ const SalarySlip = () => {
           <strong>Calculation:</strong> Basic Salary (₹${formatCurrency(basicSalary)})
           + Overtime (₹${formatCurrency(overtimeAmount)})
           ${totalAbsentDeduction > 0 ? ` - Absent Deduction (₹${formatCurrency(totalAbsentDeduction)})` : ''}
-          - DT Deduction (₹${formatCurrency(deduction)}) = Net Salary (₹${formatCurrency(netSalary)})
+          ${dtAmt > 0 ? `- DT Deduction (₹${formatCurrency(dtAmt)})` : pfAmt > 0 ? `- PF+PT (₹${formatCurrency(pfAmt + ptAmt)})` : ''} = Net Salary (₹${formatCurrency(netSalary)})
         </div>
 
         <div style="font-size: 14px; margin-bottom: 30px;">
@@ -552,6 +581,15 @@ const SalarySlip = () => {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0
     }).format(amount || 0).replace('₹', '').trim();
+  };
+
+  const getDeductionBreakdown = (slip) => {
+    const m = parseInt(slip?.month || 0);
+    const y = parseInt(slip?.year  || 0);
+    const isAfterMay2026 = y > 2026 || (y === 2026 && m >= 6);
+    return isAfterMay2026
+      ? { pf: 1800, pt: 200, dt: 0 }
+      : { pf: 0, pt: 0, dt: null }; // dt: null = use deduction from slip
   };
 
   const getSlipAmounts = (slip) => {
@@ -730,50 +768,35 @@ const SalarySlip = () => {
             </Card.Header>
             <Card.Body className="p-2 p-md-3">
               <Form>
-                {/* Year Selection */}
+                {/* Year Selection - locked to previous month's year only */}
                 <Form.Group className="mb-2">
                   <Form.Label className="small fw-medium text-muted">Select Year</Form.Label>
                   <Form.Select
                     value={selectedYear}
-                    onChange={(e) => {
-                      setSelectedYear(parseInt(e.target.value));
-                    }}
                     size="sm"
                     className="py-2"
+                    disabled
                   >
-                    {availableYears.map(year => (
-                      <option key={year} value={year}>
-                        {year}
-                      </option>
-                    ))}
+                    <option value={prevYear}>{prevYear}</option>
                   </Form.Select>
                 </Form.Group>
 
-                {/* Month Selection */}
+                {/* Month Selection - locked to previous month only */}
                 <Form.Group className="mb-3">
                   <Form.Label className="small fw-medium text-muted">Select Month</Form.Label>
                   <Form.Select
                     value={selectedMonth}
-                    onChange={(e) => setSelectedMonth(e.target.value)}
                     size="sm"
                     className="py-2"
+                    disabled
                   >
-                    <option value="">Choose month...</option>
-                    {months.map(month => {
-                      const isCurrentMonth = month.value === currentMonth && selectedYear === currentYear;
-                      const isEligible = isMonthEligible(month.value, selectedYear);
-                      return (
-                        <option
-                          key={month.value}
-                          value={month.value}
-                          disabled={!isEligible}
-                        >
-                          {month.label} {isCurrentMonth ? '(Current)' : ''}
-                          {!isEligible && ' (Not Eligible)'}
-                        </option>
-                      );
-                    })}
+                    <option value={prevMonth}>
+                      {months.find(m => m.value === prevMonth)?.label} (Previous Month)
+                    </option>
                   </Form.Select>
+                  <small className="text-muted d-block mt-1">
+                    Salary slips can only be generated for the previous month.
+                  </small>
 
                   {selectedMonth && selectedYear && joiningInfo && !isMonthEligible(selectedMonth, selectedYear) && (
                     <div className="mt-1 text-danger small d-flex align-items-start">
@@ -788,6 +811,15 @@ const SalarySlip = () => {
                           }
                           return 'Cannot generate: Before joining date or future month.';
                         })()}
+                      </span>
+                    </div>
+                  )}
+
+                  {selectedMonth && selectedYear && !checkingAttendance && !hasAttendance && (
+                    <div className="mt-1 text-danger small d-flex align-items-start">
+                      <FaInfoCircle className="me-1 flex-shrink-0 mt-1" size={10} />
+                      <span className="text-wrap">
+                        No attendance records found for {months.find(m => m.value === prevMonth)?.label} {prevYear}. You cannot generate a salary slip without attendance data.
                       </span>
                     </div>
                   )}
@@ -815,12 +847,17 @@ const SalarySlip = () => {
                   size="sm"
                   className="w-100 py-2 d-inline-flex align-items-center justify-content-center"
                   onClick={handleGenerateSlip}
-                  disabled={generating || !selectedMonth || !selectedYear || (joiningInfo && !isMonthEligible(selectedMonth, selectedYear))}
+                  disabled={generating || checkingAttendance || !hasAttendance || !selectedMonth || !selectedYear || (joiningInfo && !isMonthEligible(selectedMonth, selectedYear))}
                 >
                   {generating ? (
                     <>
                       <Spinner size="sm" animation="border" className="me-2" />
                       <span className="d-none d-sm-inline">Generating...</span>
+                    </>
+                  ) : checkingAttendance ? (
+                    <>
+                      <Spinner size="sm" animation="border" className="me-2" />
+                      <span className="d-none d-sm-inline">Checking attendance...</span>
                     </>
                   ) : (
                     <>
@@ -1165,31 +1202,36 @@ const SalarySlip = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    <tr><td className="py-1 ps-2">PF (Provident Fund)</td><td className="text-end py-1 pe-2">0</td></tr>
-                    <tr><td className="py-1 ps-2">Professional Tax</td><td className="text-end py-1 pe-2">0</td></tr>
-                    <tr><td className="py-1 ps-2">TDS</td><td className="text-end py-1 pe-2">0</td></tr>
-                    {(selectedSlipAmounts.absentDays + selectedSlipAmounts.unpaidLeaveDays) > 0 && (
-                      <tr style={{ backgroundColor: '#ffe0e0' }}>
-                        <td className="py-1 ps-2 text-danger">
-                          Absent Deduction ({selectedSlipAmounts.absentDays > 0 ? `${selectedSlipAmounts.absentDays} absent` : ''}{selectedSlipAmounts.unpaidLeaveDays > 0 ? `${selectedSlipAmounts.absentDays > 0 ? ' + ' : ''}${selectedSlipAmounts.unpaidLeaveDays} unpaid leave` : ''} × ₹{formatCurrency(selectedSlipAmounts.perDaySalary)}/day)
-                        </td>
-                        <td className="text-end fw-bold text-danger py-1 pe-2">
-                          {formatCurrency((selectedSlipAmounts.absentDays + selectedSlipAmounts.unpaidLeaveDays) * selectedSlipAmounts.perDaySalary)}
-                        </td>
-                      </tr>
-                    )}
-                    <tr style={{ backgroundColor: '#fff3cd' }}>
-                      <td className="fw-bold py-1 ps-2">DT (Fixed Deduction)</td>
-                      <td className="text-end fw-bold text-danger py-1 pe-2">
-                        {formatCurrency(selectedSlipAmounts.deduction)}
-                      </td>
-                    </tr>
-                    <tr style={{ backgroundColor: '#f2f2f2' }}>
-                      <td className="fw-bold py-1 ps-2">Total Deductions</td>
-                      <td className="text-end fw-bold text-danger py-1 pe-2">
-                        {formatCurrency(selectedSlipAmounts.deduction + (selectedSlipAmounts.absentDays + selectedSlipAmounts.unpaidLeaveDays) * selectedSlipAmounts.perDaySalary)}
-                      </td>
-                    </tr>
+                    {(() => {
+                      const bdown = getDeductionBreakdown(selectedSlip);
+                      const pfV = bdown.pf;
+                      const ptV = bdown.pt;
+                      const dtV = bdown.dt !== null ? bdown.dt : selectedSlipAmounts.deduction;
+                      const absentDeduct = (selectedSlipAmounts.absentDays + selectedSlipAmounts.unpaidLeaveDays) * selectedSlipAmounts.perDaySalary;
+                      return (<>
+                        <tr><td className="py-1 ps-2">PF (Provident Fund)</td><td className="text-end py-1 pe-2">{pfV > 0 ? formatCurrency(pfV) : '0'}</td></tr>
+                        <tr><td className="py-1 ps-2">Professional Tax</td><td className="text-end py-1 pe-2">{ptV > 0 ? formatCurrency(ptV) : '0'}</td></tr>
+                        <tr><td className="py-1 ps-2">TDS</td><td className="text-end py-1 pe-2">0</td></tr>
+                        {(selectedSlipAmounts.absentDays + selectedSlipAmounts.unpaidLeaveDays) > 0 && (
+                          <tr style={{ backgroundColor: '#ffe0e0' }}>
+                            <td className="py-1 ps-2 text-danger">
+                              Absent Deduction ({selectedSlipAmounts.absentDays > 0 ? `${selectedSlipAmounts.absentDays} absent` : ''}{selectedSlipAmounts.unpaidLeaveDays > 0 ? `${selectedSlipAmounts.absentDays > 0 ? ' + ' : ''}${selectedSlipAmounts.unpaidLeaveDays} unpaid leave` : ''} × ₹{formatCurrency(selectedSlipAmounts.perDaySalary)}/day)
+                            </td>
+                            <td className="text-end fw-bold text-danger py-1 pe-2">{formatCurrency(absentDeduct)}</td>
+                          </tr>
+                        )}
+                        {dtV > 0 && (
+                          <tr style={{ backgroundColor: '#fff3cd' }}>
+                            <td className="fw-bold py-1 ps-2">DT (Fixed Deduction)</td>
+                            <td className="text-end fw-bold text-danger py-1 pe-2">{formatCurrency(dtV)}</td>
+                          </tr>
+                        )}
+                        <tr style={{ backgroundColor: '#f2f2f2' }}>
+                          <td className="fw-bold py-1 ps-2">Total Deductions</td>
+                          <td className="text-end fw-bold text-danger py-1 pe-2">{formatCurrency(pfV + ptV + dtV + absentDeduct)}</td>
+                        </tr>
+                      </>);
+                    })()}
                     <tr className="fw-bold" style={{ borderTop: '2px solid #000' }}>
                       <td className="py-2 ps-2">NET SALARY</td>
                       <td className="text-end fw-bold text-success py-2 pe-2">

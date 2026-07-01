@@ -336,7 +336,35 @@ const AttendanceReports = () => {
         return record;
       });
 
-      setDailyAttendance(processedAttendance);
+      // Merge with all active employees — those with no record for this date are marked absent
+      const attendedIds = new Set(processedAttendance.map(r => r.employee_id));
+      const absentStubs = allEmployees
+        .filter(emp => (emp.status === 'active' || !emp.status) && !attendedIds.has(emp.employee_id))
+        .map(emp => ({
+          employee_id:    emp.employee_id,
+          first_name:     emp.first_name,
+          last_name:      emp.last_name,
+          department:     emp.department,
+          designation:    emp.designation,
+          shift_time_used: emp.shift_timing || null,
+          clock_in:       null,
+          clock_out:      null,
+          total_hours:    0,
+          total_minutes:  0,
+          late_minutes:   0,
+          overtime_hours: 0,
+          status:         'absent',
+        }));
+
+      const statusOrder = { present: 0, working: 1, half_day: 2, on_leave: 3, late: 4, absent: 5, weekend: 6, holiday: 7 };
+      const allRecords = [...processedAttendance, ...absentStubs].sort((a, b) => {
+        const ao = statusOrder[a.status] ?? 5;
+        const bo = statusOrder[b.status] ?? 5;
+        if (ao !== bo) return ao - bo;
+        return (a.first_name || '').localeCompare(b.first_name || '');
+      });
+
+      setDailyAttendance(allRecords);
 
     } catch (error) {
       console.error('Error fetching daily attendance:', error);
@@ -1126,16 +1154,36 @@ const AttendanceReports = () => {
           }}
         />
       ) : activeView === 'daily' ? (
-        <div className="d-flex flex-column flex-sm-row mb-3 gap-2">
+        <div className="d-flex flex-column flex-sm-row mb-3 gap-2 align-items-start align-items-sm-center">
+          <Button
+            variant="outline-secondary"
+            size="sm"
+            onClick={() => {
+              const ist = getISTNow();
+              ist.setDate(ist.getDate() - 1);
+              setSelectedDate(ist.toISOString().split('T')[0]);
+            }}
+            className="text-nowrap"
+          >
+            <FaArrowLeft size={10} className="me-1" /> Yesterday
+          </Button>
           <Form.Control
             type="date"
             value={selectedDate}
             onChange={(e) => setSelectedDate(e.target.value)}
             size="sm"
-            className="flex-grow-1 flex-sm-grow-0"
-            style={{ maxWidth: '200px' }}
+            style={{ maxWidth: '160px' }}
           />
-          <Button variant="success" size="sm" onClick={handleExportExcel} className="w-20 w-sm-auto">
+          <Button
+            variant="outline-primary"
+            size="sm"
+            onClick={() => setSelectedDate(getISTDateString())}
+            className="text-nowrap"
+            disabled={selectedDate === getISTDateString()}
+          >
+            Today
+          </Button>
+          <Button variant="success" size="sm" onClick={handleExportExcel} className="text-nowrap">
             <FaFileExcel className="me-2" size={12} /> Export
           </Button>
         </div>
@@ -1227,9 +1275,17 @@ const AttendanceReports = () => {
               {activeView === 'daily' ? 'Daily Attendance' : 'Monthly Attendance'}
             </h6>
             {activeView === 'daily' && (
-              <Badge bg="secondary" pill className="ms-0 ms-sm-auto">
-                {dailyAttendance.length} Records
-              </Badge>
+              <div className="d-flex gap-2 ms-0 ms-sm-auto flex-wrap">
+                <Badge bg="success" pill>
+                  {dailyAttendance.filter(r => ['present','working','half_day'].includes(r.status)).length} Present
+                </Badge>
+                <Badge bg="danger" pill>
+                  {dailyAttendance.filter(r => r.status === 'absent').length} Absent
+                </Badge>
+                <Badge bg="secondary" pill>
+                  {dailyAttendance.length} Total
+                </Badge>
+              </div>
             )}
           </Card.Header>
           <Card.Body className="p-0">

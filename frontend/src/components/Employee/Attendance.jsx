@@ -15,7 +15,6 @@ import {
   FaSignOutAlt,
   FaCalendarAlt,
   FaMoon,
-  FaCloudSun,
   FaHistory,
   FaRegClock
 } from 'react-icons/fa';
@@ -338,9 +337,6 @@ const Attendance = () => {
     const today = new Date().toISOString().split('T')[0];
     const isToday = record.attendance_date === today;
 
-    const lateFormatted = record.late_display || (record.late_minutes > 0 ? formatLateTime(record.late_minutes) : null);
-    const lateText = lateFormatted ? ` (Late ${lateFormatted})` : '';
-
     const isWeekend = record.dayOfWeek === 0 || record.dayOfWeek === 6;
     if (record.isWeeklyOff || (isWeekend && !record.clock_in)) {
       return <Badge bg="secondary" className="px-2 py-1"><FaMoon className="me-1" size={10} /> W-Off</Badge>;
@@ -352,28 +348,22 @@ const Attendance = () => {
 
     // Today with active session (no clock out yet)
     if (isToday && record.clock_in && !record.clock_out) {
-      if (record.late_minutes > 0) {
-        return <Badge bg="warning" className="px-2 py-1 text-dark"><FaExclamationTriangle className="me-1" size={10} /> Working (Late{lateText})</Badge>;
-      }
-      return <Badge bg="info" className="px-2 py-1"><FaClock className="me-1" size={10} /> Working</Badge>;
+      return <Badge bg="info" className="px-2 py-1">Working</Badge>;
     }
 
-    // Clock in + clock out: calculate from hours
+    // Clock in + clock out: calculate from hours — plain word, no extra info
     if (record.clock_in && record.clock_out) {
       const totalHours = parseFloat(record.total_hours) || 0;
       const hoursStatus = getStatusFromHours(totalHours);
 
       if (hoursStatus === 'absent') {
-        return <Badge bg="danger" className="px-2 py-1"><FaExclamationTriangle className="me-1" size={10} /> Absent ({totalHours.toFixed(1)}h)</Badge>;
+        return <Badge bg="danger" className="px-2 py-1">Absent</Badge>;
       }
       if (hoursStatus === 'half_day') {
-        return <Badge bg="warning" className="text-dark px-2 py-1"><FaCloudSun className="me-1" size={10} /> Half Day{lateText}</Badge>;
+        return <Badge className="px-2 py-1" style={{ backgroundColor: '#EA580C', color: '#fff' }}>Half Day</Badge>;
       }
       // present (9h+)
-      if (record.late_minutes > 0) {
-        return <Badge bg="warning" className="px-2 py-1 text-dark"><FaExclamationTriangle className="me-1" size={10} /> Present (Late{lateText})</Badge>;
-      }
-      return <Badge bg="success" className="px-2 py-1"><FaCheckCircle className="me-1" size={10} /> Present</Badge>;
+      return <Badge bg="success" className="px-2 py-1">Present</Badge>;
     }
 
     // Clock in but no clock out (not today = missed)
@@ -843,7 +833,7 @@ const Attendance = () => {
           totalHours = totalMinutes / 60;
           displayStatus = 'working';
           clockOut = null;
-          formattedClockOut = 'Working';
+          formattedClockOut = '--';
         } else if (clockInValue && !clockOutValue && !isToday) {
           // For previous days with missed clock-out, calculate up to current time
           // This ensures that if employee is still working (crossed midnight), 
@@ -1140,7 +1130,7 @@ const Attendance = () => {
               totalHoursDisplay = currentHoursDisplay;
               totalHours = totalMinutes / 60;
               displayStatus = 'working';
-              formattedClockOut = 'Working';
+              formattedClockOut = '--';
             } else if (clockInValue && !clockOutValue && !isToday) {
               const totalMinutes = calculateTotalMinutesFixed(clockInValue, nowIST());
               const h = Math.floor(totalMinutes / 60), m = Math.round(totalMinutes % 60);
@@ -2197,7 +2187,7 @@ const Attendance = () => {
                                 ) : record.clock_out ? (
                                   <span className="text-nowrap">{formatTimeIST(record.clock_out)}</span>
                                 ) : record.clock_in && isToday ? (
-                                  <Badge bg="info" pill size="sm">Working</Badge>
+                                  <span className="text-muted">--</span>
                                 ) : record.clock_in && !record.clock_out && !isToday ? (
                                   <Badge bg="danger" pill size="sm">Missed</Badge>
                                 ) : (
