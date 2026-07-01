@@ -44,7 +44,10 @@ import {
   FaEnvelope,
   FaPhone,
   FaMapMarkerAlt,
-  FaUser
+  FaUser,
+  FaFingerprint,
+  FaSignInAlt,
+  FaSignOutAlt
 } from 'react-icons/fa';
 import { Line, Doughnut, Bar } from 'react-chartjs-2';
 import {
@@ -64,6 +67,7 @@ import axios from '../../config/axios';
 import API_ENDPOINTS from '../../config/api';
 import { useNavigate } from 'react-router-dom';
 import { useNotification } from '../../context/NotificationContext';
+import { useAuth } from '../../context/AuthContext';
 import AdminRatings from './AdminRatings';
 import * as XLSX from 'xlsx';
 // import HistoricalLateMarksUpdater from './HistoricalLateMarksUpdater';
@@ -771,6 +775,7 @@ const RegularizationRequests = ({ onRequestCountChange }) => {
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const { todayEvents, fetchTodayEvents } = useNotification();
+  const { user } = useAuth();
 
   const [stats, setStats] = useState({
     total: 0,
@@ -836,10 +841,129 @@ const AdminDashboard = () => {
     }]
   });
 
+  // Sub-admin own attendance states
+  const [subAdminAttendance, setSubAdminAttendance] = useState(null);
+  const [subAdminSession, setSubAdminSession] = useState(null);
+  const [subAdminClockLoading, setSubAdminClockLoading] = useState(false);
+  const [subAdminClockMessage, setSubAdminClockMessage] = useState({ type: '', text: '' });
+  const [subAdminCurrentTime, setSubAdminCurrentTime] = useState(new Date());
+
   useEffect(() => {
     fetchDashboardData();
     fetchTodayEvents();
   }, []);
+
+  // Sub-admin: live clock ticker
+  useEffect(() => {
+    if (user?.role !== 'sub_admin') return;
+    const t = setInterval(() => setSubAdminCurrentTime(new Date()), 1000);
+    return () => clearInterval(t);
+  }, [user]);
+
+  // Sub-admin: fetch own today's attendance on mount
+  useEffect(() => {
+    if (user?.role === 'sub_admin' && user?.employeeId) {
+      fetchSubAdminAttendance();
+    }
+  }, [user]);
+
+  const subAdminFormatTime = (datetime) => {
+    if (!datetime) return '--:--';
+    try {
+      let hourNum, minute;
+      if (typeof datetime === 'string') {
+        if (datetime.includes(' ') && !datetime.includes('T')) {
+          const parts = datetime.split(' ')[1].split(':');
+          hourNum = parseInt(parts[0], 10);
+          minute = parts[1]?.padStart(2, '0') || '00';
+        } else if (datetime.includes('T')) {
+          const d = new Date(datetime);
+          if (isNaN(d.getTime())) return '--:--';
+          const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+          hourNum = ist.getUTCHours();
+          minute = String(ist.getUTCMinutes()).padStart(2, '0');
+        } else return '--:--';
+      } else return '--:--';
+      if (isNaN(hourNum)) return '--:--';
+      const ampm = hourNum >= 12 ? 'PM' : 'AM';
+      const h12 = hourNum % 12 === 0 ? 12 : hourNum % 12;
+      return `${h12}:${minute} ${ampm}`;
+    } catch { return '--:--'; }
+  };
+
+  const fetchSubAdminAttendance = async () => {
+    try {
+      const res = await axios.get(API_ENDPOINTS.ATTENDANCE_TODAY(user.employeeId));
+      const att = res.data.attendance;
+      const serverSession = res.data.active_session;
+      if (att) {
+        att.clock_in = att.clock_in_ist || att.clock_in;
+        att.clock_out = att.clock_out_ist || att.clock_out;
+        setSubAdminAttendance(att);
+        if (serverSession) setSubAdminSession(serverSession);
+        else if (att.clock_in && !att.clock_out) setSubAdminSession({ session_id: att.session_id || 'inferred' });
+        else setSubAdminSession(null);
+      } else {
+        setSubAdminAttendance(null);
+        if (!serverSession) setSubAdminSession(null);
+      }
+    } catch {
+      setSubAdminAttendance(null);
+      setSubAdminSession(null);
+    }
+  };
+
+  const handleSubAdminClockIn = async () => {
+    setSubAdminClockLoading(true);
+    setSubAdminClockMessage({ type: '', text: '' });
+    try {
+      const res = await axios.post(API_ENDPOINTS.ATTENDANCE_CLOCK_IN, {
+        employee_id: user.employeeId, latitude: null, longitude: null, accuracy: null,
+      });
+      const t = res.data.clock_in_ist || res.data.clock_in;
+      const att = {
+        clock_in: t, clock_in_ist: t,
+        late_minutes: res.data.late_minutes || 0,
+        late_display: res.data.late_display || null,
+        status: 'working',
+        attendance_date: res.data.attendance_date,
+        session_id: res.data.session_id,
+      };
+      setSubAdminAttendance(att);
+      setSubAdminSession({ session_id: res.data.session_id, clock_in_time: t });
+      setSubAdminClockMessage({ type: 'success', text: res.data.message || 'Clocked in successfully!' });
+    } catch (err) {
+      setSubAdminClockMessage({ type: 'error', text: err.response?.data?.message || 'Failed to clock in' });
+    } finally {
+      setSubAdminClockLoading(false);
+    }
+  };
+
+  const handleSubAdminClockOut = async () => {
+    setSubAdminClockLoading(true);
+    setSubAdminClockMessage({ type: '', text: '' });
+    try {
+      const pre = await axios.get(API_ENDPOINTS.ATTENDANCE_TODAY(user.employeeId));
+      const serverSession = pre.data.active_session;
+      if (!serverSession) { setSubAdminSession(null); await fetchSubAdminAttendance(); setSubAdminClockLoading(false); return; }
+      const res = await axios.post(API_ENDPOINTS.ATTENDANCE_CLOCK_OUT, {
+        employee_id: user.employeeId, session_id: serverSession.session_id,
+        latitude: null, longitude: null, accuracy: null,
+      });
+      const t = res.data.clock_out_ist || res.data.clock_out;
+      setSubAdminAttendance(prev => ({
+        ...prev, clock_out: t,
+        total_hours_display: res.data.total_hours_display,
+        status: res.data.status,
+      }));
+      setSubAdminSession(null);
+      setSubAdminClockMessage({ type: 'success', text: res.data.message || 'Clocked out successfully!' });
+    } catch (err) {
+      setSubAdminClockMessage({ type: 'error', text: err.response?.data?.message || 'Failed to clock out' });
+    } finally {
+      setSubAdminClockLoading(false);
+    }
+  };
 
   // Debug: Log leave requests state changes
   useEffect(() => {
@@ -1456,37 +1580,172 @@ const AdminDashboard = () => {
   return (
     <div className="p-2 p-md-3 p-lg-4">
       {/* Header */}
-      <div className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center mb-4 gap-3">
-        <div>
-          <h4 className="mb-1 d-flex align-items-center flex-wrap">
-            <FaUsers className="me-2 text-dark" />
-            <span>Admin Dashboard</span>
-          </h4>
-          <p className="text-muted mb-0 small d-flex align-items-center flex-wrap">
-            <FaClock className="me-1" size={12} />
-            <span>Last updated: {lastUpdated.toLocaleTimeString()}</span>
-          </p>
-        </div>
+      {user?.role === 'sub_admin' ? (
+        /* ── Sub Admin: Manager-style dark header with clock-in/out ── */
+        <div style={{
+          background: '#1e2a3e', borderRadius: 10, padding: '24px 32px',
+          marginBottom: 28, boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+          display: 'flex', flexDirection: 'column', gap: 0, position: 'relative', overflow: 'hidden',
+        }}>
+          <div style={{ position: 'absolute', width: 200, height: 200, borderRadius: '50%', background: 'rgba(255,255,255,.06)', top: -80, right: 100 }} />
+          <div style={{ position: 'absolute', width: 130, height: 130, borderRadius: '50%', background: 'rgba(255,255,255,.08)', bottom: -50, right: -20 }} />
 
-        <div className="d-flex gap-2">
-          <Button
-            variant="outline-primary"
-            size="sm"
-            onClick={() => {
-              fetchDashboardData();
-              setLeaveBalancesLoaded(false);
-              setEmployeeLeaveBalances([]);
-            }}
-          >
-            <FaSyncAlt className="me-1" size={12} />
-            Refresh
-          </Button>
-          <Button variant="outline-success" size="sm" onClick={() => setShowExportModal(true)}>
-            <FaDownload className="me-1" size={12} />
-            Export
-          </Button>
+          {/* Row 1: title + clock button */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div style={{ width: 52, height: 52, borderRadius: 14, background: 'rgba(255,255,255,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <FaUsers size={24} color="#fff" />
+              </div>
+              <div>
+                <h4 style={{ color: '#fff', margin: 0, fontWeight: 800, fontSize: 22 }}>Sub Admin Dashboard</h4>
+                <div style={{ color: 'rgba(255,255,255,.82)', fontSize: 13, marginTop: 3 }}>
+                  Welcome back, <strong style={{ color: '#fff' }}>{user?.employeeId}</strong>
+                  {lastUpdated && <span style={{ marginLeft: 8, opacity: 0.65 }}>· Updated {lastUpdated.toLocaleTimeString()}</span>}
+                </div>
+              </div>
+            </div>
+
+            {/* Clock In / Out button */}
+            {(() => {
+              const hasOpen = !!subAdminSession || (!!subAdminAttendance?.clock_in && !subAdminAttendance?.clock_out);
+              return (
+                <button
+                  onClick={hasOpen ? handleSubAdminClockOut : handleSubAdminClockIn}
+                  disabled={subAdminClockLoading}
+                  style={{
+                    background: hasOpen ? 'rgba(251,191,36,0.9)' : 'rgba(34,197,94,0.9)',
+                    border: 'none', borderRadius: 10, padding: '9px 20px',
+                    color: hasOpen ? '#78350f' : '#fff',
+                    cursor: subAdminClockLoading ? 'not-allowed' : 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 7,
+                    fontSize: 13, fontWeight: 700,
+                    opacity: subAdminClockLoading ? 0.7 : 1, flexShrink: 0,
+                  }}
+                >
+                  {subAdminClockLoading
+                    ? <><FaSyncAlt size={12} style={{ animation: 'dashspin 0.8s linear infinite' }} /> Processing...</>
+                    : hasOpen
+                      ? <><FaSignOutAlt size={13} /> Clock Out</>
+                      : <><FaSignInAlt size={13} /> Clock In</>
+                  }
+                </button>
+              );
+            })()}
+          </div>
+
+          {/* Row 2: attendance info */}
+          <div style={{
+            display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 20,
+            margin: '16px 0', padding: '14px 16px',
+            background: 'rgba(255,255,255,.06)', borderRadius: 10, position: 'relative',
+          }}>
+            {/* Live clock */}
+            <div style={{ textAlign: 'center', minWidth: 72 }}>
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,.45)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 3 }}>Live Time</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>
+                {subAdminCurrentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              </div>
+            </div>
+            <div style={{ width: 1, height: 36, background: 'rgba(255,255,255,.15)', flexShrink: 0 }} />
+            {/* In time */}
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,.45)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 3 }}>In</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: subAdminAttendance?.clock_in ? '#4ade80' : 'rgba(255,255,255,.4)' }}>
+                {subAdminAttendance?.clock_in ? subAdminFormatTime(subAdminAttendance.clock_in) : '--:--'}
+              </div>
+              {subAdminAttendance?.late_minutes > 0 && (
+                <div style={{ fontSize: 9, color: '#f87171', display: 'flex', alignItems: 'center', gap: 2, justifyContent: 'center', marginTop: 1 }}>
+                  Late {subAdminAttendance.late_display || ''}
+                </div>
+              )}
+            </div>
+            <div style={{ width: 1, height: 36, background: 'rgba(255,255,255,.15)', flexShrink: 0 }} />
+            {/* Out time */}
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,.45)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 3 }}>Out</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: subAdminAttendance?.clock_out ? '#fbbf24' : 'rgba(255,255,255,.4)' }}>
+                {subAdminAttendance?.clock_out ? subAdminFormatTime(subAdminAttendance.clock_out) : '--:--'}
+              </div>
+              {subAdminAttendance?.total_hours_display && (
+                <div style={{ fontSize: 9, color: 'rgba(255,255,255,.5)', marginTop: 1 }}>{subAdminAttendance.total_hours_display}</div>
+              )}
+            </div>
+            <div style={{ width: 1, height: 36, background: 'rgba(255,255,255,.15)', flexShrink: 0 }} />
+            {/* Status */}
+            {subAdminAttendance?.status ? (
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                background: subAdminAttendance.status === 'working' ? 'rgba(74,222,128,.15)' : 'rgba(255,255,255,.08)',
+                border: `1px solid ${subAdminAttendance.status === 'working' ? 'rgba(74,222,128,.35)' : 'rgba(255,255,255,.15)'}`,
+                borderRadius: 20, padding: '3px 10px',
+              }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: subAdminAttendance.status === 'working' ? '#4ade80' : '#94a3b8', display: 'inline-block' }} />
+                <span style={{ fontSize: 11, fontWeight: 600, color: subAdminAttendance.status === 'working' ? '#4ade80' : '#cbd5e1', textTransform: 'capitalize' }}>
+                  {subAdminAttendance.status === 'working' ? 'Working' : subAdminAttendance.status}
+                </span>
+              </div>
+            ) : (
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,.35)' }}>Not clocked in today</span>
+            )}
+            {/* Feedback message */}
+            {subAdminClockMessage.text && (
+              <div style={{
+                fontSize: 11, fontWeight: 500,
+                color: subAdminClockMessage.type === 'success' ? '#4ade80' : '#f87171',
+                background: subAdminClockMessage.type === 'success' ? 'rgba(74,222,128,.1)' : 'rgba(248,113,113,.1)',
+                border: `1px solid ${subAdminClockMessage.type === 'success' ? 'rgba(74,222,128,.25)' : 'rgba(248,113,113,.25)'}`,
+                borderRadius: 8, padding: '4px 10px',
+              }}>
+                {subAdminClockMessage.text}
+              </div>
+            )}
+          </div>
+
+          {/* Row 3: date + refresh + export */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, position: 'relative', flexWrap: 'wrap' }}>
+            <div style={{ background: 'rgba(231,225,225,0.15)', borderRadius: 10, padding: '8px 16px', color: 'rgba(255,255,255,.9)', fontSize: 13 }}>
+              {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            </div>
+            <button
+              onClick={() => { fetchDashboardData(); setLeaveBalancesLoaded(false); setEmployeeLeaveBalances([]); }}
+              disabled={loading}
+              style={{ background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,.3)', borderRadius: 10, padding: '8px 18px', color: '#fff', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, opacity: loading ? 0.7 : 1 }}
+            >
+              <FaSyncAlt size={12} style={{ animation: loading ? 'dashspin 1s linear infinite' : 'none' }} />
+              Refresh
+            </button>
+            <button
+              onClick={() => setShowExportModal(true)}
+              style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,.25)', borderRadius: 10, padding: '8px 18px', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600 }}
+            >
+              <FaDownload size={12} />
+              Export
+            </button>
+          </div>
         </div>
-      </div>
+      ) : (
+        /* ── Admin: existing header ── */
+        <div className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center mb-4 gap-3">
+          <div>
+            <h4 className="mb-1 d-flex align-items-center flex-wrap">
+              <FaUsers className="me-2 text-dark" />
+              <span>Admin Dashboard</span>
+            </h4>
+            <p className="text-muted mb-0 small d-flex align-items-center flex-wrap">
+              <FaClock className="me-1" size={12} />
+              <span>Last updated: {lastUpdated.toLocaleTimeString()}</span>
+            </p>
+          </div>
+          <div className="d-flex gap-2">
+            <Button variant="outline-primary" size="sm" onClick={() => { fetchDashboardData(); setLeaveBalancesLoaded(false); setEmployeeLeaveBalances([]); }}>
+              <FaSyncAlt className="me-1" size={12} /> Refresh
+            </Button>
+            <Button variant="outline-success" size="sm" onClick={() => setShowExportModal(true)}>
+              <FaDownload className="me-1" size={12} /> Export
+            </Button>
+          </div>
+        </div>
+      )}
 
       {message.text && (
         <Alert variant={message.type} onClose={() => setMessage({ type: '', text: '' })} dismissible className="mb-4">
@@ -2290,7 +2549,7 @@ const AdminDashboard = () => {
               </div>
             </Card.Header>
             <Card.Body className="p-0">
-              <div className="table-responsive" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+              <div className="table-responsive" style={{ maxHeight: '450px', overflowY: 'auto' }}>
                 <Table striped size="sm" className="mb-0 align-middle">
                   <thead className="bg-light sticky-top">
                     <tr className="small">
@@ -2695,6 +2954,7 @@ const AdminDashboard = () => {
         </Modal.Body>
         <Modal.Footer><Button variant="secondary" size="sm" onClick={() => setShowExportModal(false)}>Cancel</Button><Button variant="success" size="sm" onClick={handleExport} disabled={exporting}>{exporting ? <><Spinner size="sm" animation="border" className="me-2" />Exporting...</> : <><FaDownload className="me-2" />Export</>}</Button></Modal.Footer>
       </Modal>
+      <style>{'@keyframes dashspin { to { transform: rotate(360deg); } }'}</style>
     </div>
   );
 };

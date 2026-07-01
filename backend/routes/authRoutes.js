@@ -438,7 +438,7 @@ router.post('/reset-password-direct', async (req, res) => {
         try { caller = jwt.verify(adminToken, JWT_SECRET); } catch {
             return res.status(401).json({ success: false, message: 'Invalid or expired token' });
         }
-        if (caller.role !== 'admin') {
+        if (!['admin', 'sub_admin'].includes(caller.role)) {
             return res.status(403).json({ success: false, message: 'Admin access required to reset passwords' });
         }
 

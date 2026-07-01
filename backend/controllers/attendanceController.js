@@ -1853,7 +1853,7 @@ exports.requestRegularization = async (req, res) => {
         const { attendance_id, requested_clock_out_time, reason, attendance_date } = req.body;
         const { employee_id } = req.params;
 
-        if (req.user?.employeeId !== employee_id && req.user?.role !== 'admin') {
+        if (req.user?.employeeId !== employee_id && !['admin', 'sub_admin'].includes(req.user?.role)) {
             return res.status(403).json({
                 success: false,
                 message: 'You can only request regularization for your own attendance record.'
@@ -2445,7 +2445,7 @@ exports.getEmployeeAttendanceReport = async (req, res) => {
     try {
         const { start, end } = req.query;
         const { employee_id } = req.params;
-        if (req.user?.employeeId !== employee_id && req.user?.role !== 'admin') {
+        if (req.user?.employeeId !== employee_id && !['admin', 'sub_admin'].includes(req.user?.role)) {
             return res.status(403).json({ success: false, message: 'Access denied' });
         }
         if (!start || !end) {
@@ -2558,7 +2558,7 @@ exports.getOvertimeSummary = async (req, res) => {
     try {
         const { employee_id, month, year } = req.params;
 
-        if (req.user?.employeeId !== employee_id && req.user?.role !== 'admin') {
+        if (req.user?.employeeId !== employee_id && !['admin', 'sub_admin'].includes(req.user?.role)) {
             return res.status(403).json({ success: false, message: 'Access denied. You can only view your own overtime data.' });
         }
 
@@ -2623,7 +2623,7 @@ exports.getCompOffHistory = async (req, res) => {
         const { employee_id } = req.params;
 
         // Authorization: employee can only view own, admin can view all
-        if (req.user?.employeeId !== employee_id && req.user?.role !== 'admin') {
+        if (req.user?.employeeId !== employee_id && !['admin', 'sub_admin'].includes(req.user?.role)) {
             return res.status(403).json({ success: false, message: 'Access denied' });
         }
 

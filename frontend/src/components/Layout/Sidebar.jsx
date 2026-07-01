@@ -27,12 +27,12 @@ const Sidebar = () => {
   useEffect(() => {
     if (user) {
       fetchEmployeeName();
-      if (user?.role === 'admin') fetchPendingCount();
+      if (user?.role === 'admin' || user?.role === 'sub_admin') fetchPendingCount();
     }
   }, [user]);
 
   useEffect(() => {
-    if (user?.role === 'admin') {
+    if (user?.role === 'admin' || user?.role === 'sub_admin') {
       const h = () => fetchPendingCount();
       window.addEventListener('updateApprovalsChanged', h);
       return () => window.removeEventListener('updateApprovalsChanged', h);
@@ -76,7 +76,7 @@ const Sidebar = () => {
         setEmployeeDesignation(res.data.designation || '');
       }
     } catch {
-      setEmployeeName(user?.role === 'admin' ? 'Administrator' : user?.role === 'desktop_support' ? 'Desktop Support' : 'Employee');
+      setEmployeeName(user?.role === 'admin' ? 'Administrator' : user?.role === 'sub_admin' ? 'Sub Admin' : user?.role === 'desktop_support' ? 'Desktop Support' : 'Employee');
     }
   };
 
@@ -202,7 +202,7 @@ const Sidebar = () => {
             <div className="hrms-sidebar__logo-text">
               <div className="hrms-sidebar__logo-title">EMS Portal</div>
               <div className="hrms-sidebar__logo-sub">
-                {user?.role === 'admin' ? 'Admin Dashboard' : user?.role === 'desktop_support' ? 'Desktop Support' : user?.role === 'manager' ? 'Manager Dashboard' : 'Employee Dashboard'}
+                {user?.role === 'admin' ? 'Admin Dashboard' : user?.role === 'sub_admin' ? 'Sub Admin Dashboard' : user?.role === 'desktop_support' ? 'Desktop Support' : user?.role === 'manager' ? 'Manager Dashboard' : 'Employee Dashboard'}
               </div>
             </div>
           )}
@@ -233,6 +233,32 @@ const Sidebar = () => {
                 onClick={() => { setPendingCount(0); markNotificationsAsRead(); }}
               />
               <NavItem to="/admin/broadcast" icon={<FaBullhorn />} label="Broadcast" />
+            </>
+          ) : user?.role === 'sub_admin' ? (
+            <>
+              <Section label="Overview" />
+              <NavItem to="/subadmin/dashboard" icon={<FaTachometerAlt />} label="Dashboard" />
+              <Section label="Management" />
+              <NavItem to="/admin/employees"          icon={<FaUsers />}       label="Employees" />
+              <NavItem to="/admin/leave-requests"     icon={<FaCalendarAlt />} label="Leave Requests" />
+              <NavItem to="/admin/attendance/reports" icon={<FaClock />}       label="Attendance" />
+              <NavItem to="/admin/ratings"            icon={<FaStar />}        label="Employee Ratings" />
+              <NavItem to="/admin/payroll"            icon={<FaMoneyBill />}   label="Payroll" />
+
+              <Section label="Admin Tools" />
+              <NavItem to="/admin/teams"             icon={<FaLayerGroup />}  label="Teams" />
+              <NavItem to="/admin/send-update-request" icon={<FaPaperPlane />} label="Send Update Request" />
+              <NavItem
+                to="/admin/update-approvals"
+                icon={<FaBell />}
+                label="Update Approvals"
+                badge={pendingCount}
+                onClick={() => { setPendingCount(0); markNotificationsAsRead(); }}
+              />
+              <NavItem to="/admin/broadcast" icon={<FaBullhorn />} label="Broadcast" />
+
+              <Section label="My Attendance" />
+              <NavItem to="/attendance" icon={<FaFingerprint />} label="Daily Attendance" />
             </>
           ) : user?.role === 'desktop_support' ? (
             <>
@@ -279,7 +305,7 @@ const Sidebar = () => {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="hrms-sidebar__user-name">{employeeName}</div>
                 <div className="hrms-sidebar__user-role">
-                  {user?.role === 'admin' ? 'Administrator' : user?.role === 'desktop_support' ? 'Desktop Support' : user?.role === 'manager' ? 'Manager' : `ID: ${user?.employeeId}`}
+                  {user?.role === 'admin' ? 'Administrator' : user?.role === 'sub_admin' ? 'Sub Admin' : user?.role === 'desktop_support' ? 'Desktop Support' : user?.role === 'manager' ? 'Manager' : `ID: ${user?.employeeId}`}
                 </div>
               </div>
               <button className="hrms-logout-btn" onClick={logout} title="Logout">

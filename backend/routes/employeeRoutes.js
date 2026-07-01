@@ -501,12 +501,12 @@ router.put('/:id', verifyToken, isAdmin, async (req, res) => {
         const updates = req.body;
         const newShiftTiming = updates.shift_timing;
 
-        // Only admin can change role
-        if ('role' in updates && req.user?.role !== 'admin') {
+        // Only admin/sub_admin can change role
+        if ('role' in updates && !['admin', 'sub_admin'].includes(req.user?.role)) {
             delete updates.role;
         }
         if ('role' in updates) {
-            const validRoles = ['admin', 'manager', 'employee', 'desktop_support'];
+            const validRoles = ['admin', 'sub_admin', 'manager', 'employee', 'desktop_support'];
             if (!validRoles.includes(updates.role)) {
                 return res.status(400).json({ success: false, message: 'Invalid role value' });
             }

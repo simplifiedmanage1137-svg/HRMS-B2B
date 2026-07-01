@@ -187,7 +187,7 @@ const authenticateToken = (req, res, next) => {
 };
 
 const requireAdmin = (req, res, next) => {
-    if (req.user?.role !== 'admin') {
+    if (!['admin', 'sub_admin'].includes(req.user?.role)) {
         return res.status(403).json({ success: false, message: 'Admin access required' });
     }
     next();

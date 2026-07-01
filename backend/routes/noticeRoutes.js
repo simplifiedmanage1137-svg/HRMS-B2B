@@ -22,7 +22,7 @@ router.post('/', async (req, res) => {
         }
 
         // Verify sender is admin or team leader/manager
-        if (sender_role !== 'admin') {
+        if (!['admin', 'sub_admin'].includes(sender_role)) {
             const { data: senderEmp } = await supabase
                 .from('employees').select('designation').eq('employee_id', sender_id).single();
             if (!isTeamLeader(senderEmp?.designation)) {
@@ -70,7 +70,7 @@ router.get('/', async (req, res) => {
         const user_role = req.user?.role;
         const type = req.query.type; // 'received' | 'sent' | undefined (all)
 
-        if (user_role === 'admin') {
+        if (user_role === 'admin' || user_role === 'sub_admin') {
             // Admin: only sent notices
             const { data, error } = await supabase
                 .from('employee_notices').select('*')

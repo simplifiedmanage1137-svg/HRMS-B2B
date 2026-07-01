@@ -38,6 +38,7 @@ const Login = () => {
       if (result.success) {
         const { role } = result.user;
         if (role === 'admin' || role === 'desktop_support') navigate('/admin/dashboard');
+        else if (role === 'sub_admin') navigate('/subadmin/dashboard');
         else if (role === 'manager') navigate('/manager/dashboard');
         else navigate('/employee/dashboard');
       } else {

@@ -23,7 +23,7 @@ const isTeamLeaderDesignation = (designation) => {
 
 const SendNotice = ({ embedded = false }) => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'sub_admin';
 
   const [employees, setEmployees] = useState([]);
   const [sentNotices, setSentNotices] = useState([]);

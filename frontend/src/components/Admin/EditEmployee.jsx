@@ -13,7 +13,7 @@ const EditEmployee = () => {
     const navigate = useNavigate();
     const { showNotification, triggerEmployeeUpdate } = useNotification();
     const { user } = useAuth();
-    const isAdmin = user?.role === 'admin';
+    const isAdmin = user?.role === 'admin' || user?.role === 'sub_admin';
 
     // Form states
     const [formData, setFormData] = useState({
@@ -622,6 +622,7 @@ const EditEmployee = () => {
                                             <option value="employee">Employee</option>
                                             <option value="manager">Manager</option>
                                             <option value="admin">Admin</option>
+                                            <option value="sub_admin">Sub Admin</option>
                                             <option value="desktop_support">Desktop Support</option>
                                         </Form.Select>
                                     </Form.Group>

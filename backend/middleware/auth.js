@@ -27,21 +27,21 @@ const verifyToken = (req, res, next) => {
 };
 
 const isAdmin = (req, res, next) => {
-    if (req.user?.role !== 'admin') {
+    if (!['admin', 'sub_admin'].includes(req.user?.role)) {
         return res.status(403).json({ success: false, message: 'Admin access required' });
     }
     next();
 };
 
 const isAdminOrManager = (req, res, next) => {
-    if (!['admin', 'manager'].includes(req.user?.role)) {
+    if (!['admin', 'sub_admin', 'manager'].includes(req.user?.role)) {
         return res.status(403).json({ success: false, message: 'Manager or Admin access required' });
     }
     next();
 };
 
 const isAdminOrDesktopSupport = (req, res, next) => {
-    if (!['admin', 'desktop_support'].includes(req.user?.role)) {
+    if (!['admin', 'sub_admin', 'desktop_support'].includes(req.user?.role)) {
         return res.status(403).json({ success: false, message: 'Admin access required' });
     }
     next();
@@ -52,7 +52,7 @@ const isOwnDataOrAdmin = (req, res, next) => {
     const userEmployeeId = req.user?.employeeId;
     const requestedEmployeeId = req.params.employee_id || req.body.employee_id || req.query.employee_id;
 
-    if (userRole === 'admin') return next();
+    if (userRole === 'admin' || userRole === 'sub_admin') return next();
     if (userEmployeeId === requestedEmployeeId) return next();
 
     if (!requestedEmployeeId) {

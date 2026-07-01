@@ -231,7 +231,7 @@ const Teams = () => {
     const { showNotification } = useNotification();
     const { user } = useAuth();
     const navigate = useNavigate();
-    const isAdmin = user?.role === 'admin';
+    const isAdmin = user?.role === 'admin' || user?.role === 'sub_admin';
 
     const [hierarchy, setHierarchy]     = useState([]);
     const [unassigned, setUnassigned]   = useState([]);

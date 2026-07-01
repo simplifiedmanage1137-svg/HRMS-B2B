@@ -86,7 +86,7 @@ const RegularizationRequests = ({ onRequestCountChange, onRegularizationApproved
     };
 
     const canAdminAct = (request) => {
-        if (user?.role !== 'admin') return false;
+        if (!['admin', 'sub_admin'].includes(user?.role)) return false;
         return isTeamLeader(request.designation);
     };
 

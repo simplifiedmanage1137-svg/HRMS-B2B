@@ -117,7 +117,8 @@ router.get('/hierarchy', verifyToken, isAdminOrDesktopSupport, async (req, res) 
 });
 
 // GET /api/teams/managers/list — employees with role = 'manager'
-router.get('/managers/list', verifyToken, isAdminOrDesktopSupport, async (req, res) => {
+// Open to any authenticated user (not just admin) so employees can pick a reporting manager when applying for leave.
+router.get('/managers/list', verifyToken, async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('employees')
@@ -168,7 +169,7 @@ router.get('/', verifyToken, async (req, res) => {
 
         if (role === 'manager') {
             query = query.eq('manager_id', employeeId);
-        } else if (role !== 'admin' && role !== 'desktop_support') {
+        } else if (!['admin', 'sub_admin', 'desktop_support'].includes(role)) {
             return res.status(403).json({ success: false, message: 'Access denied' });
         }
 
